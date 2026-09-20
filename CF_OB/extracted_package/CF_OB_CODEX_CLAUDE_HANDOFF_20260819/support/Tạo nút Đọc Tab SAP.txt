@@ -1,0 +1,22 @@
+Đã nâng lên **V9.29.42** với chức năng **MAP SAP đầy đủ**.
+
+Nút **ĐỌC TAB + MAP SAP** giờ sẽ:
+
+- Quét toàn bộ SAP Connection và các tab/session đang mở.
+- Đọc cây phần tử bên trong từng tab, gồm cả cửa sổ chính và popup đang hiện.
+- Lấy `Technical ID`, `Type`, `Name`, `Text/Title/Key`, `Tooltip`, trạng thái control, độ sâu và ID phần tử cha.
+- Đọc riêng Technical Column và tiêu đề cột của `GuiGridView`, ALV và `GuiTableControl`.
+- Đánh dấu tab đang được CONFIG chọn bằng `SAP_SESSION_INDEX`.
+- Tab đang `Busy` sẽ được ghi chú để chạy lại, tránh làm treo SAP.
+- Giới hạn an toàn 25.000 phần tử cho mỗi tab.
+
+Kết quả tại sheet `SAP_MAP`:
+
+- **A:K:** toàn bộ phần tử SAP của từng tab.
+- **L:X:** danh sách các tab SAP đang mở.
+
+File được dựng từ **V9.29.40 gốc**; sheet, công thức, bảng và luồng VL02N/VL06O không thay đổi. Audit xác nhận chỉ `vbaProject.bin` và nút trên giao diện được sửa. VBA đã qua kiểm tra biên dịch; phần đọc SAP thực tế cần chạy trên máy có SAP GUI Scripting.
+
+[**Tải V9.29.42 XLSM**](sandbox:/mnt/data/260805_V9.29.42_VL02N_HIGH_SPEED_STABLE_FULL_SAP_MAP.xlsm)
+
+[**Tải bản ZIP**](sandbox:/mnt/data/260805_V9.29.42_VL02N_HIGH_SPEED_STABLE_FULL_SAP_MAP.zip)

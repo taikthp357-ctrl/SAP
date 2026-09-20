@@ -1,0 +1,35 @@
+BUILD MANIFEST - V1.8.2 SMART GOS ATT REBUILT
+================================================
+Baseline: 260802_V1.6.4_BBBG_VAT.xlsm
+VBA logic source: 260803_V1.8.1_BBBG_VAT_SMART_GOS_ATT_FIXED.xlsm
+Output: 260803_V1.8.2_BBBG_VAT_SMART_GOS_ATT_REBUILT.xlsm
+
+STRUCTURE GATES
+- Workbook ZIP parts: 22 (same physical package layout as V1.6.4)
+- Sheets: 10
+- Drawing/buttons restored from V1.6.4: PASS
+- sheet1 drawing relationship: PASS
+- VBA components with extractable source: 20
+- Required button macros present in source and drawing assignments: PASS
+- CONFIG!B4 release value blank: PASS
+- Personal CONFIG path removed: PASS
+
+SOURCE CHANGE ALLOWLIST
+- MIGO311_RunPost_V24_ErrorGuard
+- modWinFileDialog
+All other 18 VBA component sources byte-identical to V1.6.4: PASS
+
+SMART GOS/ATT CHECKS
+- Preflight after first DOC is loaded and HeadText matched: PRESENT
+- ATT list retry/timeout/logging: PRESENT
+- Method 3 no longer calls .Select on wnd[1]; sendVKey 40 fallback: PRESENT
+- SAP Security detection and foreground helper: PRESENT
+- SAP two-field dialog DY_PATH + DY_FILENAME: PRESENT
+- Windows Unicode fallback: PRESENT
+
+HASHES
+- Output XLSM SHA256: b6f3135eaa359b0cd0e6876b8685e10d8777c30963666c9b4c0d14f921d92aa1
+- vbaProject.bin SHA256: a1cc46e08932ecdd45333304b2d061d8612a1a45d1803df6db3eb1a124929641
+
+LIMITATION
+Static package/source gates passed. Microsoft Excel Debug > Compile and SAP LIVE execution cannot be performed in this environment. First run must test one DOC on the second user before batch use.

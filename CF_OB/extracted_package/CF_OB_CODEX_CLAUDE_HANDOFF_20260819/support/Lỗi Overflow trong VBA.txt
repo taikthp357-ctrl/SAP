@@ -1,0 +1,21 @@
+Đã vá thành **V27.8.2**.
+
+### Phần VL06O đã sửa
+
+- Bỏ hoàn toàn nhánh kiểm tra rồi **bỏ qua lọc SLoc**.
+- Mỗi lượt chạy đều bắt buộc:
+  `Item View → xóa filter cũ → chọn cột SLoc/LGORT → nhập 1005 → Apply → đọc lại xác nhận`.
+- Nếu không mở được VL06O, không điền được điều kiện, không mở được Item View hoặc lọc `1005` không có hiệu lực:
+  - Mở một tab SAP mới.
+  - Vào lại `VL06O`.
+  - Đóng tab VL06O cũ.
+  - Chạy lại toàn bộ từ màn hình chọn.
+- Cho phép **2 lần mở tab mới**, tức tối đa **3 lượt chạy** gồm lượt đầu và hai lượt thử lại.
+- Sau lượt cuối vẫn lỗi, tool dừng và báo lỗi cụ thể của lần cuối.
+- Giữ nguyên toàn bộ phần MIGO Fast Path/Page Path và nghiệp vụ khác của V27.8.1.
+
+Đã kiểm tra ZIP/XLSM không lỗi CRC, đủ 19 module VBA; chỉ `ModuleSAP` và nhãn phiên bản thay đổi. Chưa thể xác nhận thao tác trên SAP live.
+
+[**Tải V27.8.2 đóng gói ZIP**](sandbox:/mnt/data/260804_V27.8.2_RA_DON_NVL.zip)
+
+[**Tải trực tiếp V27.8.2 XLSM**](sandbox:/mnt/data/260804_V27.8.2_RA_DON_NVL.xlsm)

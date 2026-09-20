@@ -1,0 +1,19 @@
+﻿SIG_V1
+WH(15-19):
+wr5|READY|100|CHECKED|CF_ONLY||
+wr6|READY|80|CHECKED|CHANGE_QTY||
+wr7|READY|100|CHECKED|POST_CHANGE_BATCH_BIN||
+wr8|NEED_MON|150|CHECKED|RELEASE_OTHER_WT -> CF_ONLY|Match=Material+Batch+Bin; SysQty=150; ActualQty=150; SysBin=B4; ActualBin=B4; SysBatch=BT4; ActualBatch=BT4; Available=100; TotalStk=200; G:I left blank because no POST step.|
+wr9|NOT_ENOUGH_STOCK|300|CHECKED|REVIEW|Match=Material+Batch+Bin; SysQty=300; ActualQty=300; SysBin=B5; ActualBin=B5; SysBatch=BT5; ActualBatch=BT5; Available=200; TotalStk=200; G:I left blank because no POST step.|
+wr10|BATCH_NOT_FOUND|100|CHECKED|REVIEW|Khong thay Material/Actual Batch trong POSTING.|
+wr11|MULTI_BIN|100|CHECKED|REVIEW|Co 2 dong cung Material/Batch; khong tu chon bin.|
+wr12|DONE|100|CHECKED|DONE||
+POST(7-23):
+pr2||||OB1|W1|100|100|B1|B1|BT1|BT1|100|200|NO|CF_ONLY|READY|Match=Material+Batch+Bin; SysQty=100; ActualQty=100; SysBin=B1; ActualBin=B1; SysBatch=BT1; ActualBatch=BT1; Available=200; TotalStk=500; G:I left blank because no POST step.|
+pr3||||OB1|W1|100|80|B2|B2|BT2|BT2|80|200|NO|CHANGE_QTY|READY|Match=Material+Batch+Bin; SysQty=100; ActualQty=80; SysBin=B2; ActualBin=B2; SysBatch=BT2; ActualBatch=BT2; Available=200; TotalStk=500; Qty diff: PRDO dung OB Qty, POST dung Need Qty.; G:I left blank because no POST step.|
+pr4|BX|100|BTX|OB1|W1|100|100|B3|BX|BT3|BTX|100|200|NO|POST_CHANGE_BATCH_BIN|READY|Match=Material+Batch+Bin; SysQty=100; ActualQty=100; SysBin=B3; ActualBin=BX; SysBatch=BT3; ActualBatch=BTX; Available=200; TotalStk=500; G:I prefilled for /SCWM/POST.|
+pr5||||OB1|W1|150|150|B4|B4|BT4|BT4|150|100|YES|RELEASE_OTHER_WT -> CF_ONLY|NEED_MON|Match=Material+Batch+Bin; SysQty=150; ActualQty=150; SysBin=B4; ActualBin=B4; SysBatch=BT4; ActualBatch=BT4; Available=100; TotalStk=200; G:I left blank because no POST step.|
+pr6||||OB1|W1|300|300|B5|B5|BT5|BT5|300|200|NO|REVIEW|NOT_ENOUGH_STOCK|Match=Material+Batch+Bin; SysQty=300; ActualQty=300; SysBin=B5; ActualBin=B5; SysBatch=BT5; ActualBatch=BT5; Available=200; TotalStk=200; G:I left blank because no POST step.|
+pr7||||OB1|W1|100|100|B6|B6|BT6b|BTZ|100|||REVIEW|BATCH_NOT_FOUND|Khong thay Material/Actual Batch trong POSTING.|
+pr8||||OB1|W1|100|100|B7|APFL-P01|BT7|BT7|100|100|YES|REVIEW|MULTI_BIN|Co 2 dong cung Material/Batch; khong tu chon bin.|
+pr9||||OB1|W1|100|100|B7|APFL-P02|BT7|BT7|100|100|YES|REVIEW|MULTI_BIN|Co 2 dong cung Material/Batch; khong tu chon bin.|

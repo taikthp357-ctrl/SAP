@@ -1,0 +1,39 @@
+Đã đóng gói **V9.27.4** theo luồng vừa thống nhất.
+
+### Thay đổi chính
+
+- **VL02N**
+  - Điền `Qty → SLoc → Batch` trong cùng một lượt.
+  - Chỉ Enter một lần.
+  - Không cho Qty mới lớn hơn Qty hiện tại của OB.
+  - Đọc lại đủ `Qty + SLoc + Batch` trước Save.
+  - Giảm số lần chờ ổn định mặc định từ 3 xuống 1.
+  - Bỏ reopen bắt buộc sau mỗi Save để tránh lỗi giả “SAP Save thành công nhưng reopen verify không khớp”.
+
+- **VL10D**
+  - Xóa `Delivery Creation Date From`.
+  - Khi có STO, luôn nhập đồng thời:
+    - STO
+    - Material
+    - Plant/Ship-to nếu control đã map
+  - Không còn trường hợp chỉ nhập STO khi STO có nhiều mã.
+
+- **VL06O sau VL10D**
+  - Sau khi VL10D sinh OB, tool quay lại đúng tab VL06O.
+  - Bắt buộc nhấn Refresh.
+  - Lọc lại Material + Plant.
+  - Chỉ nhận OB mới sau Refresh.
+  - Không Create lại nếu chưa xác nhận được OB mới, tránh sinh trùng.
+
+### Kiểm tra file
+
+- ZIP hợp lệ, không lỗi CRC.
+- Chỉ chứa một file XLSM.
+- 358 thủ tục VBA cân bằng.
+- Chỉ `modVL02N/modVL06O` và `modVL10D` thay đổi theo thiết kế.
+- Cơ chế shared lock của V9.27.3 được giữ nguyên.
+- Không thay đổi cấu trúc sheet hoặc namespace XML.
+
+Chưa thể xác nhận thao tác SAP thực tế nếu chưa chạy LIVE trên layout của bạn; lượt đầu vẫn nên thử một OB có một item.
+
+[Download V9.27.4 ZIP](sandbox:/mnt/data/V9.27.4_POSTING_DIRECT_OB_FAST_VL02N_VL10D_REFRESH.zip)

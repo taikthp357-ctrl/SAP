@@ -1,0 +1,261 @@
+﻿CONFIG — SAP CF OB,,,,,
+,,,,,
+"Cấu hình nghiệp vụ + Technical ID đã LOCK từ SAP_MAP. Runtime ưu tiên fail-closed: thiếu/mơ hồ ID bắt buộc thì dừng, không đoán.",,,,,
+,,,,,
+Key,Value,Type,Required,Source,Description
+,,,,,
+GENERAL / SAP SESSION,,,,,
+CONFIG_VERSION,CF_OB_SAFE_BASELINE_V2,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+SAP_SYSTEM,,TEXT,YES,MAP/USER,Khóa SAP System sau lần map đầu.
+SAP_CLIENT,,TEXT,YES,MAP/USER,Khóa Client.
+SAP_USER,,TEXT,YES,MAP/USER,Khóa user; tránh bắt nhầm session người khác.
+SAP_CONNECTION_INDEX,AUTO,TEXT,NO,USER,AUTO nếu đã khóa System/Client/User.
+SAP_SESSION_INDEX,AUTO,TEXT,NO,USER,AUTO nếu map tìm đúng một session.
+MAP_REQUIRE_LOCKED,TRUE,BOOL,YES,SYSTEM,Chỉ runtime với ID đã LOCK.
+MAP_FAIL_CLOSED,TRUE,BOOL,YES,SYSTEM,Thiếu/mơ hồ ID bắt buộc => STOP.
+MAP_ALLOW_FALLBACK,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MAP_MAX_ELEMENTS_PER_SESSION,25000,NUMBER,NO,SYSTEM,Giới hạn quét an toàn mỗi tab/session.
+,,,,,
+BIN AREA — USER INPUT,,,,,
+AREA_ALLOWED,"P,ZF,HR",TEXT,YES,USER,Các Area cho WH_ACTUAL.
+AREA_P_PREFIX,APFL-P,TEXT,YES,USER,Nhận diện bin khu P.
+AREA_ZF_PREFIX,APFL-ZF,TEXT,YES,USER,Nhận diện bin khu ZF.
+AREA_HR_PREFIX,APFL-HR,TEXT,YES,USER,Nhận diện bin khu HR.
+AREA_MULTI_MATCH_ACTION,REVIEW,TEXT,YES,SYSTEM,"Nếu chỉ nhập Area và ra nhiều bin: không đoán, yêu cầu REVIEW."
+,,,,,
+CF FLOW / STOCK CACHE,,,,,
+POSTING_CACHE_ENABLED,TRUE,BOOL,YES,SYSTEM,POSTING đã tải đầu OB được dùng làm cache.
+CANCEL_OTHER_WT,TRUE,BOOL,YES,USER,Cho phép xử lý WT khác đang giữ tồn.
+RELEASE_EXCLUDE_STATUS,"A,C",TEXT,YES,USER,Holder-reader statuses excluded from eligible whole-WT release candidates. Main WH loader still reads A/C.
+ALLOW_PARTIAL_WT_CANCEL,FALSE,BOOL,YES,SYSTEM,SAP chỉ Cancel nguyên dòng WT.
+AFTER_CANCEL_ADD_QTY_TO_CACHE,TRUE,BOOL,YES,SYSTEM,Cancel WT nào thì cộng nguyên Qty của dòng đó vào Available cache.
+REFRESH_POSTING_AFTER_CANCEL,FALSE,BOOL,YES,SYSTEM,Không mở lại Posting chỉ vì vừa Cancel WT.
+POSTING_CHANGE_ONLY_IF_BIN_BATCH_DIFF,TRUE,BOOL,YES,SYSTEM,Chỉ mở /SCWM/POST khi cần đổi vị trí/batch.
+POSTING_FIFO_ENABLED,FALSE,BOOL,YES,SYSTEM,Không FIFO; lấy theo vị trí/batch thực tế.
+,,,,,
+TECHNICAL ID — MON WH TASK,,,,,
+MON_MATERIAL_ID,,SAP_ID,YES,SAP_MAP LOCK,Ô nhập Material
+MON_BIN_ID,,SAP_ID,YES,SAP_MAP LOCK,Ô nhập Bin
+MON_STATUS_ID,,SAP_ID,YES,SAP_MAP LOCK,"Filter Status (loại A,C)"
+MON_RESULT_GRID_ID,wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell,SAP_ID,YES,SAP_MAP LOCK,Grid WH Task kết quả
+MON_WT_COL,TANUM,SAP_ID,YES,SAP_MAP LOCK,Cột Warehouse Task
+MON_OB_COL,DOCNO,SAP_ID,YES,SAP_MAP LOCK,Cột OB / Delivery
+MON_MATERIAL_COL,MATNR,SAP_ID,YES,SAP_MAP LOCK,Cột Material
+MON_BATCH_COL,CHARG,SAP_ID,YES,SAP_MAP LOCK,Cột Batch
+MON_BIN_COL,VLPLA,SAP_ID,YES,SAP_MAP LOCK,Cột Bin
+MON_QTY_COL,VSOLM,SAP_ID,YES,SAP_MAP LOCK,Cột Qty WT để cộng tồn sau Cancel
+MON_STATUS_COL,TOSTAT,SAP_ID,YES,SAP_MAP LOCK,Cột Status
+MON_CANCEL_ID,,SAP_ID,YES,SAP_MAP LOCK,Nút/Action Cancel nguyên WT
+MON_CANCEL_CONFIRM_ID,,SAP_ID,NO,SAP_MAP LOCK,Popup xác nhận Cancel
+MON_DEST_BIN_COL,NLPLA,SAP_ID,YES,SAP_MAP LOCK,Cá»™t Destination Bin
+POST_PRODUCT_COL,MATNR,SAP_ID,YES,SAP_MAP LOCK,Cột Product / Material trong /SCWM/POST
+POST_AVAILABLE_QTY_COL,AVL_ALT_QTY,SAP_ID,YES,SAP_MAP LOCK,Cột A.Qty AUoM / Available trong /SCWM/POST
+POST_BATCH_COL,CHARG,SAP_ID,YES,SAP_MAP LOCK,Cột Batch trong /SCWM/POST
+POST_SOURCE_BIN_COL,VLPLA,SAP_ID,YES,SAP_MAP LOCK,Cột Source Storage Bin trong /SCWM/POST
+POST_TST_COL,TO_CAT,SAP_ID,YES,SAP_MAP LOCK,Cột TST / Stock Type trong /SCWM/POST
+POST_TOTAL_STOCK_COL,LIME_QUAN,SAP_ID,YES,SAP_MAP LOCK,Cột Total Stk trong /SCWM/POST
+POST_DEST_BIN_COL,NLPLA,SAP_ID,YES,SAP_MAP LOCK,Cột Destination Bin trong /SCWM/POST
+POST_QTY_CHG_COL,POST_QUAN,SAP_ID,YES,SAP_MAP LOCK,Cột QtyPostChg trong /SCWM/POST
+POST_DEST_BATCH_COL,TO_CHARG,SAP_ID,YES,SAP_MAP LOCK,Cột Dest.Batch trong /SCWM/POST
+POST_GRID_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_OIP_DATA_AREA:/SCWM/SAPLUI_POST:2210/subSUB_OIP_1_DATA:/SCWM/SAPLUI_POST:2211/cntlCONTAINER_ALV_OIP_1/shellcont/shell,SAP_ID,YES,SAP_MAP LOCK,Grid /SCWM/POST
+POST_SAVE_ID,wnd[0]/tbar[0]/btn[11],SAP_ID,YES,SAP_MAP LOCK,Save thay đổi Bin/Batch/Qty trong /SCWM/POST
+,,,,,
+,,,,,
+TECHNICAL ID — WT / CF,,,,,
+WT_QTY_ID,,SAP_ID,NO,SAP_MAP LOCK,Ô Qty khi cần giảm số lượng
+WT_CREATE_ID,,SAP_ID,NO,SAP_MAP LOCK,Action Create WT theo vị trí thực tế
+WT_CREATE_CONFIRM_ID,,SAP_ID,NO,SAP_MAP LOCK,Popup xác nhận Create WT
+CF_GRID_ID,wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_BUTTON_ID,METHODS,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_CONFIRM_ID,TEXT:Confirm WT in Background,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+,,,,,
+NOTES,,,,,
+RULE_1,,NOTE,NO,SYSTEM,Không sửa luồng TẢI WH / TẢI POSTING đang ổn.
+RULE_2,,NOTE,NO,SYSTEM,SAP_MAP dùng khi setup user/layout hoặc SAP thay layout; không quét lại mỗi OB.
+RULE_3,,NOTE,NO,SYSTEM,Technical ID Required chưa LOCK => action tương ứng phải STOP.
+RULE_4,,NOTE,NO,SYSTEM,Sau Cancel WT khác: AvailableCache += Qty dòng WT đã Cancel; không Refresh Posting.
+ACTUAL_PICKING_BIN_ROOT,APFL-,TEXT,YES,USER,Fixed root used to build Actual Bin.
+ACTUAL_PICKING_AREAS,"ZF,P,HR",TEXT,YES,USER,Allowed Area values for Actual Picking.
+POST_GR_DATE_COL,,SAP_ID,NO,SYSTEM,Optional exact technical ID; blank means not captured.
+POST_GR_TIME_COL,,SAP_ID,NO,SYSTEM,Optional exact technical ID; blank means not captured.
+POST_PROC_TYPE_COL,,SAP_ID,NO,SYSTEM,Optional exact technical ID; blank means not captured.
+POST_AVL_BU_QTY_COL,,SAP_ID,NO,SYSTEM,Optional exact technical ID; blank means not captured.
+POST_RESULT_COUNT_ID,wnd[0]/sbar/pane[0],SAP_ID,YES,SYSTEM,Required exact SAP ID of result-count/status control. Blank stops posting load; never use grid RowCount as expected count.
+POST_RESULT_COUNT_PATTERN,Selection produced ,TEXT,YES,SYSTEM,"Required literal marker before numeric count in result-count control, e.g. Result list:."
+POST_CAPTURE_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RELEASE_QUERY_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RELEASE_MON_MATERIAL_ID,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_BIN_ID,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_BATCH_ID,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_EXECUTE_ID,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_RESULT_GRID_ID,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_OB_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_WH_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_WT_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_MATERIAL_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_BATCH_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_BIN_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_QTY_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_STATUS_COL,,SAP_ID,YES,SYSTEM,Required exact MON holder-reader control/column mapping; blank stops the reader.
+RELEASE_MON_RESULT_COUNT_ID,,SAP_ID,YES,SYSTEM,Required exact SAP ID of MON holder result-count/status control; grid RowCount alone is not accepted.
+RELEASE_MON_RESULT_COUNT_PATTERN,,TEXT,YES,SYSTEM,Required literal marker before numeric MON holder result count; blank stops holder capture.
+SAP_MODE,RUN,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MAP_ALLOW_SCREEN_CONTROL,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_ALLOW_SCREEN_CONTROL,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_REQUIRE_LOCKED_MAP,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_ALLOW_FALLBACK,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+SAP_PROBE_MODE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PROBE_ALLOW_CANCEL,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PROBE_ALLOW_SAVE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PROBE_ALLOW_CREATE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PROBE_ALLOW_CF,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PROBE_ALLOW_WRITE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MON_TREE_ID,wnd[0]/usr/shell/shellcont[0]/shell,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_OUTBOUND_NODE_KEY,N000000010,TEXT,YES,SYSTEM,Required exact SAP tree node key for Outbound Delivery Order in RUN.
+MON_WT_GRID_ID,wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_OB_INPUT_ID,wnd[1]/usr/txtS_ERP_H-LOW,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_EXECUTE_ID,wnd[1]/tbar[0]/btn[8],SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_ACTION_ID,N000000096,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_OB_COL,ERP_NUMBER_H,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_DOC_COL,DOCNO_H,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_WA_COL,STATUS_WM_ACTIVITY,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_PICKING_COL,STATUS_PICKING,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_GI_COL,STATUS_GI,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_UPPER_PICKING_PLAN_COL,STATUS_PICKING_PLAN,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_DOC_COL,DOCNO,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_WHO_COL,WHO,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_ITEM_COL,ITEMNO,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_MATERIAL_COL,MATNR,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_BATCH_COL,CHARG,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_BIN_COL,VLPLA,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_QTY_COL,VSOLM,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MON_WT_STATUS_COL,TOSTAT,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_ADVANCED_TOGGLE_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/btnGV_BUTTON_TEXT,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_ADVANCED_RESET_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_AS_BUTTONS:/SCMB/SAPLSERVICES:1000/btnCMD_CLEAR_ADVANCED,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_ADVANCED_START_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_AS_BUTTONS:/SCMB/SAPLSERVICES:1000/btnCMD_START_ADVANCED,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_PRODUCT_MULTI_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/btn%_P_MATNR_%_APP_%-VALU_PUSH,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_OWNER_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_OWNER-LOW,SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_PRODUCT_POPUP_CLOSE_ID,wnd[1]/tbar[0]/btn[12],SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_PRODUCT_POPUP_CLEAR_ID,wnd[1]/tbar[0]/btn[16],SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_PRODUCT_PASTE_ID,wnd[1]/tbar[0]/btn[24],SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+POST_PRODUCT_POPUP_OK_ID,wnd[1]/tbar[0]/btn[8],SAP_ID,YES,SYSTEM,Required exact technical ID for the locked SAP MAP contract.
+MIGO_EXACT_MAP_READY,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_ALLOW_SENDKEYS,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_ALLOW_COORDINATE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_ALLOW_FUZZY_FALLBACK,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MAP_MAX_CONTROL_SCAN,4000,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MAP_MAX_SCAN_DEPTH,12,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MAP_SCAN_TIMEOUT_SEC,20,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+POST_MAX_EXPECTED_ROWS,5000,NUMBER,YES,SYSTEM,Upper safety bound for independent Posting result count.
+RELEASE_MAX_EXPECTED_ROWS,2000,NUMBER,YES,SYSTEM,Upper safety bound for independent Release MON result count.
+SAP_MAP_VERSION,20260815_232428,TEXT,YES,SYSTEM,Generated only by CF_LockSAPMap after reviewed read-only probe PASS.
+SAP_MAP_LOCKED_AT,2026-24-15 11:24:27,TEXT,YES,SYSTEM,Generated only by CF_LockSAPMap after reviewed read-only probe PASS.
+SAP_MAP_FINGERPRINT,MAPFP1-4A5639EB-2701,TEXT,YES,SYSTEM,Generated only by CF_LockSAPMap after reviewed read-only probe PASS.
+SAP_MAP_LOCKED,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+MON_CANCEL_COMMAND_ID,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+MON_CONFIRM_FG_COMMAND_ID,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+MON_CONFIRM_BG_COMMAND_ID,TEXT:Confirm WT in Background,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+WT_REQUEST_TOOLBAR_ID,wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_TODLV:1000/tabsGV_TAB_OIP/tabpOK_TAB_OIP_DLV/ssubSUB_OIP_DLV:/SCWM/SAPLUI_TODLV:3100/cntlCC_TB_OIP_DLV/shellcont/shell,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_SAVE_COMMAND_ID,OK_OI_DLV_SAVE,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_CREATE_AND_SAVE_COMMAND_ID,OK_OI_DLV_CREATE_AND_SAVE,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_CREATE_COMMAND_ID,OK_OI_DLV_CREATE_TO,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_DELETE_COMMAND_ID,OK_OI_DLV_DELETE_TO,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_SOURCE_BIN_ID,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+WT_QUANTITY_ID,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+OB_EDIT_COMMAND_ID,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+OB_QUANTITY_COL,,SAP_ID,NO,SYSTEM,Action-map candidate; blank/PENDING until exact SAP control or command ID is verified.
+PRELIVE_AUDIT_RUN_ID,20260816_000703_126,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PRELIVE_AUDIT_RESULT,NOT_READY,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PRELIVE_AUDIT_MAP_FINGERPRINT,MAPFP1-2E222EB5-867,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PRELIVE_AUDIT_AT,46250.004930555559,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_CF,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_QTY_WRITE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_POST,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_CANCEL,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_CREATE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_DELETE,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_MIGO,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_NAV_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_ACTION_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_POSTVERIFY_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+LIVE_READY,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_HTTP,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+NETWORK_REQUIRED_POLICY,STOP,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_EXCEL_COM,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_RUN_LEVEL,OFFLINE_AUDIT,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_SCREENSHOT_UPLOAD,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+EXCEL_COM_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+AUDIT_REQUIRE_CALL_PATH,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_GITHUB_PUSH,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CODEX_STAGE,00_START,TEXT,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+LOCAL_ONLY,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_UNBOUNDED_RETRY,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+DO_NOT_KILL_USER_EXCEL,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_LOCAL_POWERSHELL,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+AUDIT_REQUIRE_EXECUTOR,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_STOP_ON_VERIFY_ERROR,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_LOCAL_PYTHON,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CODEX_PROBE_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_STOP_ON_UNKNOWN_STATE,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_REQUIRE_EXECUTOR,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_ALLOW_UNPROVEN_SUCCESS,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CODEX_MAX_RETRY,1,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+SAP_MAP_TIMEOUT_SEC,20,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_WEB,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_REQUIRE_PRE_VERIFY,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_ALLOW_VERIFY_FALLBACK,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+PILOT_MAX_OB,1,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_STATUS_C_TIMEOUT_SEC,20,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_LOCAL_FILESYSTEM,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_SAP_GUI,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+RUN_PRELIVE_AUDIT,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CORPORATE_SAFE_MODE,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_REQUIRE_SINGLE_EXECUTOR,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+LOG_LOCAL_ONLY,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+HEARTBEAT_REQUIRED,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_MAX_CONFIRM_ATTEMPTS,1,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CODEX_COMMAND_TIMEOUT_SEC,60,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+LOG_UPLOAD,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_MAX_WRITE_ATTEMPTS,1,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+SAP_TRANSACTION_TIMEOUT_SEC,180,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_LOG_UPLOAD,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_INFINITE_LOOP,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_FILE_UPLOAD,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_EXTERNAL_API,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_REQUIRE_STATUS_C_PROOF,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_LIVE_ENABLED,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_PACKAGE_DOWNLOAD,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_REQUIRE_POST_VERIFY,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+ALLOW_GIT_FETCH,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_ALLOW_WRITE_FALLBACK,FALSE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+SAP_CONTROL_TIMEOUT_SEC,15,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+HEARTBEAT_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+KILL_TEST_EXCEL_ON_TIMEOUT,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_VERIFY_TIMEOUT_SEC,15,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+EXCEL_OPEN_TIMEOUT_SEC,30,NUMBER,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+AUDIT_FAIL_CLOSED,TRUE,BOOL,YES,CF PILOT,Reviewed fail-closed baseline; CF only.
+CF_LAST_QTY,30,TEXT,NO,CF PILOT,
+CF_LAST_STATUS,C,TEXT,NO,CF PILOT,
+CF_LAST_COMPLETED_AT,46249.054363425923,TEXT,NO,CF PILOT,
+CF_LAST_BIN,APFL-ZF11-01-13,TEXT,NO,CF PILOT,
+CF_LAST_OB,1011763532,TEXT,NO,CF PILOT,
+CF_LAST_DOCUMENT,1012021190,TEXT,NO,CF PILOT,
+CF_LAST_RESULT,PASS,TEXT,NO,CF PILOT,
+CF_LAST_WT,5042659323,TEXT,NO,CF PILOT,
+SAP_MAP_BASE_FINGERPRINT,MAPFP1-4A5639EB-2701,TEXT,YES,SAP MAP V1,Original locked V1 fingerprint used by TAI WH/POST runtime.
+CF_USER_HANDOFF_REQUIRED,TRUE,BOOL,TRUE,LOCAL_HANDOFF_POLICY,Stop before real CF; user confirms WT manually in SAP.
+REWORK_EXECUTE_ENABLED,TRUE,BOOL,YES,,
+REWORK_NEVER_CF,TRUE,BOOL,YES,,
+REWORK_ACTION_WHITELIST,"WT_CANCEL,POST_CHANGE,PRDO_QTY,WT_CREATE,WT_ADOPT,WT_CREATE_SAVE",TEXT,YES,FAST_CONTRACT,Fast production route allows only locked Adopt and historical Create+Save composite; CF remains excluded.
+SAP_NUMERIC_THOUSANDS_SEPARATOR,.,TEXT,YES,SYSTEM,SAP GUI quantity parser: current session uses dot as thousands separator; keeps 2.442 as 2442.
+SAP_NUMERIC_DECIMAL_SEPARATOR,",",TEXT,YES,SYSTEM,SAP GUI quantity parser: current session uses comma as decimal separator.
+REWORK_EXPECTED_DEST_BIN,GI-ZONE,TEXT,,,
+REWORK_EXPECTED_PROCTY,2010,TEXT,YES,FAST_CONTRACT,Live Monitor evidence for the verified outbound WT context. The route also captures this value from the exact active WT before a first Cancel.
+WT_SOURCE_TARGET_QTY_COL,UI_VSOLA,SAP_ID,,,
+FAST_FLOW_VERSION,2026.08.16.25,TEXT,YES,FAST_CONTRACT,POST batch preflight reuses the validated live product grid after Cancel and uses the stable F8 query fallback; valid blank APFL storage sections are preserved rather than written or rejected.
+FAST_FLOW_ENABLED,TRUE,BOOL,YES,FAST_CONTRACT,Run the deterministic fast executor; no diagnostic fallback.
+FAST_DIAGNOSTIC_FALLBACK,FALSE,BOOL,YES,FAST_CONTRACT,Diagnostics are manual-only after a fast technical blocker.
+FAST_FULL_AUDIT_ON_EACH_RUN,FALSE,BOOL,YES,FAST_CONTRACT,Use targeted preflight during development.
+FAST_FULL_COMPILE_ON_EACH_PATCH,FALSE,BOOL,YES,FAST_CONTRACT,Use module compile probes; full compile only at release.
+FAST_CF_HANDOFF,TRUE,BOOL,YES,FAST_CONTRACT,CF is user-owned; no automatic confirmation.
+FAST_WT_CREATE_SAVE_ONE_SHOT_ARMED,FALSE,BOOL,YES,FAST_CONTRACT,Legacy direct Create+Save command remains unarmed; production uses the locked historical Create then Save composite.

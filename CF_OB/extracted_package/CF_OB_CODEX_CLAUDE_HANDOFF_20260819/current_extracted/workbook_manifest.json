@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-08-19T07:19:00+07:00",
+  "source_filename": "d2f0e204-a047-4d2c-814b-258d2d21e7b4.xlsm",
+  "packaged_filename": "CURRENT_CF_OB_BASELINE_20260819.xlsm",
+  "source_size_bytes": 2210005,
+  "sha256": "9ebcc46fcdf25a10803792d2ed576c79f98a394eec838a783d5b0ee021905309",
+  "sheet_count": 20,
+  "sheets": [
+    {
+      "name": "ORDER_QUERY",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet1.xml",
+      "dimension": "A1:F2",
+      "rows": 2,
+      "cols": 6,
+      "csv": "current_extracted/sheets/ORDER_QUERY.csv"
+    },
+    {
+      "name": "POSTING_RAW",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet2.xml",
+      "dimension": "A1:Q71",
+      "rows": 71,
+      "cols": 17,
+      "csv": "current_extracted/sheets/POSTING_RAW.csv"
+    },
+    {
+      "name": "INPUT",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet3.xml",
+      "dimension": "A1:N506",
+      "rows": 506,
+      "cols": 14,
+      "csv": "current_extracted/sheets/INPUT.csv"
+    },
+    {
+      "name": "WH_ACTUAL",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet4.xml",
+      "dimension": "A1:AF504",
+      "rows": 504,
+      "cols": 32,
+      "csv": "current_extracted/sheets/WH_ACTUAL.csv"
+    },
+    {
+      "name": "POSTING",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet5.xml",
+      "dimension": "A1:AE500",
+      "rows": 500,
+      "cols": 31,
+      "csv": "current_extracted/sheets/POSTING.csv"
+    },
+    {
+      "name": "RUN_LOG",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet6.xml",
+      "dimension": "A1:X1044",
+      "rows": 1044,
+      "cols": 24,
+      "csv": "current_extracted/sheets/RUN_LOG.csv"
+    },
+    {
+      "name": "SAP_MAP",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet7.xml",
+      "dimension": "A1:P1747",
+      "rows": 1747,
+      "cols": 16,
+      "csv": "current_extracted/sheets/SAP_MAP.csv"
+    },
+    {
+      "name": "CONFIG",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet8.xml",
+      "dimension": "A1:F261",
+      "rows": 261,
+      "cols": 6,
+      "csv": "current_extracted/sheets/CONFIG.csv"
+    },
+    {
+      "name": "OB_QUEUE",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet9.xml",
+      "dimension": "A1:X2",
+      "rows": 2,
+      "cols": 24,
+      "csv": "current_extracted/sheets/OB_QUEUE.csv"
+    },
+    {
+      "name": "OB_WH_CACHE",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet10.xml",
+      "dimension": "A1:Z3",
+      "rows": 3,
+      "cols": 26,
+      "csv": "current_extracted/sheets/OB_WH_CACHE.csv"
+    },
+    {
+      "name": "POSTING_SUMMARY",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet11.xml",
+      "dimension": "A1:T2",
+      "rows": 2,
+      "cols": 20,
+      "csv": "current_extracted/sheets/POSTING_SUMMARY.csv"
+    },
+    {
+      "name": "POSTING_CACHE",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet12.xml",
+      "dimension": "A1:S23",
+      "rows": 23,
+      "cols": 19,
+      "csv": "current_extracted/sheets/POSTING_CACHE.csv"
+    },
+    {
+      "name": "PLAN_SOURCE_LEGS",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet13.xml",
+      "dimension": "A1:G2",
+      "rows": 2,
+      "cols": 7,
+      "csv": "current_extracted/sheets/PLAN_SOURCE_LEGS.csv"
+    },
+    {
+      "name": "PLAN_RELEASE",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet14.xml",
+      "dimension": "A1:U1",
+      "rows": 1,
+      "cols": 21,
+      "csv": "current_extracted/sheets/PLAN_RELEASE.csv"
+    },
+    {
+      "name": "SAP_PROBE_LOG",
+      "state": "veryHidden",
+      "xml_target": "xl/worksheets/sheet15.xml",
+      "dimension": "A1:Q1",
+      "rows": 1,
+      "cols": 17,
+      "csv": "current_extracted/sheets/SAP_PROBE_LOG.csv"
+    },
+    {
+      "name": "PLAN",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet16.xml",
+      "dimension": "A1:AZ5",
+      "rows": 5,
+      "cols": 52,
+      "csv": "current_extracted/sheets/PLAN.csv"
+    },
+    {
+      "name": "SAP_ACTION_MAP",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet17.xml",
+      "dimension": "A1:J28",
+      "rows": 28,
+      "cols": 10,
+      "csv": "current_extracted/sheets/SAP_ACTION_MAP.csv"
+    },
+    {
+      "name": "RUN_HISTORY",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet18.xml",
+      "dimension": "A1:AA684",
+      "rows": 684,
+      "cols": 27,
+      "csv": "current_extracted/sheets/RUN_HISTORY.csv"
+    },
+    {
+      "name": "RUN_SUMMARY",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet19.xml",
+      "dimension": "A1:N38",
+      "rows": 38,
+      "cols": 14,
+      "csv": "current_extracted/sheets/RUN_SUMMARY.csv"
+    },
+    {
+      "name": "REGRESSION_AUDIT",
+      "state": "visible",
+      "xml_target": "xl/worksheets/sheet20.xml",
+      "dimension": "A1:I1302",
+      "rows": 1302,
+      "cols": 9,
+      "csv": "current_extracted/sheets/REGRESSION_AUDIT.csv"
+    }
+  ],
+  "defined_names": [],
+  "zip_entry_count": 55,
+  "has_vba_project": true
+}

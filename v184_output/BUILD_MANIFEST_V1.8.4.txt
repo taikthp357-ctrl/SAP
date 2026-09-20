@@ -1,0 +1,30 @@
+﻿BUILD MANIFEST - V1.8.4 MERGED (FIX29 + V1.8.3 GOS)
+=====================================================
+Build Date    : 2026-08-06 22:07:11
+Baseline      : g:\SAP\v183_output\260803_V1.8.3_BBBG_VAT_SMART_GOS_ATT_REBUILT.xlsm
+Output XLSM   : g:\SAP\v184_output\260804_V1.8.4_BBBG_VAT_MERGED_FIX29_GOS.xlsm
+Output ZIP    : g:\SAP\v184_output\260804_V1.8.4_BBBG_VAT_MERGED_FIX29_GOS.zip
+
+File Sizes:
+  XLSM : 385017 bytes
+  ZIP  : 318123 bytes
+  vbaProject.bin : 545280 bytes
+
+V1.8.4 MERGED Upgrades:
+  FROM FIX29:
+  - modSupports: ActiveSession + multi-connection fallback
+  - ModuleSAP: SAPX_GetSessionForTcode searches ALL connections, WaitIdle after Navigate
+  - modWinFileDialog: EnumWindows + WinHandleSapSecurity auto-click (Allow/Permit/Yes/OK)
+  - MIGO: ATT_RebindSessionAfterSecurity uses ActiveSession + fallback
+
+  FROM V1.8.3:
+  - modWinFileDialog: ATT_FileExistsW / ATT_FolderExistsW via GetFileAttributesW (Unicode)
+  - modWinFileDialog: WFD_FindEditControl (ComboBoxEx32 hierarchy)
+  - MIGO: GOS Adapter (ATT_WaitDocReady, ATT_FindGosShell, ATT_OpenGosWithRetry)
+  - MIGO: Dynamic GOS Map storage in CONFIG sheet
+  - MIGO: Standardized logging stages
+
+  MERGED (NEW in V1.8.4):
+  - WinImportFile: Unicode file check + EnumWindows + auto security + multi-method edit control
+  - ATT_RebindSessionAfterSecurity: ActiveSession priority + multi-connection fallback
+  - Trim backtick bug fix (Trim$ used correctly)

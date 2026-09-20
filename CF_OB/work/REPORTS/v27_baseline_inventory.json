@@ -1,0 +1,3411 @@
+﻿{
+    "sheets":  [
+                   {
+                       "name":  "ORDER_QUERY",
+                       "visible":  2,
+                       "usedRows":  5,
+                       "usedCols":  6
+                   },
+                   {
+                       "name":  "POSTING_RAW",
+                       "visible":  2,
+                       "usedRows":  253,
+                       "usedCols":  17
+                   },
+                   {
+                       "name":  "INPUT",
+                       "visible":  -1,
+                       "usedRows":  506,
+                       "usedCols":  14
+                   },
+                   {
+                       "name":  "WH_ACTUAL",
+                       "visible":  -1,
+                       "usedRows":  504,
+                       "usedCols":  32
+                   },
+                   {
+                       "name":  "POSTING",
+                       "visible":  -1,
+                       "usedRows":  500,
+                       "usedCols":  31
+                   },
+                   {
+                       "name":  "RUN_LOG",
+                       "visible":  -1,
+                       "usedRows":  4590,
+                       "usedCols":  24
+                   },
+                   {
+                       "name":  "SAP_MAP",
+                       "visible":  -1,
+                       "usedRows":  1747,
+                       "usedCols":  16
+                   },
+                   {
+                       "name":  "CONFIG",
+                       "visible":  -1,
+                       "usedRows":  261,
+                       "usedCols":  6
+                   },
+                   {
+                       "name":  "OB_QUEUE",
+                       "visible":  -1,
+                       "usedRows":  2,
+                       "usedCols":  24
+                   },
+                   {
+                       "name":  "OB_WH_CACHE",
+                       "visible":  -1,
+                       "usedRows":  7,
+                       "usedCols":  26
+                   },
+                   {
+                       "name":  "POSTING_SUMMARY",
+                       "visible":  2,
+                       "usedRows":  5,
+                       "usedCols":  20
+                   },
+                   {
+                       "name":  "POSTING_CACHE",
+                       "visible":  2,
+                       "usedRows":  23,
+                       "usedCols":  19
+                   },
+                   {
+                       "name":  "PLAN_SOURCE_LEGS",
+                       "visible":  2,
+                       "usedRows":  3,
+                       "usedCols":  7
+                   },
+                   {
+                       "name":  "PLAN_RELEASE",
+                       "visible":  2,
+                       "usedRows":  1,
+                       "usedCols":  21
+                   },
+                   {
+                       "name":  "SAP_PROBE_LOG",
+                       "visible":  2,
+                       "usedRows":  1,
+                       "usedCols":  17
+                   },
+                   {
+                       "name":  "PLAN",
+                       "visible":  -1,
+                       "usedRows":  7,
+                       "usedCols":  52
+                   },
+                   {
+                       "name":  "SAP_ACTION_MAP",
+                       "visible":  -1,
+                       "usedRows":  28,
+                       "usedCols":  10
+                   },
+                   {
+                       "name":  "RUN_HISTORY",
+                       "visible":  -1,
+                       "usedRows":  3304,
+                       "usedCols":  27
+                   },
+                   {
+                       "name":  "RUN_SUMMARY",
+                       "visible":  -1,
+                       "usedRows":  101,
+                       "usedCols":  14
+                   },
+                   {
+                       "name":  "REGRESSION_AUDIT",
+                       "visible":  -1,
+                       "usedRows":  3244,
+                       "usedCols":  9
+                   }
+               ],
+    "definedNames":  [
+                         {
+                             "name":  "CFX_UseNewEngine",
+                             "refersTo":  "=FALSE"
+                         }
+                     ],
+    "components":  [
+                       {
+                           "name":  "ThisWorkbook",
+                           "type":  "document",
+                           "lines":  8
+                       },
+                       {
+                           "name":  "Sheet1",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet2",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet3",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet4",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "modSupports",
+                           "type":  "stdModule",
+                           "lines":  177
+                       },
+                       {
+                           "name":  "ModuleHelper",
+                           "type":  "stdModule",
+                           "lines":  812
+                       },
+                       {
+                           "name":  "ModuleLog",
+                           "type":  "stdModule",
+                           "lines":  63
+                       },
+                       {
+                           "name":  "Sheet5",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet6",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet7",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet8",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet11",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet9",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet10",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet12",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "modWTStateEngine",
+                           "type":  "stdModule",
+                           "lines":  159
+                       },
+                       {
+                           "name":  "modCF_ActualPicking",
+                           "type":  "stdModule",
+                           "lines":  341
+                       },
+                       {
+                           "name":  "modCF_Phase3Planner",
+                           "type":  "stdModule",
+                           "lines":  623
+                       },
+                       {
+                           "name":  "Sheet13",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet14",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet15",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet16",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "modSAPReadOnlyProbe",
+                           "type":  "stdModule",
+                           "lines":  538
+                       },
+                       {
+                           "name":  "modCF_SAP_MAP_MON",
+                           "type":  "stdModule",
+                           "lines":  587
+                       },
+                       {
+                           "name":  "MIGO311_RunPost_V24_ErrorGuard",
+                           "type":  "stdModule",
+                           "lines":  2509
+                       },
+                       {
+                           "name":  "modReleaseHolderReader",
+                           "type":  "stdModule",
+                           "lines":  702
+                       },
+                       {
+                           "name":  "Sheet17",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "modCF_AutoRun_Exact",
+                           "type":  "stdModule",
+                           "lines":  12
+                       },
+                       {
+                           "name":  "modCF_AutoSetActualVerified",
+                           "type":  "stdModule",
+                           "lines":  50
+                       },
+                       {
+                           "name":  "modCF_FinalizeVerifiedPilot",
+                           "type":  "stdModule",
+                           "lines":  68
+                       },
+                       {
+                           "name":  "modCF_Executor",
+                           "type":  "stdModule",
+                           "lines":  576
+                       },
+                       {
+                           "name":  "modCF_AutoRun_TwoPilot",
+                           "type":  "stdModule",
+                           "lines":  158
+                       },
+                       {
+                           "name":  "modCF_ApplyUserHandoff",
+                           "type":  "stdModule",
+                           "lines":  38
+                       },
+                       {
+                           "name":  "modCodexNewOBSnapshot",
+                           "type":  "stdModule",
+                           "lines":  425
+                       },
+                       {
+                           "name":  "modCodexSAPReadOnly",
+                           "type":  "stdModule",
+                           "lines":  2421
+                       },
+                       {
+                           "name":  "modSAPRunGuard",
+                           "type":  "stdModule",
+                           "lines":  540
+                       },
+                       {
+                           "name":  "modCF_Posting",
+                           "type":  "stdModule",
+                           "lines":  870
+                       },
+                       {
+                           "name":  "modCF_PreLiveAudit",
+                           "type":  "stdModule",
+                           "lines":  744
+                       },
+                       {
+                           "name":  "modCF_FastContract",
+                           "type":  "stdModule",
+                           "lines":  148
+                       },
+                       {
+                           "name":  "modSAPActionRegistry",
+                           "type":  "stdModule",
+                           "lines":  151
+                       },
+                       {
+                           "name":  "modSAPActionMap",
+                           "type":  "stdModule",
+                           "lines":  71
+                       },
+                       {
+                           "name":  "modCF_Entry",
+                           "type":  "stdModule",
+                           "lines":  117
+                       },
+                       {
+                           "name":  "modCF_InputLayout",
+                           "type":  "stdModule",
+                           "lines":  245
+                       },
+                       {
+                           "name":  "modCF_AutoRun_MultiSilent",
+                           "type":  "stdModule",
+                           "lines":  30
+                       },
+                       {
+                           "name":  "modCF_MultiOB",
+                           "type":  "stdModule",
+                           "lines":  730
+                       },
+                       {
+                           "name":  "modMultiPostingLoader",
+                           "type":  "stdModule",
+                           "lines":  643
+                       },
+                       {
+                           "name":  "modCF_AutoRun_CheckSilent",
+                           "type":  "stdModule",
+                           "lines":  19
+                       },
+                       {
+                           "name":  "modCF_FastExecutor",
+                           "type":  "stdModule",
+                           "lines":  85
+                       },
+                       {
+                           "name":  "Sheet18",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "Sheet19",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "ModuleSAP",
+                           "type":  "stdModule",
+                           "lines":  2958
+                       },
+                       {
+                           "name":  "Sheet20",
+                           "type":  "document",
+                           "lines":  0
+                       },
+                       {
+                           "name":  "modCF_WarehouseTask",
+                           "type":  "stdModule",
+                           "lines":  359
+                       },
+                       {
+                           "name":  "modCF_CheckPlanner",
+                           "type":  "stdModule",
+                           "lines":  1516
+                       },
+                       {
+                           "name":  "modCFX_State",
+                           "type":  "stdModule",
+                           "lines":  352
+                       },
+                       {
+                           "name":  "modCFX_SapAdapter",
+                           "type":  "stdModule",
+                           "lines":  365
+                       },
+                       {
+                           "name":  "modCFX_Planner",
+                           "type":  "stdModule",
+                           "lines":  380
+                       },
+                       {
+                           "name":  "modCFX_Gates",
+                           "type":  "stdModule",
+                           "lines":  200
+                       },
+                       {
+                           "name":  "modCFX_Executor",
+                           "type":  "stdModule",
+                           "lines":  470
+                       },
+                       {
+                           "name":  "modCFX_Entry",
+                           "type":  "stdModule",
+                           "lines":  112
+                       },
+                       {
+                           "name":  "modCFX_Replay",
+                           "type":  "stdModule",
+                           "lines":  488
+                       },
+                       {
+                           "name":  "modCodexWTRework",
+                           "type":  "stdModule",
+                           "lines":  16157
+                       },
+                       {
+                           "name":  "modCF_MONCore_STABLE",
+                           "type":  "stdModule",
+                           "lines":  1340
+                       },
+                       {
+                           "name":  "modCF_UI",
+                           "type":  "stdModule",
+                           "lines":  194
+                       }
+                   ],
+    "legacyRefHits":  [
+                          {
+                              "module":  "ModuleHelper",
+                              "sheet":  "CONFIG",
+                              "count":  2
+                          },
+                          {
+                              "module":  "ModuleLog",
+                              "sheet":  "RUN_LOG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_ActualPicking",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_Phase3Planner",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modSAPReadOnlyProbe",
+                              "sheet":  "POSTING",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_SAP_MAP_MON",
+                              "sheet":  "SAP_MAP",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_AutoSetActualVerified",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_FinalizeVerifiedPilot",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_FinalizeVerifiedPilot",
+                              "sheet":  "OB_WH_CACHE",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_FinalizeVerifiedPilot",
+                              "sheet":  "PLAN",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_Executor",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_Executor",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_Executor",
+                              "sheet":  "PLAN",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_Executor",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_AutoRun_TwoPilot",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_AutoRun_TwoPilot",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_AutoRun_TwoPilot",
+                              "sheet":  "PLAN",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_ApplyUserHandoff",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexNewOBSnapshot",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexNewOBSnapshot",
+                              "sheet":  "OB_QUEUE",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexNewOBSnapshot",
+                              "sheet":  "OB_WH_CACHE",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexNewOBSnapshot",
+                              "sheet":  "INPUT",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modSAPRunGuard",
+                              "sheet":  "SAP_MAP",
+                              "count":  6
+                          },
+                          {
+                              "module":  "modSAPRunGuard",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modSAPRunGuard",
+                              "sheet":  "SAP_PROBE_LOG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_Posting",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  3
+                          },
+                          {
+                              "module":  "modCF_Posting",
+                              "sheet":  "POSTING",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_Posting",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "RUN_LOG",
+                              "count":  3
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "SAP_MAP",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "SAP_ACTION_MAP",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_PreLiveAudit",
+                              "sheet":  "PLAN",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_FastContract",
+                              "sheet":  "RUN_LOG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_FastContract",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modSAPActionMap",
+                              "sheet":  "SAP_ACTION_MAP",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_Entry",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_InputLayout",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_MultiOB",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  3
+                          },
+                          {
+                              "module":  "modCF_MultiOB",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modMultiPostingLoader",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modMultiPostingLoader",
+                              "sheet":  "INPUT",
+                              "count":  1
+                          },
+                          {
+                              "module":  "ModuleSAP",
+                              "sheet":  "ORDER_QUERY",
+                              "count":  2
+                          },
+                          {
+                              "module":  "ModuleSAP",
+                              "sheet":  "POSTING",
+                              "count":  2
+                          },
+                          {
+                              "module":  "ModuleSAP",
+                              "sheet":  "SAP_MAP",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_CheckPlanner",
+                              "sheet":  "OB_QUEUE",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_CheckPlanner",
+                              "sheet":  "OB_WH_CACHE",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_CheckPlanner",
+                              "sheet":  "POSTING_SUMMARY",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_CheckPlanner",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCFX_Entry",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCFX_Entry",
+                              "sheet":  "PLAN",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  34
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "RUN_LOG",
+                              "count":  3
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "CONFIG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "POSTING_SUMMARY",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "PLAN_SOURCE_LEGS",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "PLAN",
+                              "count":  10
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "RUN_HISTORY",
+                              "count":  3
+                          },
+                          {
+                              "module":  "modCodexWTRework",
+                              "sheet":  "INPUT",
+                              "count":  5
+                          },
+                          {
+                              "module":  "modCF_MONCore_STABLE",
+                              "sheet":  "WH_ACTUAL",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_MONCore_STABLE",
+                              "sheet":  "RUN_LOG",
+                              "count":  2
+                          },
+                          {
+                              "module":  "modCF_UI",
+                              "sheet":  "RUN_LOG",
+                              "count":  1
+                          },
+                          {
+                              "module":  "modCF_UI",
+                              "sheet":  "INPUT",
+                              "count":  2
+                          }
+                      ],
+    "entryPoints":  [
+                        {
+                            "module":  "modSupports",
+                            "kind":  "Function",
+                            "name":  "Get_SAPSession"
+                        },
+                        {
+                            "module":  "modSupports",
+                            "kind":  "Sub",
+                            "name":  "Logon_SAP"
+                        },
+                        {
+                            "module":  "modSupports",
+                            "kind":  "Sub",
+                            "name":  "CancelDeferredSave"
+                        },
+                        {
+                            "module":  "modSupports",
+                            "kind":  "Function",
+                            "name":  "ScheduleDeferredSave"
+                        },
+                        {
+                            "module":  "modSupports",
+                            "kind":  "Sub",
+                            "name":  "DeferredSaveCurrentWorkbook"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "GetLastRow"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Sub",
+                            "name":  "ResetBoxCache"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "PrepareBoxOrders"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "GetBoxModel"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "OrderSignature"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "StoredOrderSignature"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Sub",
+                            "name":  "SaveOrderSignature"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "OrderDataIsStale"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "CleanStr"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "CleanDouble"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "MinD"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ParseSapDate"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ParseSapTime"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ParseHsdExpiry"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ParseListedHsdExpiry"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Sub",
+                            "name":  "QuickSortGroups"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Sub",
+                            "name":  "ResetBinConfigCache"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ValidateBinConfig"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "GetBinArea"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "GetKhuVucBinDynamic"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "BuildTramZoneText"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "TramTLKey"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Sub",
+                            "name":  "ResetToolConfigCache"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ToolConfig"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ToolConfigBool"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ToolConfigLong"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ToolConfigDouble"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "ValidateToolConfig"
+                        },
+                        {
+                            "module":  "ModuleHelper",
+                            "kind":  "Function",
+                            "name":  "SaveResultAsNew"
+                        },
+                        {
+                            "module":  "ModuleLog",
+                            "kind":  "Sub",
+                            "name":  "ClearLog"
+                        },
+                        {
+                            "module":  "ModuleLog",
+                            "kind":  "Sub",
+                            "name":  "WriteLog"
+                        },
+                        {
+                            "module":  "modWTStateEngine",
+                            "kind":  "Sub",
+                            "name":  "WT_NormalizeState"
+                        },
+                        {
+                            "module":  "modWTStateEngine",
+                            "kind":  "Function",
+                            "name":  "WT_IsProcessAllowed"
+                        },
+                        {
+                            "module":  "modWTStateEngine",
+                            "kind":  "Function",
+                            "name":  "WT_NeedsRemainingQty"
+                        },
+                        {
+                            "module":  "modWTStateEngine",
+                            "kind":  "Function",
+                            "name":  "WT_GetDecision"
+                        },
+                        {
+                            "module":  "modWTStateEngine",
+                            "kind":  "Sub",
+                            "name":  "WT_StateEngine_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_PrepareActualPickingSheet"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_NormalizeAndValidateAll"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_NormalizeRow"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_ResolvedBin"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_NormalizeArea"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_BuildBin"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_BinRoot"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_IsAllowedArea"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_IsValidBinNo"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Function",
+                            "name":  "AP_IsFullBin"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_SplitFullBin"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_WriteHeaders"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_ApplyValidations"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_EnsureConfig"
+                        },
+                        {
+                            "module":  "modCF_ActualPicking",
+                            "kind":  "Sub",
+                            "name":  "AP_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_Phase3_ReadOnly"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_Phase3_ReadOnly_NoDialog"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_RebuildPostingStrict"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_ReadState"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_BuildDecision"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_BuildReleasePlan"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_ValidatePlan"
+                        },
+                        {
+                            "module":  "modCF_Phase3Planner",
+                            "kind":  "Sub",
+                            "name":  "CF_Phase3_RunUnitTests"
+                        },
+                        {
+                            "module":  "modSAPReadOnlyProbe",
+                            "kind":  "Sub",
+                            "name":  "CF_RunReadOnlyProbes"
+                        },
+                        {
+                            "module":  "modSAPReadOnlyProbe",
+                            "kind":  "Sub",
+                            "name":  "CF_ProbePostingReadOnly"
+                        },
+                        {
+                            "module":  "modSAPReadOnlyProbe",
+                            "kind":  "Sub",
+                            "name":  "CF_ProbeMONWTReadOnly"
+                        },
+                        {
+                            "module":  "modSAPReadOnlyProbe",
+                            "kind":  "Sub",
+                            "name":  "CF_ProbeReleaseReadOnly"
+                        },
+                        {
+                            "module":  "modSAPReadOnlyProbe",
+                            "kind":  "Sub",
+                            "name":  "SAPProbe_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_SAP_MAP_MON",
+                            "kind":  "Sub",
+                            "name":  "CF_MapSAP_MON"
+                        },
+                        {
+                            "module":  "modCF_SAP_MAP_MON",
+                            "kind":  "Sub",
+                            "name":  "CF_MapSAP_POST"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "MIGO311_CompileProbe"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Function",
+                            "name":  "ToolTryBegin"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "ToolEnd"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Function",
+                            "name":  "ToolRunIsActive"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "GetExistingOBState"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Function",
+                            "name":  "IsRunInProgress"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "ResetTransientState"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_FirstReadyOB"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_AllReadyOB"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_FirstReadyOB_AllowYellow"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_AllReadyOB_AllowYellow"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Post_MIGO_311_FromOBGroups_V3"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_OneClick"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_FirstReadyOB_UncheckRedOK"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_AllReadyOB_UncheckRedOK"
+                        },
+                        {
+                            "module":  "MIGO311_RunPost_V24_ErrorGuard",
+                            "kind":  "Sub",
+                            "name":  "Run_MIGO311_Post_AllReadyOB_PartialRescue"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Sub",
+                            "name":  "CF_LoadReleaseHoldersReadOnly"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Sub",
+                            "name":  "CF_SelectReleasePlanReadOnly"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Sub",
+                            "name":  "CF_ReleaseHolderReader_CompileProbe"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Function",
+                            "name":  "RH_LoadReleaseHolders"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Function",
+                            "name":  "RH_SelectReleasePlan"
+                        },
+                        {
+                            "module":  "modReleaseHolderReader",
+                            "kind":  "Function",
+                            "name":  "CF_FinalizeReleasePlanLocal"
+                        },
+                        {
+                            "module":  "modCF_AutoRun_Exact",
+                            "kind":  "Sub",
+                            "name":  "CF_LoadWH_AutoSilent_Exact"
+                        },
+                        {
+                            "module":  "modCF_AutoSetActualVerified",
+                            "kind":  "Sub",
+                            "name":  "CF_SetVerifiedActualForOB1011764693"
+                        },
+                        {
+                            "module":  "modCF_FinalizeVerifiedPilot",
+                            "kind":  "Sub",
+                            "name":  "CF_FinalizeVerifiedPilot"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Sub",
+                            "name":  "CF_RunSinglePilot"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Function",
+                            "name":  "CF_PreVerifyTarget"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Function",
+                            "name":  "CF_ExecuteConfirm"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Function",
+                            "name":  "CF_PostVerifyTarget"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Function",
+                            "name":  "CF_VerifyStatusC"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Sub",
+                            "name":  "CF_PostVerifyExistingPilot"
+                        },
+                        {
+                            "module":  "modCF_Executor",
+                            "kind":  "Function",
+                            "name":  "CF_PostVerifyExistingPilot_Run"
+                        },
+                        {
+                            "module":  "modCF_AutoRun_TwoPilot",
+                            "kind":  "Sub",
+                            "name":  "CF_RunTwoPilotExact"
+                        },
+                        {
+                            "module":  "modCF_ApplyUserHandoff",
+                            "kind":  "Sub",
+                            "name":  "CF_ApplyUserHandoffMode"
+                        },
+                        {
+                            "module":  "modCodexNewOBSnapshot",
+                            "kind":  "Function",
+                            "name":  "Codex_LoadNewOBSnapshotAndSetTarget"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenOBItemAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCurrentS000Tree"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCurrentS000Grids"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSelectS000ItemAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexExpandS000DetailsAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSelectS000PickingBinAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenWarehouseTaskFollowOn"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCreateWTGrids"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexExecuteCreateWTQuery"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenPRDOAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexQueryPRDOAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexPRDOItemDetailsDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenPRDOOutboundDelivery"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCurrentPRDORelevant"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexQueryOutboundDeliveryAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReturnPRDOOrder"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSelectPRDOReferenceAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexVerifyMONWT"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpMONTanums"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexRefreshMON"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexProbePRDOReferenceTree"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpPOSTRows"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenWTForegroundExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpConfirmWTGrids"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexProbeConfirmQtyCells"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenWTExceptionExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReturnMONFromConfirm"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadWTMethodsMenu"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpSAPSessionWindows"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpWTExceptionWindow"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadWTExceptionInputs"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSetWTExceptionQtyAndCheck"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSetWTExceptionQtyOnly"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexCheckWTExceptionInputOnly"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSelectWarehouseDifferenceAndCheck"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexProbeWarehouseDifferenceRadio"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexConfirmWTExceptionAndReadStatus"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexShowWTExceptionsExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadPRDOMenus"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexExpandConfirmWTDetailsAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadPRDOToolbars"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexFindPRDOEditControls"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadPRDOCustomToolbars"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexEnterPRDOEditAndDump"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexModifyPRDOQtyAndReadback"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexCheckPRDOEditedQty"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSavePRDOEditedQtyAndReadback"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexOpenPRDOWarehouseTaskFollowOn"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadSAPSessions"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadCreateWTRowsLimited"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadCreateWTWRMap"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexReadCreateWTToolbars"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexCreateRemainingWTExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCreateWTRelevantLimited"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexCreateRemainingWTAndSaveExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexSaveCreatedWTExact"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexDumpCreateWTWindows"
+                        },
+                        {
+                            "module":  "modCodexSAPReadOnly",
+                            "kind":  "Function",
+                            "name":  "CodexConfirmCreateWTYes"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_Mode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_IsMapMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_IsRunMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_IsProbeMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_IsLivePilotMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_ScreenControlAllowed"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_FallbackAllowed"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireProbeRuntime"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireMapMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireRunMode"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireRuntime"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireLockedMap"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_MissingKeys"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequiredV1Keys"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_VerifyLockedFingerprint"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_CalculateFingerprint"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Sub",
+                            "name":  "CF_LockSAPMap"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Sub",
+                            "name":  "CF_ReviewSAPMap"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_ReviewMap"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_FindExact"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_ExactID"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Function",
+                            "name":  "SAPRun_RequireReadOnly"
+                        },
+                        {
+                            "module":  "modSAPRunGuard",
+                            "kind":  "Sub",
+                            "name":  "SAPRun_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_Posting",
+                            "kind":  "Sub",
+                            "name":  "CF_LoadPostingFromWH"
+                        },
+                        {
+                            "module":  "modCF_Posting",
+                            "kind":  "Sub",
+                            "name":  "CF_RunPostingFromWH"
+                        },
+                        {
+                            "module":  "modCF_Posting",
+                            "kind":  "Sub",
+                            "name":  "CF_DownloadPostingStock"
+                        },
+                        {
+                            "module":  "modCF_Posting",
+                            "kind":  "Sub",
+                            "name":  "CF_RebuildPostingFromRaw"
+                        },
+                        {
+                            "module":  "modCF_Posting",
+                            "kind":  "Sub",
+                            "name":  "CF_CheckActualPosting"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Sub",
+                            "name":  "CF_PreLiveAudit"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Sub",
+                            "name":  "CF_PreLiveAudit_ExecuteNoUI"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Function",
+                            "name":  "CF_PreLiveAudit_Run"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Function",
+                            "name":  "CF_PreLiveAudit_Require"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Function",
+                            "name":  "CF_PreLiveActionAllowed"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Sub",
+                            "name":  "CF_PreLiveEnsureActionLogSchema"
+                        },
+                        {
+                            "module":  "modCF_PreLiveAudit",
+                            "kind":  "Sub",
+                            "name":  "CF_PreLiveLogActionStage"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_FastEnabled"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_FastProductionMode"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_RealCFBlocked"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_AllowDiagnosticDiscovery"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_AllowAutomaticRetry"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_FastFlowForDecision"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_ConfigValue"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_ConfigBool"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Function",
+                            "name":  "CF_FastPreflight"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Sub",
+                            "name":  "CF_LogFast"
+                        },
+                        {
+                            "module":  "modCF_FastContract",
+                            "kind":  "Sub",
+                            "name":  "CF_FastStaticCompileProbe"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_Command"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_CommandOneShot"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_IsLivePass"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_AssertLivePass"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_Get"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Function",
+                            "name":  "SAPAction_PromoteLivePass"
+                        },
+                        {
+                            "module":  "modSAPActionRegistry",
+                            "kind":  "Sub",
+                            "name":  "SAPAction_CompileProbe"
+                        },
+                        {
+                            "module":  "modSAPActionMap",
+                            "kind":  "Sub",
+                            "name":  "SAPActionMap_CompileProbe"
+                        },
+                        {
+                            "module":  "modSAPActionMap",
+                            "kind":  "Function",
+                            "name":  "SAPActionMap_RequiredKeys"
+                        },
+                        {
+                            "module":  "modSAPActionMap",
+                            "kind":  "Function",
+                            "name":  "SAPActionMap_Review"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_LoadWH"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_LoadPosting"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_CheckAndLoadPosting"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_Phase2"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_RunAll"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_RunAllSingle"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_CheckSAP"
+                        },
+                        {
+                            "module":  "modCF_Entry",
+                            "kind":  "Sub",
+                            "name":  "CF_OpenLog"
+                        },
+                        {
+                            "module":  "modCF_InputLayout",
+                            "kind":  "Sub",
+                            "name":  "CF_ApplyInputLayout"
+                        },
+                        {
+                            "module":  "modCF_InputLayout",
+                            "kind":  "Sub",
+                            "name":  "CF_InputLayout_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_AutoRun_MultiSilent",
+                            "kind":  "Sub",
+                            "name":  "CF_RunAllMultiOB_AutoSilent"
+                        },
+                        {
+                            "module":  "modCF_MultiOB",
+                            "kind":  "Sub",
+                            "name":  "CF_MultiOB_Setup"
+                        },
+                        {
+                            "module":  "modCF_MultiOB",
+                            "kind":  "Sub",
+                            "name":  "CF_MultiOB_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_MultiOB",
+                            "kind":  "Sub",
+                            "name":  "CF_MultiOB_MigrateLegacyStateColumns"
+                        },
+                        {
+                            "module":  "modCF_MultiOB",
+                            "kind":  "Sub",
+                            "name":  "CF_RunAllMultiOB"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Sub",
+                            "name":  "MPOST_Setup"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Sub",
+                            "name":  "MPOST_LoadPosting"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Function",
+                            "name":  "MPOST_HasExistingPostSession"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Sub",
+                            "name":  "CF_Phase2_LoadPostingProof"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Function",
+                            "name":  "MPOST_BuildMaterialList"
+                        },
+                        {
+                            "module":  "modMultiPostingLoader",
+                            "kind":  "Sub",
+                            "name":  "MPOST_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_AutoRun_CheckSilent",
+                            "kind":  "Sub",
+                            "name":  "CF_Check_AutoSilent"
+                        },
+                        {
+                            "module":  "modCF_AutoRun_CheckSilent",
+                            "kind":  "Sub",
+                            "name":  "CF_Check_AutoSilent_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_FastExecutor",
+                            "kind":  "Sub",
+                            "name":  "CF_RunFastToCF"
+                        },
+                        {
+                            "module":  "modCF_FastExecutor",
+                            "kind":  "Function",
+                            "name":  "CF_RunFastToCFCore"
+                        },
+                        {
+                            "module":  "modCF_FastExecutor",
+                            "kind":  "Sub",
+                            "name":  "CF_FastExecutor_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_FastExecutor",
+                            "kind":  "Function",
+                            "name":  "CF_FastModuleRegression"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "NormalizeHeader"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "FindHeaderCol"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "MapPostingColumns"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "MapOrderColumns"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "ReadPosting"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "ReadOrder"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "ReadSpecialProducts"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "DownloadPOSTOnly"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "DownloadPostingForOrder"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "CheckOBTreoVL06O"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestVL06O_NoMessage"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestVL06O_ControlDump"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestPOST_ControlDump"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestPOST_ColumnDump"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestPOST_AdvancedDump"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "TestPOST_ProductMultiDump"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_OpenTCodeSession"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpTCodeControls"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpAllSAPWindows"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONTree"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONState"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONUIA"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONShellState"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONObjectTree"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONWindowTree"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONTreeColumns"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_MON_OpenSelectionMap"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "CF_MapMONSAP"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_MON_SetLEDelivery"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONTreeNodes"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_TestMONMapOB"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONSelectionFields"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpWarehouseTaskControls"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpWarehouseTaskControlsAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONObjectTreeAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONClickableControlsAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpFollowOnFunctionsAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpExactWarehouseTaskAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpUpperGridStateAfterFilter"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONGridsAfterWarehouseTask"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpWarehouseTaskColumns"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Function",
+                            "name":  "CF_DumpMONData"
+                        },
+                        {
+                            "module":  "ModuleSAP",
+                            "kind":  "Sub",
+                            "name":  "SAPX_POST_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_WarehouseTask",
+                            "kind":  "Sub",
+                            "name":  "CFWT_ResetNavigationCounters"
+                        },
+                        {
+                            "module":  "modCF_WarehouseTask",
+                            "kind":  "Function",
+                            "name":  "CFWT_SelectWarehouseTask"
+                        },
+                        {
+                            "module":  "modCF_CheckPlanner",
+                            "kind":  "Sub",
+                            "name":  "CF_Check"
+                        },
+                        {
+                            "module":  "modCF_CheckPlanner",
+                            "kind":  "Sub",
+                            "name":  "CF_Check_Silent"
+                        },
+                        {
+                            "module":  "modCF_CheckPlanner",
+                            "kind":  "Sub",
+                            "name":  "CF_CheckPlanner_CompileProbe"
+                        },
+                        {
+                            "module":  "modCF_CheckPlanner",
+                            "kind":  "Sub",
+                            "name":  "CF_CheckPlanner_LocalSnapshotProbe"
+                        },
+                        {
+                            "module":  "modCF_CheckPlanner",
+                            "kind":  "Function",
+                            "name":  "CF_CheckPlanner_ValidateSnapshot"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_NewRun"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_Run"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_HasRun"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Sub",
+                            "name":  "CFX_ClearRun"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_Meta"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "NewCiDict"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_IsTerminalState"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_StateFromRawStatus"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Sub",
+                            "name":  "CFX_MetaInc"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Sub",
+                            "name":  "CFX_MetaSet"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Sub",
+                            "name":  "CFX_Log"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WTUpsert"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WTExists"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WT"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WTState"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WTIsTerminal"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_WTSetState"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_GroupUpsert"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_Group"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_Groups"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_MemberAdd"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_NewMember"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_NewAllocation"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_EvidenceLine"
+                        },
+                        {
+                            "module":  "modCFX_State",
+                            "kind":  "Function",
+                            "name":  "CFX_CountMembers"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_IsReplay"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_WorldNew"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Sub",
+                            "name":  "CFX_WorldSeedPrdo"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Sub",
+                            "name":  "CFX_WorldSetStaleActive"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_World"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Sub",
+                            "name":  "CFX_WorldAddWT"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Sub",
+                            "name":  "CFX_BindSessionRoles"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_AssertSessionRoles"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_ReturnToWarehouseTask"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_ReadWTGrid"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_RefreshWTGrid"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_CancelWT"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Sub",
+                            "name":  "CFX_StagePrdoQty"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_CommitPrdoSave"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_ReadPrdoQty"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_ReadCommittedPrdoTotal"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_CreateWT"
+                        },
+                        {
+                            "module":  "modCFX_SapAdapter",
+                            "kind":  "Function",
+                            "name":  "CFX_OpenDocument"
+                        },
+                        {
+                            "module":  "modCFX_Planner",
+                            "kind":  "Function",
+                            "name":  "CFX_NewRawMember"
+                        },
+                        {
+                            "module":  "modCFX_Planner",
+                            "kind":  "Function",
+                            "name":  "CFX_PlanCore"
+                        },
+                        {
+                            "module":  "modCFX_Planner",
+                            "kind":  "Function",
+                            "name":  "CFX_PlanFingerprint"
+                        },
+                        {
+                            "module":  "modCFX_Planner",
+                            "kind":  "Function",
+                            "name":  "CFX_PlanFromRawMembers"
+                        },
+                        {
+                            "module":  "modCFX_Planner",
+                            "kind":  "Function",
+                            "name":  "CFX_PlanFromPlanSheet"
+                        },
+                        {
+                            "module":  "modCFX_Gates",
+                            "kind":  "Function",
+                            "name":  "CFX_InputGate"
+                        },
+                        {
+                            "module":  "modCFX_Gates",
+                            "kind":  "Function",
+                            "name":  "CFX_IsExactBin"
+                        },
+                        {
+                            "module":  "modCFX_Gates",
+                            "kind":  "Function",
+                            "name":  "CFX_ActionGateNoActiveConflict"
+                        },
+                        {
+                            "module":  "modCFX_Gates",
+                            "kind":  "Function",
+                            "name":  "CFX_PostVerifyPrdoQty"
+                        },
+                        {
+                            "module":  "modCFX_Gates",
+                            "kind":  "Function",
+                            "name":  "CFX_PostVerifyOpenQty"
+                        },
+                        {
+                            "module":  "modCFX_Executor",
+                            "kind":  "Function",
+                            "name":  "CFX_ExecuteRun"
+                        },
+                        {
+                            "module":  "modCFX_Executor",
+                            "kind":  "Function",
+                            "name":  "CFX_Exec_CompileProbe"
+                        },
+                        {
+                            "module":  "modCFX_Executor",
+                            "kind":  "Function",
+                            "name":  "CFX_Exec_RuntimeProbe"
+                        },
+                        {
+                            "module":  "modCFX_Entry",
+                            "kind":  "Function",
+                            "name":  "CFX_EntryEnabled"
+                        },
+                        {
+                            "module":  "modCFX_Entry",
+                            "kind":  "Function",
+                            "name":  "CFX_ExecutePlanToCFHandoff_Live"
+                        },
+                        {
+                            "module":  "modCFX_Entry",
+                            "kind":  "Function",
+                            "name":  "CFX_Entry_CompileProbe"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RB_Begin"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Function",
+                            "name":  "RB_Member"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RB_SeedWT"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Function",
+                            "name":  "RB_Plan"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RB_FinishExpect"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RB_RunSingle"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S01"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S02"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S03"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S04"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S05"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S06"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S07"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S08"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S09"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S10"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S11"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S12"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S13"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S14"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S15"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S16"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S17"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S18"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S19"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S20"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S21"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S22"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S23"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S24"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S25"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S26"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S27"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Sub",
+                            "name":  "RS_S28"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Function",
+                            "name":  "CFX_RunAllReplay"
+                        },
+                        {
+                            "module":  "modCFX_Replay",
+                            "kind":  "Function",
+                            "name":  "CFX_ReplayEvidenceCsv"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeManualDistributionSurfaceAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeManualExactQtyAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewManualSourceEntryAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeManualWTInputContractAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpExecutionContextLocal"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewManualAdoptExactCandidateAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReconcileDirectPostingChangeRecovery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ListSAPSessionStateReadOnly"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadMONAfterPostingRecovery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_SAPNumberParseRegression"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCurrentPickBinStockReadOnly"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_ExecutePlanToCFHandoff"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "CF_ReworkReadinessAudit"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ValidateLockedPlanContractLocal"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewLockedPlanScheduleLocal"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "CWR_RunFastToCFCore"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "CWR_ExecutePlanToCFHandoffCore"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReconcileCancelledWTReadOnly"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_ExecutePlanToCFHandoff_CompileProbe"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_ExecutePlanToCFHandoff_ReadinessProbe"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_ExecutePlanToCFHandoff_StaticCompileProbe"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreflightCancelOldWT"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_CancelOldWTAndRecord"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadCancelledRemainingAndRecord"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadTargetBinStockCandidates"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_RedetermineExactCreateWTStocks"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewAdoptCorrectCandidateAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCurrentCreateWTState"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCreateWTStockCandidateContract"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCreateWTStockGridMetadata"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_SelectExactCreateWTRequestReadOnly"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewTopCreateDraftAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadCurrentOutboundWTMonitor"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ResetOwnedStaleCreateWTDraftNoSave"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PlanDifferentBinSourceFlow"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DescribeReworkFlowMatrix"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadCurrentReworkHandoff"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "Codex_RunApprovedOutboundWH"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_RunApprovedOutboundWHCore"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_CreateOutboundWTFromExactCandidate"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeCreateWTDraftFields"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeCreateWTDefaultValues"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreviewManualWTDraftFieldsAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreflightPostingBatchAtPickBin"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ExecutePostingBatchAtPickBin"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadCurrentPOSTModalState"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ClosePOSTLogAndReadCreatedPostingWT"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_RecordPostingChangeWTCreatedRecovery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadOBWarehouseTasksAfterPostingChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePOSTControls"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadTargetStockForRework"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreflightPostingBinBatchChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePOSTSaveControl"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ResetPOSTDisplayOnly"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTCommandControls"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTMenuTree"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTSourceTargetColumns"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadCurrentPOSTActionEvidence"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadPOSTMessageLogAndReset"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTGridToolbar"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTEmbeddedToolbars"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTActionObjectTree"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCurrentPOSTActionTreeNoQuery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTOIPActionToolbarNoQuery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPOSTCreatedChangesGridNoQuery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadPendingPOSTConfirmation"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpPendingPOSTConfirmationDetail"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ConfirmExactPendingPOSTChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_SelectCreateSaveAndConfirmExactPost"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_AcceptExactDraftSaveForSelection"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ExecutePostingBinBatchChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ReadPostingChangeRecovery"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreflightPRDOBatchQtyChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_PreflightPRDOQtyOnlyAfterPosting"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ExecutePRDOQtyOnlyAfterPosting"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeCreateWTForTarget"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeCreateWTAfterQtyChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpExistingCreateWT"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_MapExistingCreateWTFieldContract"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_MapCreateWTActionSurface"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbeCreateWTOtherStock"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_DumpCreateWTMenuTree"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePRDOItemDetailFields"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePRDOItemDetailAfterQtyChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ResetPRDOAfterPreview"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_MapPRDOItemDetailActionSurface"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePRDOBatchSelectionCriteria"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_ProbePRDOMassChange"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CWR_LockedPlanSchedule_StaticProbe"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_HistoryEnsureLedger"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_HistoryBackfillLegacyRunLog"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "CF_HistoryNewRunID"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_HistoryAppend"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Sub",
+                            "name":  "CF_HistoryAppendSummary"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "Codex_RunRegressionAudit"
+                        },
+                        {
+                            "module":  "modCodexWTRework",
+                            "kind":  "Function",
+                            "name":  "CWR_RegressionGateDecision"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_InitializeUI"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_Preflight"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_LoadMON"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Function",
+                            "name":  "RT_MultiOBStartupGate"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_LoadMON_Silent"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_MONCompileProbe"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_LoadPosting"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_BuildPlan"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_RunPlan"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_RetryErrors"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_Stop"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_OpenLog"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_FreezePlan"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_RunPlanReadOnly"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_RetryErrorRows_ReadOnly"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_ListSessions"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_MapCurrentScreen"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Sub",
+                            "name":  "RT_SetupButtons"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Function",
+                            "name":  "CF_MON_GetExistingReaderSession"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Function",
+                            "name":  "CF_MON_EnsureReaderSession"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Function",
+                            "name":  "CF_MON_EnsureDedicatedReaderSession"
+                        },
+                        {
+                            "module":  "modCF_MONCore_STABLE",
+                            "kind":  "Function",
+                            "name":  "CF_MON_WaitExistingReaderIdle"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Function",
+                            "name":  "RT_GetSingleInputOB"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Function",
+                            "name":  "RT_CellText"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Function",
+                            "name":  "RT_Number"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Function",
+                            "name":  "RT_StartTimer"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Function",
+                            "name":  "RT_Elapsed"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Sub",
+                            "name":  "RT_SetStatus"
+                        },
+                        {
+                            "module":  "modCF_UI",
+                            "kind":  "Sub",
+                            "name":  "RT_Log"
+                        }
+                    ],
+    "shapes":  [
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_LoadWH",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_LoadWH",
+                       "text":  "1. TAI WH"
+                   },
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_CheckSAP",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_CheckSAP",
+                       "text":  "KIEM TRA SAP"
+                   },
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_OpenLog",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_OpenLog",
+                       "text":  "MO RUN LOG"
+                   },
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_CheckActual",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_CheckAndLoadPosting",
+                       "text":  "3. CHECK + POSTING"
+                   },
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_MapPOST",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_MapSAP_POST",
+                       "text":  "MAP POST"
+                   },
+                   {
+                       "sheet":  "INPUT",
+                       "shape":  "btnCF_ExecuteToCF",
+                       "onAction":  "\u0027260819_CF_OB_V2.6_LICH_SU.xlsm\u0027!CF_ExecutePlanToCFHandoff",
+                       "text":  "4. XU LY DEN CF"
+                   }
+               ],
+    "log":  [
+                "OPENED_READONLY 260819_CF_OB_V2.6_LICH_SU.xlsm",
+                "SHEETS=20",
+                "DEFINED_NAMES=1",
+                "VBA_COMPONENTS=65 ENTRY_POINTS=517 LEGACY_REF_HITS=64",
+                "SHAPES_WITH_BINDING_OR_BUTTONS=6"
+            ]
+}

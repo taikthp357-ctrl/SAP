@@ -1,0 +1,91 @@
+﻿CHANGELOG - V1.7 SMART GOS ATT
+================================
+Phien ban: V1.7
+Ngay build: 2026-08-03
+Baseline  : V1.6.4 (260802_V1.6.4_BBBG_VAT.xlsm)
+Tac gia   : Rebuild + nang cap boi AI assistant
+
+--- THAY DOI CHINH ---
+
+[modWinFileDialog] - NANG CAP TOAN BO
+  - Xoa API ANSI (FindWindowA, SetWindowTextA, SendMessageA)
+  - Dung API Unicode (FindWindowW, SendMessageW voi WM_SETTEXT + StrPtr)
+  - Them WinBringSecurityDialogToFront(): tim va dua SAP Security len foreground
+  - Them WinIsSapSecurityVisible(): kiem tra SAP Security co mo khong
+  - WinImportFile(): dien duong dan Unicode vao Windows Native File Dialog
+  - Ho tro ComboBoxEx32 fallback cho Windows Vista+ file dialog
+  - Ho tro ten file va duong dan tieng Viet co dau
+
+[MIGO311_RunPost_V24_ErrorGuard] - NANG CAP LOGIC GOS/ATT
+
+  + Them ATT_ResolveSourceFolder()
+    - Khong khoa cung duong dan / khong dung fallback user cu the
+    - Doc tu mSourceFolder hoac CONFIG SOURCE_FOLDER
+    - Tu dong bat user chon neu trong hoac khong ton tai
+    - Ho tro Local Drive (C:\), Network Drive (V:\), UNC (\\server\)
+    - Luu duong dan da chon vao CONFIG!B4 (key SOURCE_FOLDER)
+
+  + Them ATT_GosSecurityPreflight()
+    - Chay TRUOC vong lap ATT hang loat
+    - Thu mo GOS, phat hien SAP GUI Security
+    - Dua cua so Security len foreground tu dong
+    - Hien thong bao ro rang de user chon Allow + Remember My Decision
+    - Cho user xu ly (khong tu bam Allow - tuan thu bao mat SAP)
+    - Tra ve False neu Security chua duoc xu ly
+
+  + Them ATT_GosOpenWithRetry()
+    - 3-step smart retry:
+      Lan 1: Technical ID (%GOS_TOOLBOX / %GOS_PCATTA_CREA)
+      Lan 2: Re-fetch shell control + dua SAP len foreground
+      Lan 3: Menu fallback (ATT_FindGosButton / ATT_FindContextMenuAttach)
+    - Delay tang dan: 300ms, 600ms, 1200ms
+    - Ghi log tung lan thu (TRY_1, TRY_2, TRY_3)
+    - Ghi GOS_OPEN_FAILED_AFTER_RETRY neu that bai ca 3 lan
+
+  + Them ATT_AttachOneSmartGOS() (thay the ATT_AttachOne)
+    - Goi ATT_GosOpenWithRetry() thay vi goi GOS truc tiep
+    - Ghi ACTION_SENT khi GOS dialog mo thanh cong
+    - Ghi RESULT_READY khi ATT hoan thanh
+
+  + Nang cap ATT_SetSapFileDialogSmart() (tu ATT_SetSapFileDialog)
+    - Ghi log SAP_DIALOG_DY_FOUND hoac SAP_DIALOG_RLGRAP_FOUND
+    - Ro rang hon trong logic nhan dien 2 loai popup SAP
+
+  + Nang cap SelectSourceFolder_NoOCR()
+    - Kiem tra thu muc co truy cap duoc truoc khi luu
+    - Luu vao CONFIG!B4 (ATT_SetCfg SOURCE_FOLDER)
+    - Thong bao ro rang thanh cong / loi
+
+  + Nang cap SAP_AttachCheckedFiles()
+    - Goi ATT_ResolveSourceFolder() (khong phu thuoc SOURCE_FOLDER cung)
+    - Chay ATT_GosSecurityPreflight() truoc vong lap DOC
+    - Dung ATT_AttachOneSmartGOS() thay ATT_AttachOne
+    - Ghi log ATT_VERIFIED / ATT_ALREADY_EXISTS / ATT_FAIL_BBBG / ATT_FAIL_VAT
+
+  + Log stage moi:
+    SAP_SECURITY_DETECTED, SAP_SECURITY_WAIT, SAP_SECURITY_HANDLED,
+    SAP_SECURITY_TIMEOUT, GOS_PREFLIGHT, ACTION_SENT, RESULT_READY,
+    SAP_NOT_IDLE, TRY_FAIL, TRY_1, TRY_2, TRY_3,
+    GOS_OPEN_FAILED_AFTER_RETRY, GOS_NO_DIALOG_POSSIBLE_SECURITY_RULE_OR_NOT_READY,
+    WINDOWS_DIALOG_FOUND, SAP_DIALOG_DY_FOUND, SAP_DIALOG_RLGRAP_FOUND,
+    ATT_DIALOG_NOT_FOUND, ATT_VERIFIED, ATT_ALREADY_EXISTS,
+    SOURCE_FOLDER_EMPTY, SOURCE_FOLDER_NOT_FOUND, FILE_NOT_FOUND
+
+  + Timeout constants (giu nguyen co the tuy chinh qua CONFIG):
+    WAIT_DOC_READY     = 30s
+    WAIT_GOS_READY     = 15s
+    WAIT_SAP_SECURITY  = 60s  (manual user action)
+    WAIT_ATT_DIALOG    = 20s
+    WAIT_FILE_ACCEPTED = 30s
+    WAIT_RETURN_TO_DOC = 20s
+
+--- GIU NGUYEN TU V1.6.4 ---
+  - 10 sheet (INPUT, FILE_SCAN, CONFIG, ATT_HISTORY, LOG, OCR_RAW, GUIDE, STAGING, RESERVED1, RESERVED2)
+  - 18 module khong thay doi (ModuleMain, modSupports, ModuleLog, ModuleSAP, ModuleFIFO,
+    ModuleOBGroup_V8_ErrorGuard, ModuleHelper, Sheet1-Sheet10, ThisWorkbook)
+  - Toan bo logic OCR / PDF / Image (ATT_ReadDocument, ATT_PreprocessImageWIA, v.v.)
+  - Toan bo logic BBBG/VAT matching (ATT_MatchFileNamesToInput, ATT_BuildGroups, v.v.)
+  - ATT_WasPreviouslyAttached, ATT_MarkVerified, ATT_History
+  - Luong chinh: mo DOC -> kiem tra HeadText -> ATT BBBG/VAT -> xac nhan -> Esc -> DOC tiep theo
+  - Nut bam va ten macro: SelectSourceFolder_NoOCR, CheckFiles_NoOCR, SAP_FillHeadTextOnly, SAP_AttachCheckedFiles
+  - Cac stub compatibility (Run_MIGO311_*, ToolTryBegin, ToolEnd, ...)

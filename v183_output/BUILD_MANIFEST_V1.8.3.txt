@@ -1,0 +1,19 @@
+﻿BUILD MANIFEST - V1.8.3 SMART GOS ATT REBUILT
+==============================================
+Build Date    : 2026-08-06 21:51:15
+Baseline      : g:\SAP\v182_extracted\260803_V1.8.2_BBBG_VAT_SMART_GOS_ATT_REBUILT.xlsm
+Output XLSM   : g:\SAP\v183_output\260803_V1.8.3_BBBG_VAT_SMART_GOS_ATT_REBUILT.xlsm
+Output ZIP    : g:\SAP\v183_output\260803_V1.8.3_BBBG_VAT_SMART_GOS_ATT_REBUILT.zip
+
+File Sizes:
+  XLSM : 379722 bytes
+  ZIP  : 312872 bytes
+  vbaProject.bin : 532992 bytes
+
+V1.8.3 Upgrades Added:
+  - GOS Adapter modularization (ATT_WaitDocReady, ATT_FindGosShell, ATT_OpenGosWithRetry,
+    ATT_DetectSecurity, ATT_WaitSecurityClosed, ATT_RebindSessionAfterSecurity, ATT_SaveSuccessfulGosMap).
+  - Automatic Session Re-binding after SAP GUI Security Popup closed.
+  - Auto-Discovery via GuiShell control tree scan when Technical ID fails.
+  - Dynamic GOS Map storage in CONFIG sheet (System_Client_User_MIGO).
+  - Standardized logging stages (GOS_SEARCHING, SAP_SECURITY_WAIT_USER, ATT_VERIFIED, etc.).

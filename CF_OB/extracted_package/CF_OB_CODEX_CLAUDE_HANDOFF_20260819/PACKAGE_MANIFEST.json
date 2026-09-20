@@ -1,0 +1,210 @@
+{
+  "package": "CF_OB_CODEX_CLAUDE_HANDOFF_20260819",
+  "files": [
+    {
+      "path": "PROMPT_FOR_CODEX_CLAUDE.md",
+      "bytes": 3658,
+      "sha256": "74fc45c15ac8b2ad1d52fa5b31a88c84a1b37fb9aba3f431988191e67f245907"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1118,
+      "sha256": "f2860a73fd27e829c4c772a4383f919644baa565dad562a8bd5179b88a674f50"
+    },
+    {
+      "path": "current/CURRENT_CF_OB_BASELINE_20260819.xlsm",
+      "bytes": 2210005,
+      "sha256": "9ebcc46fcdf25a10803792d2ed576c79f98a394eec838a783d5b0ee021905309"
+    },
+    {
+      "path": "current_extracted/evidence/latest_run_excerpt.csv",
+      "bytes": 21954,
+      "sha256": "f4c945d27fa3b8e330cdf99c7d553302c367334f731cd4a05c778aa2bc86d92b"
+    },
+    {
+      "path": "current_extracted/evidence/latest_run_key_findings.md",
+      "bytes": 3714,
+      "sha256": "3246b0c3c8bcf032d4247554fa3755e41934c24d9c05b94e9968f3fdd8e56c89"
+    },
+    {
+      "path": "current_extracted/formulas.json",
+      "bytes": 2,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "current_extracted/package_inventory.json",
+      "bytes": 6961,
+      "sha256": "242d5c4d77bf5012aa8e319a3004a7a5da912dadd31c2811e8a101d622ba5cfc"
+    },
+    {
+      "path": "current_extracted/sheets/CONFIG.csv",
+      "bytes": 24762,
+      "sha256": "a77070f0285b325604c20ede3a2f2d99936e504325b2898e985163c803215a36"
+    },
+    {
+      "path": "current_extracted/sheets/INPUT.csv",
+      "bytes": 8362,
+      "sha256": "3bdccb1e9bb87ec9e1f75e1f820b807d71e96ebe7dcf4173aa86354dea76f699"
+    },
+    {
+      "path": "current_extracted/sheets/OB_QUEUE.csv",
+      "bytes": 583,
+      "sha256": "7cd16c0d816093089acc13699d9a8b1b6f3e017d04813a197da2164e6ee4b6f6"
+    },
+    {
+      "path": "current_extracted/sheets/OB_WH_CACHE.csv",
+      "bytes": 889,
+      "sha256": "7a2ae7e4b95cd0791488d893f2c094cbe707d44ccc9f04933565355072d0493e"
+    },
+    {
+      "path": "current_extracted/sheets/ORDER_QUERY.csv",
+      "bytes": 103,
+      "sha256": "240aa57e4864866caf3368ea73ed99949490d552b5a0a4f0e6d19fb9cc872f48"
+    },
+    {
+      "path": "current_extracted/sheets/PLAN.csv",
+      "bytes": 2767,
+      "sha256": "a87849cbc1b72fefa41221c235a2ffaf17c3a152c556e3b65679fe5ea3c405c8"
+    },
+    {
+      "path": "current_extracted/sheets/PLAN_RELEASE.csv",
+      "bytes": 213,
+      "sha256": "69ff6615a61bb59c91880346aa48d00cab51a44018f73a23ad33d3b6bdaab7f4"
+    },
+    {
+      "path": "current_extracted/sheets/PLAN_SOURCE_LEGS.csv",
+      "bytes": 134,
+      "sha256": "552a3d06f818e88c31f909ec2444dffebdacb36cfea84d20949675e6ef0d3598"
+    },
+    {
+      "path": "current_extracted/sheets/POSTING.csv",
+      "bytes": 16653,
+      "sha256": "cc889fc107bc589d9711b7cb3fb60c08b03604a6a6d1b5083ced6d4f10d7aa68"
+    },
+    {
+      "path": "current_extracted/sheets/POSTING_CACHE.csv",
+      "bytes": 829,
+      "sha256": "8b642702b1e620e6d3173e8a90a2f9a9fdbc2b29950bacaf97c1dff98bc560a9"
+    },
+    {
+      "path": "current_extracted/sheets/POSTING_RAW.csv",
+      "bytes": 1549,
+      "sha256": "f8cc9463518829b5dea7379b524646384b975fd985515104a4e0855a000cd49b"
+    },
+    {
+      "path": "current_extracted/sheets/POSTING_SUMMARY.csv",
+      "bytes": 389,
+      "sha256": "82bb57e00a82d431a2925a3ae908b0793e617b3c20e57416f5a1a9d29de342bd"
+    },
+    {
+      "path": "current_extracted/sheets/REGRESSION_AUDIT.csv",
+      "bytes": 2267031,
+      "sha256": "76f38a6d060f5cce11a49fe0877455912d685470fa8b1ab23274a6901f9b35e1"
+    },
+    {
+      "path": "current_extracted/sheets/RUN_HISTORY.csv",
+      "bytes": 568540,
+      "sha256": "c40ce6fe7c4dcdff08a60ad152a9a862651f98468132b9db12d682ac198f4110"
+    },
+    {
+      "path": "current_extracted/sheets/RUN_LOG.csv",
+      "bytes": 275826,
+      "sha256": "530104d55b303b8242e187051b70678a0543bf10199d0f49298465565d703018"
+    },
+    {
+      "path": "current_extracted/sheets/RUN_SUMMARY.csv",
+      "bytes": 7693,
+      "sha256": "409d17f2ec66fbc8d7b9f6338dc1d987b544167590b5e2f5ea5e8bcb5a10573b"
+    },
+    {
+      "path": "current_extracted/sheets/SAP_ACTION_MAP.csv",
+      "bytes": 6628,
+      "sha256": "3ec1f444b98f0fbb9aad4482904045b16759f38027a517279a879c741e982d5b"
+    },
+    {
+      "path": "current_extracted/sheets/SAP_MAP.csv",
+      "bytes": 377158,
+      "sha256": "f37fa619c8a5ae6d4180bb325614b41635ec3c468cf0b16cb9a06ca1d9ca8124"
+    },
+    {
+      "path": "current_extracted/sheets/SAP_PROBE_LOG.csv",
+      "bytes": 126,
+      "sha256": "3a9401b5a97f6cf5a7177763c618510cbb9e49eb008e4674176546828e5c94a3"
+    },
+    {
+      "path": "current_extracted/sheets/WH_ACTUAL.csv",
+      "bytes": 17984,
+      "sha256": "a6805c1961ee03bd5ac97392294b8627d89348ff895058a14d3e0e3c847ab839"
+    },
+    {
+      "path": "current_extracted/vbaProject.bin",
+      "bytes": 4486656,
+      "sha256": "09e5f1fa42fb53759a1289106d4a75238912ce54dd923a3a378648be319ee0cc"
+    },
+    {
+      "path": "current_extracted/vba_strings_full.txt",
+      "bytes": 901034,
+      "sha256": "759daeeac8eeadf8be991c1d40e5b51091a9b7e8642292feaee35207b9d5a1f2"
+    },
+    {
+      "path": "current_extracted/vba_symbols_inventory.txt",
+      "bytes": 95994,
+      "sha256": "f5afc42ca0b88b52358d62aab55af5d346972af0c383d59715e3a551e808a049"
+    },
+    {
+      "path": "current_extracted/workbook_manifest.json",
+      "bytes": 5156,
+      "sha256": "49cb504bced2e465d4e0b4c02683a8bec3921c51c75f1332d881aa21c64104a8"
+    },
+    {
+      "path": "legacy/EXPECTED_OLDER_BINARIES_NOT_MOUNTED.md",
+      "bytes": 654,
+      "sha256": "ecccbe28a3311e203c154a1950df64f0d5bfd49b2675e72015f827afb84ed4b6"
+    },
+    {
+      "path": "legacy/LEGACY_REFERENCES.md",
+      "bytes": 1935,
+      "sha256": "34a8ab083d1b9b777d0a14d7194a514699c3629a0d82c8deb782c0b23e35c72c"
+    },
+    {
+      "path": "legacy/legacy_reference_manifest.csv",
+      "bytes": 2219,
+      "sha256": "00cb55f27f100a04356d309e77384fdded8edb0fb18c6b41f2710d9546ad5c71"
+    },
+    {
+      "path": "markdown.md",
+      "bytes": 32218,
+      "sha256": "4b9d0e50fdcbebf5c996bf57304a4d78707bd6c263a4b49fdec6018c419efa50"
+    },
+    {
+      "path": "support/Lỗi Overflow trong VBA.txt",
+      "bytes": 1234,
+      "sha256": "7c753937d4807c3d5ea5113c321dfd1bffa78e2b5d5d6f470960961b452c1eb6"
+    },
+    {
+      "path": "support/Sửa lỗi shared lock.txt",
+      "bytes": 1617,
+      "sha256": "10b8fb50c617b15ba5a9602d7f775411393b425596381fd496c9510b5259074b"
+    },
+    {
+      "path": "support/Tạo nút Đọc Tab SAP.txt",
+      "bytes": 1395,
+      "sha256": "65a3e993eacd19cf8997fffaa104ec2591f25f679dd9c09d571e5e4eef360572"
+    },
+    {
+      "path": "support/Vba migo.txt",
+      "bytes": 2891,
+      "sha256": "3134e967445bd3d74f1660e7d77242b19452b5da7462bea3a50d9de62f609501"
+    },
+    {
+      "path": "tests/ACCEPTANCE_TESTS.md",
+      "bytes": 1192,
+      "sha256": "a1284119456acae932460a977f5377ad832ec9e843f3ee89eaf240c3120de806"
+    },
+    {
+      "path": "tests/REPLAY_SCENARIOS.csv",
+      "bytes": 2666,
+      "sha256": "7d15c39aa311ffb28672ce12cca0efd417f7057e239bf0d38dd1e6cee53f31f1"
+    }
+  ]
+}

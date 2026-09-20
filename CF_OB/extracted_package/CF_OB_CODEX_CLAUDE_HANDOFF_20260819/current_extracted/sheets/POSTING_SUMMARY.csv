@@ -1,0 +1,2 @@
+﻿Material,Requested,Rows Found,Result,Reason,Load Run ID,Phase1 OB Count,Source OBs,Data Ready,SAP Write,Cancel,Save,SAP Expected Rows,Captured Raw Rows,Valid Stock Rows,Grid RowCount,Classified Data Rows,Aux Rows,Unknown Rows,Capture Proof
+BIW32023716AA,YES,2,POST_FOUND,MULTI_SOURCE,20260819_054040,1,1011832412,TRUE,0,0,0,2,2,2,3,2,1,0,PASS|Expected=2|Grid=3|Data=2|Aux=1|Unknown=0

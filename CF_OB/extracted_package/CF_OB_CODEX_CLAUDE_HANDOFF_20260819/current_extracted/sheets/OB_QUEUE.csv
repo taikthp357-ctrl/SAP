@@ -1,0 +1,2 @@
+﻿Sequence,Input Row,Requested OB,Returned OB,Note,WH Rows,Status,Load Result,Started,Finished,Process Allowed,Read Only,SAP Write,Cancel,Save,CF,Reason,Run ID,Warehouse Activity Status,Picking Status,Goods Issue Status,Picking PI Status,OB State,OB State Reason
+1,7,1011832412,1011832412,,2,PASS,WH_SNAPSHOT_APPENDED,46253.236574074072,46253.236724537041,TRUE,YES,0,0,0,0,RequestedOB=ReturnedOB; rows=2; OB_STATE=OB_OPEN_OR_PARTIAL,20260819_054040,Partially Completed,Partially Completed,Not Started,Completed,OB_OPEN_OR_PARTIAL,OB_OPEN_OR_PARTIAL: header completion is not 4/4.

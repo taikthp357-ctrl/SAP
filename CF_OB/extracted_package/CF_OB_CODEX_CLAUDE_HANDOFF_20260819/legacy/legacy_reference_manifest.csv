@@ -1,0 +1,13 @@
+﻿Filename,File_ID,Date,Role,Packaging_Status,Use
+260810_CF_OB_V0.4_MON_ONE_OB_STABLE_CORE.xlsm,file_0000000048b482078ddcd1e739baa731,2026-08-10,Stable MON one-OB read-only core,FILE_LIBRARY_REFERENCE_ONLY,Exact-context MON principles
+260810_CF_OB_V0.4.4_MON_ONE_OB_FINAL.xlsm,file_000000008d3c8206a31b98197f3bbd38,2026-08-10,Stable MON one-OB evolution,FILE_LIBRARY_REFERENCE_ONLY,Exact document/WT context
+260810_CF_OB_V0.4.6_MON_ONE_OB_NATIVE_PACKAGE.xlsm,file_0000000009cc81f9a226fbf027fe1932,2026-08-10,Stable SAP/MON native package,FILE_LIBRARY_REFERENCE_ONLY,Preferred legacy MON donor
+260811_CF_OB_BASELINE_SAP_MAP_CONFIG_V1.xlsm,file_00000000e5fc8230b7bc29c307822f8d,2026-08-11,Baseline SAP map/config,FILE_LIBRARY_REFERENCE_ONLY,Map/config evolution
+260811_CF_OB_BASELINE_SAP_MAP_CONFIG_V1_SAFE.xlsm,file_000000007840820ba05a2f3573c4929c,2026-08-11,Fail-closed safe baseline,FILE_LIBRARY_REFERENCE_ONLY,Technical map lock baseline
+6f21cb22-d810-4068-8996-f85ccac4beee(1).xlsm,file_00000000e3a8820bba405820eb61a328,2026-08-14,Known CF live-pass baseline; Status=C,FILE_LIBRARY_REFERENCE_ONLY,Preserve proven CF path
+1e877739-438d-4245-b592-cef495924378(1).xlsm,file_000000008304820699fe626058c94e59,2026-08-14,Safe baseline with CONFIG/POSTING logic,FILE_LIBRARY_REFERENCE_ONLY,Fail-closed configuration history
+87ab24e7-a48d-4d0f-8286-0e1c9f04633c(1).xlsm,file_00000000d7f082098366e0940ce7ece1,2026-08-17,Grouped cancel + one PRDO save evolution; MON session issue,FILE_LIBRARY_REFERENCE_ONLY,Group executor transition
+9512776c-a01d-4b1c-8434-b46f9c9f1319(1).xlsm,file_0000000059a0820ba2667eacadc23b2f,2026-08-18,Pre-current group/navigation build,FILE_LIBRARY_REFERENCE_ONLY,Current architecture predecessor
+260811_CF_OB_UI_ONLY_V2.xlsx,file_0000000010e0820789d5f2bf0361a35e,2026-08-10,UI-only design reference,FILE_LIBRARY_REFERENCE_ONLY,Historical UI layout
+modCF_OB_MON_V0_4_3.bas,file_0000000038988209bc5401ff33bd8789,2026-08-10,Legacy MON source module,FILE_LIBRARY_REFERENCE_ONLY,Exact MON column contract
+modCF_PostingChange_STABLE.bas,file_000000002acc82068b5fe9fee21e8da3,2026-08-10,Legacy Posting Change source module,FILE_LIBRARY_REFERENCE_ONLY,Exact posting control/column approach

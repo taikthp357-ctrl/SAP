@@ -1,0 +1,12 @@
+V1.8.2 FIRST-RUN CHECKLIST
+==========================
+1. Open the XLSM in Microsoft Excel and enable macros.
+2. Confirm four buttons are visible on INPUT.
+3. Press CHON THU MUC and choose a test folder.
+4. Press KIEM TRA FILE and confirm file matching works.
+5. Use one DOC only on the second Windows/SAP user.
+6. When SAP GUI Security appears, choose Allow + Remember my decision for both prompts.
+7. Confirm the popup receives folder in DY_PATH and filename in DY_FILENAME.
+8. Confirm BBBG and VAT appear in View Attachments.
+9. Check LOG for GOS_PREFLIGHT PASS, ATT_LIST success and ATT_VERIFIED.
+10. Only then run multiple DOCs.

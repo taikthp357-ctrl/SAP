@@ -1,0 +1,28 @@
+﻿BUILD MANIFEST - V1.7 SMART GOS ATT
+=====================================
+Build Date    : 2026-08-03 13:01
+Baseline      : g:\SAP\v164_extracted\260802_V1.6.4_BBBG_VAT.xlsm
+Output XLSM   : g:\SAP\v17_output\260803_V1.7_BBBG_VAT_SMART_GOS_ATT.xlsm  (372,563 bytes)
+Output ZIP    : g:\SAP\v17_output\260803_V1.7_BBBG_VAT_SMART_GOS_ATT.zip    (305,873 bytes)
+vbaProject.bin: 517,632 bytes uncompressed (Excel re-compiled from source)
+
+VBA Structure (COM verified):
+  20 Components, 10 Sheets - SAME as V1.6.4
+
+All 4 Required Macros VERIFIED:
+  [OK] SelectSourceFolder_NoOCR  -> btnChooseFolder
+  [OK] CheckFiles_NoOCR          -> btnCheck
+  [OK] SAP_FillHeadTextOnly      -> btnHeadText
+  [OK] SAP_AttachCheckedFiles    -> btnAttach
+
+V1.7 New Functions VERIFIED in code:
+  [OK] ATT_GosSecurityPreflight   (MIGO311_RunPost_V24_ErrorGuard)
+  [OK] ATT_GosOpenWithRetry       (3-step smart retry)
+  [OK] ATT_ResolveSourceFolder    (khong khoa duong dan)
+  [OK] ATT_AttachOneSmartGOS      (thay the ATT_AttachOne)
+  [OK] TIMEOUT_SAP_SECURITY       (60s cho user xu ly Security)
+  [OK] WM_SETTEXT Unicode         (modWinFileDialog - tieng Viet)
+  [OK] WinBringSecurityDialogToFront
+  [OK] FindWindowW (Unicode API)
+
+Rollback: 260802_V1.6.4_BBBG_VAT.xlsm

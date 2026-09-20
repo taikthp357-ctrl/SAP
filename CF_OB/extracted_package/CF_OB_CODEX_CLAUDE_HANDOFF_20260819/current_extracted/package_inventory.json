@@ -1,0 +1,332 @@
+[
+  {
+    "path": "[Content_Types].xml",
+    "bytes": 4069,
+    "compressed_bytes": 499,
+    "crc32": "4d8f176b"
+  },
+  {
+    "path": "_rels/.rels",
+    "bytes": 588,
+    "compressed_bytes": 244,
+    "crc32": "233055b5"
+  },
+  {
+    "path": "xl/workbook.xml",
+    "bytes": 3428,
+    "compressed_bytes": 1273,
+    "crc32": "161d5586"
+  },
+  {
+    "path": "xl/_rels/workbook.xml.rels",
+    "bytes": 3525,
+    "compressed_bytes": 412,
+    "crc32": "d7e8d907"
+  },
+  {
+    "path": "xl/worksheets/sheet2.xml",
+    "bytes": 13606,
+    "compressed_bytes": 2215,
+    "crc32": "4f476caf"
+  },
+  {
+    "path": "xl/worksheets/sheet3.xml",
+    "bytes": 53891,
+    "compressed_bytes": 7604,
+    "crc32": "11fc339c"
+  },
+  {
+    "path": "xl/worksheets/sheet4.xml",
+    "bytes": 234172,
+    "compressed_bytes": 33259,
+    "crc32": "2c2f21b2"
+  },
+  {
+    "path": "xl/worksheets/sheet5.xml",
+    "bytes": 328545,
+    "compressed_bytes": 48543,
+    "crc32": "58b472da"
+  },
+  {
+    "path": "xl/worksheets/sheet6.xml",
+    "bytes": 299171,
+    "compressed_bytes": 43146,
+    "crc32": "a35c332a"
+  },
+  {
+    "path": "xl/worksheets/sheet7.xml",
+    "bytes": 594622,
+    "compressed_bytes": 78883,
+    "crc32": "619bf2e0"
+  },
+  {
+    "path": "xl/worksheets/sheet8.xml",
+    "bytes": 55234,
+    "compressed_bytes": 8150,
+    "crc32": "d4b3e051"
+  },
+  {
+    "path": "xl/worksheets/sheet9.xml",
+    "bytes": 3076,
+    "compressed_bytes": 1042,
+    "crc32": "031fda87"
+  },
+  {
+    "path": "xl/worksheets/sheet10.xml",
+    "bytes": 3988,
+    "compressed_bytes": 1178,
+    "crc32": "df8bc6bd"
+  },
+  {
+    "path": "xl/worksheets/sheet11.xml",
+    "bytes": 3679,
+    "compressed_bytes": 1106,
+    "crc32": "50700ec3"
+  },
+  {
+    "path": "xl/worksheets/sheet12.xml",
+    "bytes": 4326,
+    "compressed_bytes": 1180,
+    "crc32": "9140da63"
+  },
+  {
+    "path": "xl/worksheets/sheet13.xml",
+    "bytes": 1483,
+    "compressed_bytes": 671,
+    "crc32": "1b6ae229"
+  },
+  {
+    "path": "xl/worksheets/sheet14.xml",
+    "bytes": 1841,
+    "compressed_bytes": 725,
+    "crc32": "b73a160d"
+  },
+  {
+    "path": "xl/worksheets/sheet15.xml",
+    "bytes": 1634,
+    "compressed_bytes": 672,
+    "crc32": "13ef94b0"
+  },
+  {
+    "path": "xl/worksheets/sheet16.xml",
+    "bytes": 9976,
+    "compressed_bytes": 2004,
+    "crc32": "2d542bd1"
+  },
+  {
+    "path": "xl/worksheets/sheet17.xml",
+    "bytes": 11247,
+    "compressed_bytes": 2024,
+    "crc32": "666e58a3"
+  },
+  {
+    "path": "xl/worksheets/sheet18.xml",
+    "bytes": 486399,
+    "compressed_bytes": 66795,
+    "crc32": "76dba21b"
+  },
+  {
+    "path": "xl/worksheets/sheet19.xml",
+    "bytes": 18272,
+    "compressed_bytes": 3441,
+    "crc32": "24f67fbd"
+  },
+  {
+    "path": "xl/worksheets/sheet20.xml",
+    "bytes": 440782,
+    "compressed_bytes": 51310,
+    "crc32": "544e7520"
+  },
+  {
+    "path": "xl/theme/theme1.xml",
+    "bytes": 3544,
+    "compressed_bytes": 919,
+    "crc32": "1a2d6a42"
+  },
+  {
+    "path": "xl/styles.xml",
+    "bytes": 27394,
+    "compressed_bytes": 2558,
+    "crc32": "8abe2cae"
+  },
+  {
+    "path": "xl/sharedStrings.xml",
+    "bytes": 430585,
+    "compressed_bytes": 59218,
+    "crc32": "f461b3a2"
+  },
+  {
+    "path": "xl/drawings/drawing1.xml",
+    "bytes": 8822,
+    "compressed_bytes": 1392,
+    "crc32": "512af236"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet1.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 193,
+    "crc32": "4b326d3b"
+  },
+  {
+    "path": "xl/vbaProject.bin",
+    "bytes": 4486656,
+    "compressed_bytes": 1767484,
+    "crc32": "0ced97c5"
+  },
+  {
+    "path": "xl/worksheets/sheet1.xml",
+    "bytes": 1410,
+    "compressed_bytes": 677,
+    "crc32": "0ce0aba3"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet3.xml.rels",
+    "bytes": 464,
+    "compressed_bytes": 219,
+    "crc32": "c9ab9811"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet4.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 194,
+    "crc32": "9209a134"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet5.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 194,
+    "crc32": "a3119643"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet6.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 194,
+    "crc32": "2234f364"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet7.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 194,
+    "crc32": "7a2a5a4c"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet11.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 194,
+    "crc32": "181a34a2"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet14.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 195,
+    "crc32": "993f5185"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet16.xml.rels",
+    "bytes": 323,
+    "compressed_bytes": 194,
+    "crc32": "ff86d444"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet17.xml.rels",
+    "bytes": 323,
+    "compressed_bytes": 195,
+    "crc32": "7ea3b163"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet18.xml.rels",
+    "bytes": 323,
+    "compressed_bytes": 195,
+    "crc32": "26bd184b"
+  },
+  {
+    "path": "xl/worksheets/_rels/sheet9.xml.rels",
+    "bytes": 322,
+    "compressed_bytes": 195,
+    "crc32": "fb0f3f6b"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings1.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings5.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings6.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings7.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings8.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings9.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings10.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings3.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings11.bin",
+    "bytes": 1932,
+    "compressed_bytes": 326,
+    "crc32": "7c75c940"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings12.bin",
+    "bytes": 1932,
+    "compressed_bytes": 327,
+    "crc32": "41d7f9c0"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings4.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  },
+  {
+    "path": "docProps/core.xml",
+    "bytes": 603,
+    "compressed_bytes": 354,
+    "crc32": "2e5f8f6f"
+  },
+  {
+    "path": "docProps/app.xml",
+    "bytes": 1130,
+    "compressed_bytes": 496,
+    "crc32": "abcd07d8"
+  },
+  {
+    "path": "xl/printerSettings/printerSettings2.bin",
+    "bytes": 8632,
+    "compressed_bytes": 832,
+    "crc32": "3e5ba17f"
+  }
+]

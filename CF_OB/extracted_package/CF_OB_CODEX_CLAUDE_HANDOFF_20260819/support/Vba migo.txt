@@ -1,0 +1,70 @@
+Đã sửa thành **V27.2** theo đúng ba lỗi bạn phản ánh.
+
+### Luồng xác nhận
+
+`ONE_CLICK_CONFIRM_BEFORE_SAP = TRUE` giờ hoạt động như sau:
+
+1. Nhấn **CHẠY TOÀN BỘ**.
+2. Tool hỏi xác nhận **một lần ngay lúc bắt đầu**.
+3. Sau khi chọn **Yes**, tool chạy liên tục:
+   **FIFO → gom OB → MIGO 311 → OB tiếp theo**.
+4. Không còn dừng tại bước gom OB để hỏi lại.
+
+Đặt `FALSE` thì không hỏi xác nhận lần nào.
+
+### Tái sử dụng MIGO đang mở
+
+Tool sẽ:
+
+- Quét các tab/session SAP hiện có.
+- Ưu tiên tab có Transaction `MIGO`.
+- Nếu đã ở MIGO thì cấu hình trực tiếp `Transfer Posting → Other → 311`.
+- Không gửi `/NMIGO` và không reload tcode đang mở.
+- Chỉ mở `/NMIGO` khi chưa có MIGO hoặc khi cần reset sau lỗi.
+
+### Bắt kết quả OB ngay sau Save/Post
+
+Đã bỏ việc phụ thuộc chủ yếu vào thời gian chờ cố định.
+
+Sau khi nhấn Post, tool theo dõi:
+
+- `session.Busy` chuyển từ Busy về Idle.
+- Status Bar đổi sang loại `S`.
+- Nội dung Status Bar thay đổi.
+- Số Delivery mới xuất hiện.
+- Popup SAP đã đóng hoàn toàn.
+
+Khi SAP đã trả Delivery hoặc hoàn tất chu kỳ Post, tool ghi kết quả và chuyển sang OB tiếp theo ngay.
+
+`MIGO_DELIVERY_GRACE_SEC` giờ chỉ còn là **fallback**. Dù CONFIG đang là `5`, fallback thực tế được giới hạn tối đa **1 giây**; nếu bắt được sự kiện Delivery thì không chờ một giây này.
+
+Popup đang mở sẽ được xử lý trước khi tool chuyển OB, tránh trường hợp đánh dấu thành công nhưng SAP vẫn còn cửa sổ xác nhận.
+
+### Lưu file
+
+Giữ cơ chế của V27.1:
+
+- Không lưu đè template `.xltm`.
+- Cuối lượt tạo file mới dạng:
+
+```text id="shbo55"
+FIFO_MIGO_RESULT_yyyymmdd_hhnnss.xlsm
+```
+
+### Audit đóng gói
+
+- ZIP CRC hợp lệ.
+- XML và toàn bộ relationship target hợp lệ.
+- Không lỗi thứ tự phần tử worksheet.
+- Không có merge cell chồng lấn.
+- Không phát hiện lỗi `#REF!`, `#VALUE!`, `#DIV/0!`, `#NAME?`, `#N/A`.
+- Đủ 8 sheet và 17 module VBA.
+- Nút chính vẫn gắn `Run_FIFO_MIGO311_OneClick`.
+- Chỉ `vbaProject.bin` thay đổi; sheet, UI, dữ liệu và các nút không bị dựng lại.
+- Source VBA đã được kiểm tra lại sau đóng gói; Excel sẽ biên dịch lại mã khi mở file.
+
+Chưa thể kiểm chứng thời gian phản hồi thực tế trên SAP của bạn. Lượt đầu nên đặt `ONE_CLICK_POST_SCOPE = FIRST` để kiểm tra một OB, sau đó chuyển lại `ALL`.
+
+[Download V27.2 ZIP](sandbox:/mnt/data/V27.2_FIFO_MIGO_REUSE_EVENT_FAST_SAVE_AS_NEW_PACKAGE.zip)
+
+[Download trực tiếp V27.2 XLTM](sandbox:/mnt/data/V27.2_FIFO_MIGO_REUSE_EVENT_FAST_SAVE_AS_NEW.xltm)

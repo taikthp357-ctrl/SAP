@@ -1,0 +1,12 @@
+CHANGELOG - V1.8.2 SMART GOS ATT REBUILT
+=========================================
+- Rebuilt from the physical V1.6.4 workbook to restore all buttons, drawings, relationships, sheets and original workbook layout.
+- Kept all 20 VBA components.
+- Applied the Smart GOS/ATT VBA project containing the three requested logic fixes.
+- GOS Security preflight now occurs only after the first DOC is loaded and HeadText is confirmed.
+- Attachment-list reading now retries and logs ATT_LIST timeout instead of using the old single 350 ms attempt.
+- Removed invalid Method 3 window .Select fallback; uses sendVKey 40 fallback.
+- Retained SAP popup handling with separate DY_PATH and DY_FILENAME fields.
+- Retained Unicode Windows dialog fallback for Vietnamese paths/file names.
+- CONFIG!B4 is blank in the release workbook; no personal default path is forced.
+- Button entry points are unchanged: SelectSourceFolder_NoOCR, CheckFiles_NoOCR, SAP_FillHeadTextOnly, SAP_AttachCheckedFiles.

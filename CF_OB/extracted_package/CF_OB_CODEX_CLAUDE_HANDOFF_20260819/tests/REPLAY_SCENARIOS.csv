@@ -1,0 +1,23 @@
+﻿ID,Scenario,Fixture/Input,Expected Actions,Key Assertion
+S01,Normal CF only,Active WT already matches Actual Qty/Bin/Batch,No cancel/posting/qty/create; CF handoff,No document reopen
+S02,Increase Qty,Active retained 580; target 600,PRDO 600 one save; WHTask OpenQty20; Create20,ExpectedOpenQty=20
+S03,Decrease Qty,Active qty greater than Actual target,Group quantity reduction per business rule; no per-P flow,One document save
+S04,Cancel only,Active WT user Actual=0,Cancel once -> A; no recreate,RetainedQty=0
+S05,Cancel + Increase,Multiple members same doc,All cancels phase first; then qty target/save; then create,One coordinated run
+S06,Cancel + Decrease,Mixed members,Cancel phase then grouped qty decrease,No per-P reopen
+S07,Change Batch,Actual batch differs,Posting/batch phase then create/verify as required,Exact batch
+S08,Change Batch + Increase,Target batch differs and qty increases,Posting then grouped qty save then WHTask/create,Current bug class
+S09,Change Bin,"Actual bin differs, batch valid",Exact bin posting/change; then create/verify,Exact bin
+S10,APFL-CC01 bin,ActualBin=APFL-CC01,Accepted if SAP/stock proves valid,No P/ZF/HR hard rejection
+S11,A + blank,"Old WT=A, ActualQty blank",A_UNUSED; no new WT,No hard stop
+S12,A + repick,"Old WT=A, ActualQty=80 valid bin/batch",A_RECREATE_REQUIRED->READY; create 80 unless reconciled,Old WT retained=0
+S13,A + repick new bin,"Old WT=A, ActualQty>0, new exact bin",Stock/bin/batch check then new WT allocation,Old source ignored for retained qty
+S14,Multiple P same document,4+ P mixed intents,Classify all; group phases; one doc open,No member SAP writes
+S15,Increase + decrease same run,Different P same doc,Both targets applied in one Qty phase/save,One save/document
+S16,Multiple create allocations,Same material/item different exact bins/batches,Separate Create WT allocations,No accidental quantity merge
+S17,Rerun after cancel,Prior run cancelled old WT then stopped,Read/reconcile A; do not cancel again; continue,Idempotent
+S18,Rerun after PRDO save,"Target already saved, create not done",Detect PRDO target satisfied; WHTask/openqty; create delta only,No duplicate save required unless proof needed
+S19,Rerun after create,New active WT already created,Reconcile matching WT; NeedCreate=0,No duplicate WT
+S20,Existing C,Matching WT status C,Satisfied; no recreate,Terminal
+S21,Stale cache after A,RAM says A; sheet cache says Active,Mark cache stale; one refresh if needed; never block on stale record,Fresh contradiction only can stop
+S22,Session role collision,MON and PRDO resolve same session,Stop before write with session role collision,Never auto-reuse
