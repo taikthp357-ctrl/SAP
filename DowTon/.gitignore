@@ -18,3 +18,9 @@ get_window_text.py
 *.png
 qa_*.md
 qa_*.json
+
+fetch_chat.py
+create_v3_tasks.py
+upload_v3_artifacts.py
+verify_v3.py
+raw_share.html
