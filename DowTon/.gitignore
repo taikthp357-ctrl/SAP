@@ -1,0 +1,20 @@
+# Test, debug, and scratch files
+test_*.py
+check_*.py
+inspect_*.py
+run_*.py
+run_qa_verification.py
+run_aim524_qa.py
+verify_v2.py
+extract_v1.py
+block.py
+step_by_step.py
+get_window_text.py
+
+# Documentation, logs, and data scratch files
+*.txt
+*.md
+*.json
+*.png
+qa_*.md
+qa_*.json
