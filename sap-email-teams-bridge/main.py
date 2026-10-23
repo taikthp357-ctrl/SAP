@@ -297,6 +297,24 @@ def run_bridge():
 
                     elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
                         records = sap.check_position_posting_change(resolved_mats, batch)
+                        # Nếu /SCWM/POST không có kết quả, tự động fallback kiểm tra tồn MB52
+                        if not records:
+                            print(f"[FALLBACK] /SCWM/POST không có dữ liệu, tự động tra cứu tồn kho qua MB52...")
+                            fallback_records = sap.check_stock_mb52(resolved_mats, plant)
+                            if fallback_records:
+                                records = fallback_records
+                                headers = {
+                                    "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
+                                    "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm", "unit": "ĐVT"
+                                }
+                                mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                                summary = f"Tồn kho tổng hợp (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                                TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                                mail.UnRead = False
+                                mail.Save()
+                                move_mail_to_processed(mail, bot_folder)
+                                continue
+
                         headers = {
                             "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
                             "grDate": "Ngày GR", "grTime": "Giờ GR", "qty": "Số lượng",

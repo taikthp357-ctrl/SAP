@@ -174,15 +174,46 @@ class SapEngine:
 
         return records
 
+    def _open_transaction(self, tcode: str):
+        """Mở Transaction trên SAP GUI an toàn tuyệt đối qua ô lệnh okcd hoặc StartTransaction."""
+        self.ensure_session()
+        self.last_activity = time.time()
+
+        clean_code = tcode.strip().replace("/n", "").replace("/N", "")
+        if not clean_code.startswith("/") and "/" in tcode:
+            clean_code = "/" + clean_code
+
+        okcd_command = f"/n{clean_code}"
+        print(f"[SAP] Đang mở giao dịch: {okcd_command}...")
+
+        # Cách 1: Gõ vào ô lệnh wnd[0]/tbar[0]/okcd và gửi VKey 0 (Chuẩn nhất của SAP GUI)
+        try:
+            okcd = self.session.findById("wnd[0]/tbar[0]/okcd", False)
+            if okcd is not None:
+                okcd.text = okcd_command
+                self.session.findById("wnd[0]").sendVKey(0)
+                time.sleep(1.0)
+                self._dismiss_popups()
+                return
+        except Exception as e:
+            print(f"[SAP WARN] Không thể nhập qua okcd: {e}")
+
+        # Cách 2: Gọi StartTransaction (bắt buộc KHÔNG được có /n phía trước)
+        try:
+            raw_tcode = clean_code
+            print(f"[SAP] Thử mở bằng StartTransaction: {raw_tcode}...")
+            self.session.StartTransaction(raw_tcode)
+            time.sleep(1.0)
+            self._dismiss_popups()
+        except Exception as st_err:
+            print(f"[SAP ERROR] Không thể mở giao dịch {tcode}: {st_err}")
+
     # --------------------------------------------------------------------------
     # 1. KIỂM TRA VỊ TRÍ BIN & NGÀY GIỜ GR QUA POSTING CHANGE (/SCWM/POST)
     # --------------------------------------------------------------------------
     def check_position_posting_change(self, materials: List[str], batch: Optional[str] = None) -> List[Dict[str, str]]:
-        self.ensure_session()
-        self.last_activity = time.time()
-        self.session.StartTransaction("/n/SCWM/POST")
-        time.sleep(0.5)
-        self._dismiss_popups()
+        self._open_transaction("/SCWM/POST")
+        time.sleep(0.8)
 
         adv_start_btn_id = (
             "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
@@ -193,8 +224,9 @@ class SapEngine:
         if self.session.findById(adv_start_btn_id, False) is None:
             toggle_btn = self.session.findById(toggle_btn_id, False)
             if toggle_btn is not None:
+                print("[SAP POST] Bấm mở rộng bộ lọc tìm kiếm nâng cao...")
                 toggle_btn.press()
-                time.sleep(0.3)
+                time.sleep(0.5)
 
         mat_push_id = (
             "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
@@ -207,10 +239,13 @@ class SapEngine:
             "ctxtP_MATNR-LOW"
         )
 
+        print(f"[SAP POST] Đang nhập mã hàng: {materials} (Số lô: {batch or 'Tất cả'})...")
         if len(materials) == 1 and self.session.findById(mat_single_id, False) is not None:
             self.session.findById(mat_single_id).text = materials[0]
         elif self.session.findById(mat_push_id, False) is not None:
             self._fill_multiple_selection(mat_push_id, materials)
+        else:
+            print("[SAP POST WARN] Không tìm thấy trường nhập mã vật tư trên màn hình /SCWM/POST!")
 
         if batch:
             for batch_field_id in [
@@ -222,13 +257,14 @@ class SapEngine:
                     b_field.text = batch
                     break
 
+        print("[SAP POST] Đang thực thi tìm kiếm (Execute)...")
         start_btn = self.session.findById(adv_start_btn_id, False)
         if start_btn is not None:
             start_btn.press()
         else:
             self.session.findById("wnd[0]").sendVKey(8)
 
-        time.sleep(1.0)
+        time.sleep(1.5)
         self._dismiss_popups()
 
         alv_id = (
@@ -237,6 +273,7 @@ class SapEngine:
         )
         alv_grid = self.session.findById(alv_id, False)
         if alv_grid is None:
+            print("[SAP POST] Không tìm thấy ALV Grid trong /SCWM/POST (không có kết quả hoặc màn hình khác).")
             return []
 
         col_map = {
@@ -250,6 +287,7 @@ class SapEngine:
             "cat":     ["CAT", "LGTYP"]
         }
         records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP POST] Đã trích xuất {len(records)} dòng từ /SCWM/POST.")
 
         # SẮP XẾP ƯU TIÊN DỮ LIỆU GẦN NHẤT (Ngày GR & Giờ GR mới nhất lên đầu)
         def _gr_sort_key(item):
@@ -272,11 +310,10 @@ class SapEngine:
     # 2. KIỂM TRA TỒN KHO TỔNG THỂ (MB52)
     # --------------------------------------------------------------------------
     def check_stock_mb52(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
-        self.ensure_session()
-        self.last_activity = time.time()
-        self.session.StartTransaction("/nMB52")
+        self._open_transaction("MB52")
         time.sleep(0.5)
 
+        print(f"[SAP MB52] Đang nhập điều kiện tìm kiếm: Materials={materials}, Plant={plant}...")
         if len(materials) == 1:
             self.session.findById("wnd[0]/usr/ctxtMATNR-LOW").text = materials[0]
         else:
@@ -292,12 +329,14 @@ class SapEngine:
         if flat_rad is not None:
             flat_rad.select()
 
+        print("[SAP MB52] Đang bấm thực thi (F8)...")
         self.session.findById("wnd[0]/tbar[1]/btn[8]").press()
-        time.sleep(0.8)
+        time.sleep(1.5)
         self._dismiss_popups()
 
         alv_grid = self.session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell", False)
         if alv_grid is None:
+            print("[SAP MB52] Không tìm thấy bảng kết quả ALV (có thể không có dữ liệu tồn).")
             return []
 
         col_map = {
@@ -310,6 +349,7 @@ class SapEngine:
             "unit":    ["MEINS"]
         }
         records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP MB52] Đã trích xuất {len(records)} dòng dữ liệu tồn kho.")
 
         # SẮP XẾP: Ưu tiên dòng có Tồn khả dụng lớn nhất và Batch mới nhất lên đầu
         def _mb52_sort_key(item):
@@ -327,11 +367,10 @@ class SapEngine:
     # 3. KIỂM TRA LỊCH SỬ XUẤT NHẬP (MB51)
     # --------------------------------------------------------------------------
     def check_history_mb51(self, materials: List[str], days: int = 7, plant: str = "3093") -> List[Dict[str, str]]:
-        self.ensure_session()
-        self.last_activity = time.time()
-        self.session.StartTransaction("/nMB51")
+        self._open_transaction("MB51")
         time.sleep(0.5)
 
+        print(f"[SAP MB51] Đang nhập điều kiện: Materials={materials}, Days={days}, Plant={plant}...")
         if len(materials) == 1:
             self.session.findById("wnd[0]/usr/ctxtMATNR-LOW").text = materials[0]
         else:
@@ -345,12 +384,14 @@ class SapEngine:
         self.session.findById("wnd[0]/usr/ctxtBUDAT-LOW").text = start_date.strftime("%d.%m.%Y")
         self.session.findById("wnd[0]/usr/ctxtBUDAT-HIGH").text = end_date.strftime("%d.%m.%Y")
 
+        print("[SAP MB51] Đang bấm thực thi (F8)...")
         self.session.findById("wnd[0]/tbar[1]/btn[8]").press()
-        time.sleep(1.0)
+        time.sleep(1.5)
         self._dismiss_popups()
 
         alv_grid = self.session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell", False)
         if alv_grid is None:
+            print("[SAP MB51] Không tìm thấy bảng ALV lịch sử.")
             return []
 
         col_map = {
@@ -364,6 +405,7 @@ class SapEngine:
             "batch":   ["CHARG"]
         }
         records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP MB51] Đã trích xuất {len(records)} dòng lịch sử xuất nhập.")
 
         # SẮP XẾP: Ngày hạch toán (Posting Date) và Số chứng từ MỚI NHẤT lên đầu
         def _mb51_sort_key(item):
