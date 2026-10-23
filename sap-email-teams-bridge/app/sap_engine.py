@@ -4,13 +4,15 @@
 Tích hợp toàn bộ mã VBS/VBA chuẩn xác từ ModuleSAP.bas & modPosting.bas của BBBG Excel:
 - Điều khiển chuẩn xác các trường /SCWM/POST (Advanced Search, Owner, Multi-select, Start).
 - Cơ chế _find_largest_grid quét đệ quy bắt trọn mọi ALV Grid bất kể phiên bản SAP GUI.
-- Phân giải tên cột linh hoạt cả theo mã kỹ thuật (Technical ID) lẫn tiêu đề hiển thị (Caption).
+- Phân giải tên cột 2 lượt (Exact & Fuzzy) bằng GetDisplayedColumnTitle và GetColumnTitles.
+- Tự động lọc bỏ dòng tổng cộng (Summary rows) tránh in dòng trống trên Teams.
 - Đồng bộ tự động MB52 (kèm vị trí LGPBE) và MB51 (Lịch sử giao dịch).
 """
 
 import os
 import re
 import time
+import unicodedata
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import win32com.client
@@ -190,8 +192,55 @@ class SapEngine:
 
         return best_grid
 
+    @staticmethod
+    def _normalize_header(s: str) -> str:
+        """Chuẩn hóa chuỗi tiêu đề/mã cột: loại bỏ dấu, ký tự đặc biệt (kể cả Σ), chuyển chữ hoa."""
+        if not s:
+            return ""
+        nfd = unicodedata.normalize("NFD", str(s))
+        no_acc = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+        return re.sub(r"[^A-Za-z0-9]", "", no_acc).upper()
+
+    def _get_column_caption(self, alv_obj, col_id: str) -> str:
+        """Lấy tiêu đề hiển thị đầy đủ của cột qua GetDisplayedColumnTitle và GetColumnTitles chuẩn SAP GUI."""
+        parts = []
+        try:
+            disp = alv_obj.GetDisplayedColumnTitle(col_id)
+            if disp:
+                parts.append(str(disp).strip())
+        except Exception:
+            pass
+
+        try:
+            titles = alv_obj.GetColumnTitles(col_id)
+            if hasattr(titles, "Count"):
+                for i in range(titles.Count):
+                    t = str(titles.ElementAt(i)).strip()
+                    if t:
+                        parts.append(t)
+            elif isinstance(titles, (list, tuple)):
+                for t in titles:
+                    if str(t).strip():
+                        parts.append(str(t).strip())
+            elif titles:
+                parts.append(str(titles).strip())
+        except Exception:
+            pass
+
+        try:
+            tooltip = alv_obj.GetColumnTooltip(col_id)
+            if tooltip:
+                parts.append(str(tooltip).strip())
+        except Exception:
+            pass
+
+        return " ".join(parts)
+
     def _resolve_grid_columns(self, alv_obj, column_mapping: Dict[str, List[str]]) -> Dict[str, str]:
-        """Phân giải tên cột ALV Grid theo cả ID kỹ thuật lẫn Caption hiển thị như modSAPCore.ResolveColumn."""
+        """Phân giải tên cột ALV Grid theo thuật toán 2 lượt của ModuleSAP.bas:
+        - Lượt 1: Khớp chính xác mã kỹ thuật hoặc Caption đã chuẩn hóa (bỏ qua khoảng trắng, ký hiệu Σ).
+        - Lượt 2: Khớp mờ (Fuzzy match) cho các chuỗi có độ dài >= 4 ký tự.
+        """
         resolved = {}
         try:
             col_collection = alv_obj.ColumnOrder
@@ -200,45 +249,48 @@ class SapEngine:
             return resolved
 
         tech_cols = []
-        titles = {}
+        col_captions = {}
         for c_idx in range(col_count):
             try:
                 col_name = str(col_collection.ElementAt(c_idx)).strip()
                 tech_cols.append(col_name)
-                title = ""
-                try:
-                    title = str(alv_obj.GetColumnTitle(col_name)).strip().upper()
-                except Exception:
-                    try:
-                        title = str(alv_obj.ColumnTitle(col_name)).strip().upper()
-                    except Exception:
-                        pass
-                titles[col_name] = title
+                col_captions[col_name] = self._get_column_caption(alv_obj, col_name)
             except Exception:
                 pass
 
+        print(f"[SAP ALV] Bảng có {col_count} cột. Đang phân giải tự động...")
         for out_key, candidates in column_mapping.items():
             matched_col = None
-            for cand in candidates:
-                cand_clean = cand.strip().upper()
-                # 1. Khớp chính xác tên kỹ thuật
-                for tc in tech_cols:
-                    if tc.upper() == cand_clean:
+            cand_norms = [self._normalize_header(c) for c in candidates if self._normalize_header(c)]
+
+            # Lượt 1: Khớp chính xác (Exact match) mã kỹ thuật hoặc Caption
+            for tc in tech_cols:
+                tc_norm = self._normalize_header(tc)
+                cap_norm = self._normalize_header(col_captions.get(tc, ""))
+                for cn in cand_norms:
+                    if cn == tc_norm or cn == cap_norm:
                         matched_col = tc
                         break
                 if matched_col:
                     break
 
-                # 2. Khớp theo Caption / Tiêu đề cột
-                for tc, title in titles.items():
-                    if cand_clean in title or title in cand_clean:
-                        matched_col = tc
+            # Lượt 2: Khớp mờ (Fuzzy contains) cho các tiêu đề có ý nghĩa (>= 4 ký tự)
+            if not matched_col:
+                for tc in tech_cols:
+                    cap_full_norm = self._normalize_header(f"{tc} {col_captions.get(tc, '')}")
+                    for cn in cand_norms:
+                        if len(cn) >= 4 and cn in cap_full_norm:
+                            matched_col = tc
+                            break
+                    if matched_col:
                         break
-                if matched_col:
-                    break
 
             if matched_col:
                 resolved[out_key] = matched_col
+                cap_display = col_captions.get(matched_col, "")
+                print(f"  ✓ [{out_key:8}] -> Cột SAP '{matched_col}' ('{cap_display}')")
+            else:
+                print(f"  ✗ [{out_key:8}] -> Chưa tìm thấy cột phù hợp!")
 
         return resolved
 
@@ -297,7 +349,7 @@ class SapEngine:
         self._wait_idle(5.0)
 
     def _extract_alv_grid(self, alv_obj, column_mapping: Dict[str, List[str]]) -> List[Dict[str, str]]:
-        """Trích xuất ALV Grid kèm cơ chế cuộn dòng và forward-fill mã hàng như BBBG."""
+        """Trích xuất ALV Grid kèm cơ chế cuộn dòng, forward-fill mã hàng và lọc bỏ dòng tổng cộng (Summary rows)."""
         try:
             row_count = int(alv_obj.RowCount)
         except Exception:
@@ -332,6 +384,14 @@ class SapEngine:
                 last_product = curr_prod
             elif last_product and "product" in item:
                 item["product"] = last_product
+
+            # LỌC BỎ DÒNG TỔNG CỘNG / DÒNG RỖNG:
+            # Dòng dữ liệu hợp lệ trong SAP ALV phải có ít nhất Batch, Bin, SLoc hoặc DocNo
+            has_identifying_data = bool(
+                item.get("batch") or item.get("bin") or item.get("sloc") or item.get("docNo")
+            )
+            if not has_identifying_data:
+                continue
 
             records.append(item)
 
@@ -487,13 +547,13 @@ class SapEngine:
         # 9. Trích xuất các cột với danh mục định danh tương thích tuyệt đối cả SAP ID và Caption
         col_map = {
             "product": ["MATNR", "PRODUCT", "MATERIAL", "MATNR_EXT"],
-            "batch":   ["CHARG", "BATCH"],
+            "batch":   ["CHARG", "BATCH", "DEST.BATCH", "DEST BATCH"],
             "bin":     ["LGPLA", "VLPLA", "NLPLA", "SOURCE STORAGE BIN", "SOURCE BIN", "STORAGE BIN", "BIN"],
-            "grDate":  ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
-            "grTime":  ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"],
-            "qty":     ["AQUAN", "AQTY", "AVL_ALT_QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "QUAN", "GESME"],
+            "qty":     ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "QUAN", "TOTAL STK", "TOTAL STOCK", "GESME"],
             "unit":    ["MEINS", "ALTME", "UNIT", "UOM"],
-            "cat":     ["CAT", "TST", "STOCK TYPE", "ST", "TO_CAT"]
+            "cat":     ["CAT", "TST", "STOCK TYPE", "ST", "TO_CAT"],
+            "grDate":  ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
+            "grTime":  ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"]
         }
         records = self._extract_alv_grid(alv_grid, col_map)
         print(f"[SAP POST] Đã trích xuất {len(records)} dòng từ /SCWM/POST.")
@@ -595,10 +655,11 @@ class SapEngine:
             "plant":   ["WERKS", "PLANT"],
             "sloc":    ["LGORT", "SLOC", "STORAGE LOCATION"],
             "batch":   ["CHARG", "BATCH"],
-            "unrest":  ["LABST", "UNRESTRICTED", "UNRESTRICTED USE"],
-            "qual":    ["INSME", "QUALITY INSPECTION"],
             "bin":     ["LGPBE", "BIN", "STORAGE BIN"],
-            "unit":    ["MEINS", "BASE UNIT OF MEASURE"]
+            "unrest":  ["LABST", "UNRESTRICTED", "UNRESTRICTED USE"],
+            "qual":    ["INSME", "QUALITY INSPECTION", "IN QUALITY INSP."],
+            "blocked": ["SPEME", "BLOCKED"],
+            "unit":    ["MEINS", "BASE UNIT OF MEASURE", "UNIT"]
         }
         records = self._extract_alv_grid(alv_grid, col_map)
         print(f"[SAP MB52] Đã trích xuất {len(records)} dòng dữ liệu tồn kho.")
@@ -676,11 +737,12 @@ class SapEngine:
 
         col_map = {
             "product": ["MATNR", "MATERIAL"],
-            "docNo":   ["MBLNR", "MATERIAL DOCUMENT"],
-            "mvtType": ["BWART", "MOVEMENT TYPE"],
+            "docNo":   ["MBLNR", "MATERIAL DOCUMENT", "DOCUMENT"],
+            "mvtType": ["BWART", "MOVEMENT TYPE", "MVT"],
             "postDate":["BUDAT", "POSTING DATE"],
             "qty":     ["MENGE", "ERFMG", "QUANTITY"],
-            "unit":    ["MEINS", "ERFME", "UNIT OF ENTRY"],
+            "unit":    ["MEINS", "ERFME", "UNIT OF ENTRY", "UNIT"],
+            "plant":   ["WERKS", "PLANT"],
             "sloc":    ["LGORT", "SLOC", "STORAGE LOCATION"],
             "batch":   ["CHARG", "BATCH"]
         }

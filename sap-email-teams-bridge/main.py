@@ -345,8 +345,9 @@ def run_bridge():
 
                         headers = {
                             "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                            "grDate": "Ngày GR", "grTime": "Giờ GR", "qty": "Số lượng",
-                            "unit": "ĐVT", "cat": "Trạng thái"
+                            "qty": "Số lượng", "unit": "ĐVT",
+                            "grDate": "Ngày GR", "grTime": "Giờ GR",
+                            "cat": "Trạng thái"
                         }
                         mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                         summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"

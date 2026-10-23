@@ -1,5 +1,5 @@
 {
-  "teams_webhook_url": "https://prod-xx.southeastasia.logic.azure.com:443/workflows/YOUR_WEBHOOK_URL_HERE",
+  "teams_webhook_url": "https://defaulted6a2939d1534f9294f83d790d96c9.f8.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/18/workflows/e25c9fffecf34e85ad8a6f42ced46585/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=usJfmJxpyxihu0CRXVKwVo6cxbluIGVjf2E54WReeTU",
   "outlook_folder_name": "SAP_BOT",
   "poll_interval_seconds": 10,
   "default_plant": "3093",
