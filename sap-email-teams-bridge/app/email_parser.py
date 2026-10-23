@@ -88,39 +88,84 @@ class SmartCommandParser:
         if not cleaned and not subject:
             return None
 
-        # Kiểm tra JSON Marker format trước
-        json_match = re.search(
-            r"SAP_REQUEST_BEGIN\s*(\{.*?\})\s*SAP_REQUEST_END",
-            cleaned,
-            re.DOTALL | re.IGNORECASE
-        )
-        if json_match:
+        # 1. Hỗ trợ bóc tách JSON trực tiếp từ email (cả dạng thuần JSON lẫn có marker)
+        json_obj = None
+        marker_m = re.search(r"SAP_REQUEST_BEGIN\s*(\{.*?\})\s*SAP_REQUEST_END", cleaned, re.DOTALL | re.IGNORECASE)
+        if marker_m:
             try:
                 import json
-                data = json.loads(json_match.group(1))
-                cmd = str(data.get("command", "VITRI")).strip().upper()
-                mats = data.get("materials", [])
-                if isinstance(mats, str):
-                    mats = [m.strip() for m in re.split(r"[,;\s]+", mats) if m.strip()]
-                plant = str(data.get("plant", default_plant)).strip().upper()
-                batch = str(data.get("batch", "")).strip().upper()
-                days = int(data.get("days", 7))
-                if cmd and mats:
-                    return {
-                        "valid": True,
-                        "command": cmd,
-                        "intentReason": "JSON Marker",
-                        "materials": mats,
-                        "plant": plant or default_plant,
-                        "batch": batch,
-                        "days": days,
-                        "messageId": "",
-                        "senderEmail": "Unknown",
-                        "senderName": "Đồng nghiệp",
-                        "rawText": cleaned
-                    }
+                json_obj = json.loads(marker_m.group(1))
             except Exception:
                 pass
+
+        if not json_obj:
+            first_brace = cleaned.find("{")
+            last_brace = cleaned.rfind("}")
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                cand_str = cleaned[first_brace:last_brace+1]
+                try:
+                    import json
+                    parsed_json = json.loads(cand_str)
+                    if isinstance(parsed_json, dict) and any(k in parsed_json for k in ["command", "requestId", "schemaVersion", "materials", "RAW_TEXT"]):
+                        json_obj = parsed_json
+                except Exception:
+                    pass
+
+        if json_obj:
+            cmd = str(json_obj.get("command", "")).strip().upper()
+            req_id = str(json_obj.get("requestId", "") or json_obj.get("messageId", "")).strip()
+            plant = str(json_obj.get("plant", default_plant)).strip().upper() or default_plant
+            batch = str(json_obj.get("batch", "")).strip().upper()
+            days = int(json_obj.get("days", 7))
+            mats = json_obj.get("materials", [])
+            if isinstance(mats, str):
+                mats = [m.strip() for m in re.split(r"[,;\s]+", mats) if m.strip()]
+
+            raw_text = str(json_obj.get("rawText", "") or json_obj.get("RAW_TEXT", "") or json_obj.get("note", "")).strip()
+            sender_email = str(json_obj.get("senderEmail", "") or json_obj.get("SENDER_EMAIL", "") or "PowerAutomate").strip()
+            sender_name = str(json_obj.get("senderName", "") or json_obj.get("SENDER_NAME", "") or "Hệ thống").strip()
+            msg_id = str(json_obj.get("messageId", "") or json_obj.get("MSG_ID", "") or req_id).strip()
+            note = str(json_obj.get("note", "")).strip()
+            dry_run = bool(json_obj.get("dryRun", False))
+
+            if cmd == "PING":
+                return {
+                    "valid": True,
+                    "command": "PING",
+                    "intentReason": "JSON Command PING",
+                    "materials": [],
+                    "plant": plant,
+                    "batch": batch,
+                    "days": days,
+                    "requestId": req_id,
+                    "messageId": msg_id or req_id,
+                    "senderEmail": sender_email,
+                    "senderName": sender_name,
+                    "rawText": raw_text or "PING test",
+                    "dryRun": dry_run,
+                    "note": note
+                }
+
+            if mats:
+                return {
+                    "valid": True,
+                    "command": cmd or "VITRI",
+                    "intentReason": f"JSON Payload ({cmd or 'VITRI'})",
+                    "materials": mats,
+                    "plant": plant,
+                    "batch": batch,
+                    "days": days,
+                    "requestId": req_id,
+                    "messageId": msg_id or req_id,
+                    "senderEmail": sender_email,
+                    "senderName": sender_name,
+                    "rawText": raw_text,
+                    "dryRun": dry_run,
+                    "note": note
+                }
+
+            if raw_text:
+                cleaned = raw_text
 
         meta = {
             "messageId": "",

@@ -139,48 +139,61 @@ def run_bridge():
     # Tìm hoặc tự động tạo mới thư mục BOT trong Outlook
     bot_folder = None
 
-    # 1. Thử lấy trực tiếp theo tên
+    # 1. Quét trong Default Inbox
     try:
-        bot_folder = inbox.Folders[folder_name]
+        for f in inbox.Folders:
+            if f.Name.strip().lower() == folder_name.strip().lower():
+                bot_folder = f
+                print(f"[OUTLOOK] Tìm thấy thư mục '{f.Name}' trong '{inbox.Name}'.")
+                break
     except Exception:
         pass
 
-    # 2. Tìm không phân biệt hoa thường trong Inbox
-    if bot_folder is None:
-        try:
-            for f in inbox.Folders:
-                if f.Name.strip().lower() == folder_name.strip().lower():
-                    bot_folder = f
-                    break
-        except Exception:
-            pass
-
-    # 3. Tìm ở cấp thư mục gốc (Root Account Folders) phòng khi tạo ngoài Inbox
+    # 2. Quét tại cấp Root của tài khoản (VD: v.taipt8@futurevn.com -> SAP_BOT)
     if bot_folder is None:
         try:
             root_store = inbox.Parent
             for f in root_store.Folders:
                 if f.Name.strip().lower() == folder_name.strip().lower():
                     bot_folder = f
+                    print(f"[OUTLOOK] Tìm thấy thư mục '{f.Name}' tại cấp gốc tài khoản '{root_store.Name}'.")
                     break
         except Exception:
             pass
 
-    # 4. Nếu chưa có ở bất kỳ đâu -> TỰ ĐỘNG TẠO MỚI ngay trong Inbox
+    # 3. Quét tất cả các Store / Mailbox trong Outlook
     if bot_folder is None:
         try:
-            bot_folder = inbox.Folders.Add(folder_name)
-            print(f"[OUTLOOK] Đã tự động tạo mới thư mục 'Inbox/{folder_name}' trong Outlook thành công!")
+            for store in outlook_ns.Folders:
+                for f in store.Folders:
+                    if f.Name.strip().lower() == folder_name.strip().lower():
+                        bot_folder = f
+                        print(f"[OUTLOOK] Tìm thấy thư mục '{f.Name}' trong hòm thư '{store.Name}'.")
+                        break
+                if bot_folder:
+                    break
+        except Exception:
+            pass
+
+    # 4. Nếu chưa có ở bất kỳ đâu -> TỰ ĐỘNG TẠO MỚI tại gốc tài khoản hoặc trong Inbox
+    if bot_folder is None:
+        try:
+            try:
+                bot_folder = inbox.Parent.Folders.Add(folder_name)
+                print(f"[OUTLOOK] Đã tự động tạo mới thư mục '{folder_name}' tại gốc tài khoản!")
+            except Exception:
+                bot_folder = inbox.Folders.Add(folder_name)
+                print(f"[OUTLOOK] Đã tự động tạo mới thư mục '{folder_name}' trong Inbox!")
         except Exception as add_err:
             raise RuntimeError(
-                f"Không tìm thấy và không thể tự động tạo thư mục 'Inbox/{folder_name}' trong Outlook.\n"
-                f"Hướng dẫn: Nhấp chuột phải vào 'Hộp thư đến (Inbox)' -> Chọn 'Thư mục mới (New Folder)' -> Đặt tên là '{folder_name}'.\n"
+                f"Không tìm thấy và không thể tự động tạo thư mục '{folder_name}' trong Outlook.\n"
+                f"Vui lòng tạo thư mục mang tên '{folder_name}' trong Outlook trước khi chạy!\n"
                 f"Chi tiết: {add_err}"
             )
 
     resolver = MaterialResolver()
     sap = SapEngine(max_alv_rows=max_rows, keep_alive_idle_seconds=keep_alive_idle)
-    print(f"[READY] Đang lắng nghe thư mới trong 'Inbox/{folder_name}'...")
+    print(f"[READY] Đang lắng nghe thư mới trong '{bot_folder.Name}'...")
 
     seq_counter = 1
     processed_msg_ids = set()
@@ -253,14 +266,36 @@ def run_bridge():
                 days = meta["days"]
 
                 # 3. Phân giải mã thông minh từ Sheet DATA (vd: 32013765 -> BIW32013765AA)
-                resolved_mats, notes = resolver.resolve_list(raw_mats)
-                print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
-                print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
-                print(f"  -> Mã gốc:   {raw_mats} ──> Mã SAP: {resolved_mats}")
-                print(f"  -> Tham số:  Batch='{batch or 'ALL'}' | Plant='{plant}' | Số ngày={days}")
+                if cmd != "PING":
+                    resolved_mats, notes = resolver.resolve_list(raw_mats)
+                    print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
+                    print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
+                    print(f"  -> Mã gốc:   {raw_mats} ──> Mã SAP: {resolved_mats}")
+                    print(f"  -> Tham số:  Batch='{batch or 'ALL'}' | Plant='{plant}' | Số ngày={days}")
+                else:
+                    resolved_mats = []
+                    print(f"\n[DETECTED] {req_id} | Lệnh PING kiểm tra kết nối từ {meta['senderName']}")
 
                 try:
-                    if cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
+                    if cmd == "PING":
+                        ping_html = (
+                            f"<div style='font-family:Segoe UI,sans-serif;background:#dafbe1;border:1px solid #4ac26b;"
+                            f"border-left:4px solid #1a7f37;padding:12px 14px;border-radius:4px;color:#24292f;'>"
+                            f"<div style='font-weight:bold;color:#1a7f37;font-size:14px;margin-bottom:6px;'>"
+                            f"🏓 PONG! Kết nối hoàn tất thành công!</div>"
+                            f"<div style='font-size:12px;line-height:1.6;'>"
+                            f"• <strong>Request ID:</strong> {meta.get('requestId') or req_id}<br>"
+                            f"• <strong>Thư mục lắng nghe:</strong> Outlook/{bot_folder.Name}<br>"
+                            f"• <strong>Plant:</strong> {plant}<br>"
+                            f"• <strong>Trạng thái SAP:</strong> Sẵn sàng (0 Open Port / 0 PowerShell)<br>"
+                            f"• <strong>Ghi chú:</strong> {meta.get('note', 'Kiểm tra đường truyền hoàn tất.')}"
+                            f"</div></div>"
+                        )
+                        summary = f"Kiểm tra kết nối PING-PONG thành công (Request ID: {meta.get('requestId') or req_id})"
+                        TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, [], {}, custom_html=ping_html)
+                        print(f"[PING SUCCESS] {req_id} | Đã phản hồi PONG tới Teams Webhook!")
+
+                    elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
                         records = sap.check_position_posting_change(resolved_mats, batch)
                         headers = {
                             "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",

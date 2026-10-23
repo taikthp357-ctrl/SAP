@@ -87,3 +87,29 @@ def test_parse_invalid_body():
     body = "Xin chào, hôm nay họp lúc 2h nhé."
     res = EmailCommandParser.parse(body)
     assert res is None
+
+
+def test_parse_real_power_automate_ping_json():
+    mail_body = """
+    THẬN TRỌNG: Email này được gửi từ BÊN NGOÀI. Hãy kiểm tra kỹ địa chỉ email người gửi và thận trọng trước khi mở liên kết hoặc tệp đính kèm.
+    CAUTION: This email was sent from an EXTERNAL source. Do not click links or open attachments unless you recognize the sender and know the content is safe.
+
+    {
+    "schemaVersion": 1,
+    "requestId": "08584088749507581526025903895CU04",
+    "command": "PING",
+    "plant": "3093",
+    "dryRun": true,
+    "source": "PowerAutomate",
+    "note": "Kiem tra nhan lenh qua email. Chua chay SAP."
+    }
+
+    If you want to unsubscribe from these emails, please use this form.
+    """
+    res = EmailCommandParser.parse(mail_body)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "PING"
+    assert res["requestId"] == "08584088749507581526025903895CU04"
+    assert res["dryRun"] is True
+    assert res["plant"] == "3093"
