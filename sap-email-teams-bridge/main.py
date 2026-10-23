@@ -327,22 +327,22 @@ def run_bridge():
                             move_mail_to_failed(mail, bot_folder)
                         continue
 
-                cmd = meta["command"]
-                raw_mats = meta["materials"]
-                plant = meta["plant"]
-                batch = meta["batch"]
-                days = meta["days"]
+                    cmd = meta["command"]
+                    raw_mats = meta["materials"]
+                    plant = meta["plant"]
+                    batch = meta["batch"]
+                    days = meta["days"]
 
-                # 3. Phân giải mã thông minh từ Sheet DATA (vd: 32013765 -> BIW32013765AA)
-                if cmd != "PING":
-                    resolved_mats, notes = resolver.resolve_list(raw_mats)
-                    print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
-                    print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
-                    print(f"  -> Mã gốc:   {raw_mats} ──> Mã SAP: {resolved_mats}")
-                    print(f"  -> Tham số:  Batch='{batch or 'ALL'}' | Plant='{plant}' | Số ngày={days}")
-                else:
-                    resolved_mats = []
-                    print(f"\n[DETECTED] {req_id} | Lệnh PING kiểm tra kết nối từ {meta['senderName']}")
+                    # 3. Phân giải mã thông minh từ Sheet DATA (vd: 32013765 -> BIW32013765AA)
+                    if cmd != "PING":
+                        resolved_mats, notes = resolver.resolve_list(raw_mats)
+                        print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
+                        print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
+                        print(f"  -> Mã gốc:   {raw_mats} ──> Mã SAP: {resolved_mats}")
+                        print(f"  -> Tham số:  Batch='{batch or 'ALL'}' | Plant='{plant}' | Số ngày={days}")
+                    else:
+                        resolved_mats = []
+                        print(f"\n[DETECTED] {req_id} | Lệnh PING kiểm tra kết nối từ {meta['senderName']}")
 
                     records = []
                     headers = {}
