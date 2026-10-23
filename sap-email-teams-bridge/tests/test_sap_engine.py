@@ -2,7 +2,8 @@
 """Unit tests cho logic xử lý ALV Grid và phân giải cột trong SapEngine."""
 
 from unittest.mock import MagicMock
-from app.sap_engine import SapEngine
+import pytest
+from app.sap_engine import SapEngine, SapExecutionError
 
 
 class FakeColumnCollection:
@@ -205,4 +206,58 @@ def test_resolve_me2n_columns():
     assert resolved["supplyingPlant"] == "RESWK"
     assert resolved["receivingPlant"] == "WERKS"
     assert resolved["docDate"] == "BEDAT"
+
+
+def test_extract_alv_grid_preserves_sto_and_filters_totals():
+    """Đảm bảo _extract_alv_grid không loại bỏ các dòng STO (chỉ có stoNo/item) và lọc đúng dòng tổng."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.max_alv_rows = 50
+
+    alv_mock = MagicMock()
+    alv_mock.RowCount = 3
+    alv_mock.ColumnOrder = FakeColumnCollection(["EBELN", "EBELP", "EMATN", "MENGE"])
+    alv_mock.GetColumnTitle.return_value = ""
+    alv_mock.ColumnTitle.return_value = ""
+
+    # Dòng 0: Dòng dữ liệu STO hợp lệ (không có batch, bin, sloc, docNo)
+    # Dòng 1: Dòng dữ liệu STO hợp lệ thứ hai
+    # Dòng 2: Dòng subtotal/total chỉ có MENGE (không có stoNo, item, product,...)
+    data = [
+        {"EBELN": "4500012345", "EBELP": "10", "EMATN": "BIW32013765AA", "MENGE": "1,000"},
+        {"EBELN": "4500012346", "EBELP": "20", "EMATN": "BIW32013765AA", "MENGE": "500"},
+        {"EBELN": "",           "EBELP": "",   "EMATN": "",               "MENGE": "1,500"},
+    ]
+    alv_mock.GetCellValue.side_effect = lambda r, col: data[r].get(col, "")
+
+    col_map = {
+        "stoNo":    ["EBELN"],
+        "item":     ["EBELP"],
+        "product":  ["EMATN"],
+        "orderQty": ["MENGE"]
+    }
+
+    records = engine._extract_alv_grid(alv_mock, col_map)
+    # Phải giữ lại 2 dòng hợp lệ và loại bỏ dòng tổng số 3
+    assert len(records) == 2
+    assert records[0]["stoNo"] == "4500012345"
+    assert records[0]["item"] == "10"
+    assert records[0]["orderQty"] == "1,000"
+    assert records[1]["stoNo"] == "4500012346"
+    assert records[1]["item"] == "20"
+
+
+def test_status_bar_error_raises_sap_execution_error():
+    """Kiểm tra khi thanh trạng thái SAP báo Error (E) hoặc Abort (A) thì bắn SapExecutionError."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("No data found for selection", "E"))
+
+    sess_mock = MagicMock()
+    engine.session = sess_mock
+
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine.check_sto_me2n(["BIW100"], plant="3093")
+    assert "Lỗi SAP ME2N (E)" in str(exc_info.value)
+
 

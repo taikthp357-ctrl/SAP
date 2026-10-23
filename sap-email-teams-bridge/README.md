@@ -3,9 +3,10 @@
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Tuyệt đối an toàn (Enterprise Grade):**
-   - **0 Open Port:** Không mở cổng mạng lắng nghe (không socket server), chỉ gửi Outbound HTTPS POST duy nhất tới Power Automate.
-   - **0 PowerShell:** Điều khiển SAP GUI và Outlook hoàn toàn qua Windows COM Object trong RAM, không gọi bất kỳ lệnh PowerShell hay tạo tiến trình nhạy cảm nào.
+1. **Thiết kế bảo mật & an toàn (Zero Inbound Port Architecture):**
+   - **0 Open Port:** Không mở cổng mạng lắng nghe (không socket server), chỉ gửi Outbound HTTPS POST duy nhất tới Power Automate Webhook.
+   - **0 PowerShell:** Điều khiển SAP GUI và Outlook hoàn toàn qua Windows COM Object trong RAM, không gọi bất kỳ tiến trình PowerShell hay subprocess nhạy cảm nào.
+   - **Kiểm soát phiên SAP:** Tự động dò tìm session rỗi tại Main Menu / bot T-Code, tránh can thiệp nhầm vào phiên làm việc thực tế của người dùng.
 2. **Cơ chế Keep-Alive & Auto-Reconnect:**
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
@@ -25,17 +26,17 @@ sap-email-teams-bridge/
 ├── package_release.py              # Script đóng gói file ZIP phát hành
 ├── app/
 │   ├── config.py                   # Quản lý đọc cấu hình
-│   ├── email_parser.py             # Bộ bóc tách lệnh email
+│   ├── email_parser.py             # Bộ bóc tách lệnh email & coaching
+│   ├── material_resolver.py        # Quy đổi mã nội bộ / mã khách hàng qua Excel
+│   ├── number_utils.py             # Chuẩn hóa số lượng SAP đa định dạng
 │   ├── sap_engine.py               # Điều khiển SAP GUI COM & Keep-Alive
-│   └── teams_dispatcher.py         # Gửi kết quả Webhook kèm bảng HTML
+│   └── teams_dispatcher.py         # Gửi kết quả Webhook kèm bảng HTML & KPI
 ├── templates/
 │   ├── power_automate_schema.json  # Schema mẫu dán vào Power Automate
 │   └── email_samples.txt           # Mẫu nội dung email để test
 ├── docs/
 │   └── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
-└── tests/
-    ├── test_email_parser.py        # Unit tests bộ đọc email
-    └── test_teams_dispatcher.py    # Unit tests gửi bảng HTML
+└── tests/                          # Bộ unit tests hồi quy tự động (43 tests)
 ```
 
 ## Chạy thử nghiệm

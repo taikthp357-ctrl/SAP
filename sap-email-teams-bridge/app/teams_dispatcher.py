@@ -13,6 +13,8 @@ import urllib.error
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
+from app.number_utils import parse_sap_float, format_qty_display
+
 MAX_DISPLAY_RECORDS = 12          # Số dòng tối đa hiển thị trực quan trên Teams
 MAX_TEAMS_PAYLOAD_BYTES = 26000   # Trần dung lượng an toàn (dưới mốc 28 KB của Teams)
 
@@ -88,11 +90,7 @@ class TeamsDispatcher:
                 total_qty = 0.0
                 unit = ""
                 for r in records:
-                    q_str = str(r.get("qty", "0")).replace(".", "").replace(",", ".")
-                    try:
-                        total_qty += float(q_str)
-                    except Exception:
-                        pass
+                    total_qty += parse_sap_float(r.get("qty"))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
@@ -107,7 +105,7 @@ class TeamsDispatcher:
                 if total_qty > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                        f"📦 Tổng: {total_qty:,.0f} {unit}</span>"
+                        f"📦 Tổng: {format_qty_display(total_qty)} {unit}</span>"
                     )
 
             elif any(k in cmd_upper for k in ["TON", "MB52"]):
@@ -116,27 +114,19 @@ class TeamsDispatcher:
                 qual_sum = 0.0
                 unit = ""
                 for r in records:
-                    u_str = str(r.get("unrest", "0")).replace(".", "").replace(",", ".")
-                    q_str = str(r.get("qual", "0")).replace(".", "").replace(",", ".")
-                    try:
-                        unrest_sum += float(u_str)
-                    except Exception:
-                        pass
-                    try:
-                        qual_sum += float(q_str)
-                    except Exception:
-                        pass
+                    unrest_sum += parse_sap_float(r.get("unrest"))
+                    qual_sum += parse_sap_float(r.get("qual"))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
                 badges.append(
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"✅ Khả dụng: {unrest_sum:,.0f} {unit}</span>"
+                    f"✅ Khả dụng: {format_qty_display(unrest_sum)} {unit}</span>"
                 )
                 if qual_sum > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-                        f"⏳ Chờ kiểm (QI): {qual_sum:,.0f} {unit}</span>"
+                        f"⏳ Chờ kiểm (QI): {format_qty_display(qual_sum)} {unit}</span>"
                     )
                 badges.append(
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
@@ -166,11 +156,7 @@ class TeamsDispatcher:
                 total_qty = 0.0
                 unit = ""
                 for r in records:
-                    q_str = str(r.get("qty", "0")).replace(".", "").replace(",", ".")
-                    try:
-                        total_qty += float(q_str)
-                    except Exception:
-                        pass
+                    total_qty += parse_sap_float(r.get("qty"))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
@@ -181,7 +167,7 @@ class TeamsDispatcher:
                 if total_qty > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-                        f"📦 Tổng: {total_qty:,.0f} {unit}</span>"
+                        f"📦 Tổng: {format_qty_display(total_qty)} {unit}</span>"
                     )
                 if batches:
                     badges.append(
@@ -195,16 +181,8 @@ class TeamsDispatcher:
                 total_rem = 0.0
                 unit = ""
                 for r in records:
-                    o_str = str(r.get("orderQty", "0")).replace(".", "").replace(",", ".")
-                    r_str = str(r.get("remainingQty", "0")).replace(".", "").replace(",", ".")
-                    try:
-                        total_ord += float(o_str)
-                    except Exception:
-                        pass
-                    try:
-                        total_rem += float(r_str)
-                    except Exception:
-                        pass
+                    total_ord += parse_sap_float(r.get("orderQty"))
+                    total_rem += parse_sap_float(r.get("remainingQty"))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
@@ -214,12 +192,12 @@ class TeamsDispatcher:
                 )
                 badges.append(
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"📦 Đặt: {total_ord:,.0f} {unit}</span>"
+                    f"📦 Đặt: {format_qty_display(total_ord)} {unit}</span>"
                 )
                 if total_rem > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-                        f"⏳ Còn nợ: {total_rem:,.0f} {unit}</span>"
+                        f"⏳ Còn nợ: {format_qty_display(total_rem)} {unit}</span>"
                     )
         except Exception:
             return ""
@@ -271,19 +249,16 @@ class TeamsDispatcher:
         headers_map: Dict[str, str],
         custom_html: Optional[str] = None
     ) -> Tuple[Dict[str, Any], bytes]:
-        """Tự động co giãn số dòng để bảo đảm payload UTF-8 không bao giờ vượt quá 26 KB."""
+        """Tự động co giãn và cắt giảm đảm bảo payload UTF-8 TUYỆT ĐỐI không bao giờ vượt quá 26 KB."""
         total_records = len(records)
         display_records = list(records[:MAX_DISPLAY_RECORDS])
         command = meta.get("command", "")
 
-        while True:
-            if custom_html:
-                table_html = custom_html
-            else:
-                kpi_html = cls.build_kpi_badges(display_records, command)
-                table_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
+        # TÍNH KPI TRÊN TOÀN BỘ DỮ LIỆU THỰC TẾ (Không bị giới hạn bởi số dòng hiển thị)
+        kpi_html = cls.build_kpi_badges(records, command) if not custom_html else ""
 
-            payload = {
+        def _make_payload(cur_records, cur_table_html, include_records_array=True):
+            pl = {
                 "requestId": request_id,
                 "messageId": meta.get("messageId", ""),
                 "command": command,
@@ -293,16 +268,53 @@ class TeamsDispatcher:
                 "completedAt": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
                 "summary": summary,
                 "totalRecords": total_records,
-                "displayedRecords": len(display_records),
-                "table_html": table_html,
-                "records": display_records
+                "displayedRecords": len(cur_records),
+                "table_html": cur_table_html,
+                "records": cur_records if include_records_array else []
             }
+            d = json.dumps(pl, ensure_ascii=False).encode("utf-8")
+            return pl, d
 
-            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES or len(display_records) <= 3:
+        # Giai đoạn 1: Giảm dần số dòng hiển thị từ 12 xuống 1
+        while len(display_records) >= 1:
+            if custom_html:
+                cur_html = custom_html
+            else:
+                cur_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
+
+            payload, data = _make_payload(display_records, cur_html, include_records_array=True)
+            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
                 return payload, data
 
-            display_records = display_records[:-2]
+            if len(display_records) == 1:
+                break
+            display_records = display_records[:max(1, len(display_records) - 2)]
+
+        # Giai đoạn 2: Bỏ mảng JSON `records` nếu payload vẫn > 26 KB (chỉ giữ lại table_html)
+        payload, data = _make_payload(display_records, cur_html, include_records_array=False)
+        if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+            return payload, data
+
+        # Giai đoạn 3: Cắt ngắn độ dài ký tự trong các ô nếu vẫn > 26 KB
+        truncated_records = [
+            {k: (str(v)[:30] + "..." if len(str(v)) > 30 else v) for k, v in display_records[0].items()}
+        ] if display_records else []
+        cur_html = kpi_html + cls.build_html_table(truncated_records, headers_map, total_count=total_records)
+        payload, data = _make_payload(truncated_records, cur_html, include_records_array=False)
+        if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+            return payload, data
+
+        # Giai đoạn 4: Biện pháp phòng vệ tuyệt đối cuối cùng (chuyển sang Compact Card)
+        compact_card = (
+            f"<div style='font-family:Segoe UI,sans-serif;padding:10px 12px;background:#fff8c5;"
+            f"border-left:4px solid #d4a72c;font-size:12px;color:#24292f;'>"
+            f"⚠️ <strong>Dữ liệu chi tiết ({total_records} dòng) vượt giới hạn kích thước Teams.</strong><br>"
+            f"Hệ thống đã thu gọn để đảm bảo gửi thành công. Vui lòng lọc cụ thể hơn theo Lô hoặc Mã hàng."
+            f"</div>"
+        )
+        final_html = kpi_html + compact_card
+        payload, data = _make_payload([], final_html, include_records_array=False)
+        return payload, data
 
     @classmethod
     def send_reply(

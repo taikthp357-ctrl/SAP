@@ -122,12 +122,28 @@ class SmartCommandParser:
                 except Exception:
                     pass
 
+        SUPPORTED_JSON_COMMANDS = {
+            "PING", "VITRI", "BIN", "POST", "SCWM", "/SCWM/POST",
+            "TON", "MB52",
+            "LICHSU", "MB51",
+            "IB_TREO", "IB", "INBOUND", "VL06I",
+            "STO", "ME2N", "MB5T", "DIEUCHUYEN",
+            "HELP"
+        }
+
         if json_obj:
             cmd = str(json_obj.get("command", "")).strip().upper()
             req_id = str(json_obj.get("requestId", "") or json_obj.get("messageId", "")).strip()
             plant = str(json_obj.get("plant", default_plant)).strip().upper() or default_plant
             batch = str(json_obj.get("batch", "")).strip().upper()
-            days = int(json_obj.get("days", 7))
+
+            days_raw = json_obj.get("days", 7)
+            try:
+                days = int(days_raw)
+            except (ValueError, TypeError):
+                days = 7
+            days = max(1, min(days, 365))
+
             mats = json_obj.get("materials", [])
             if isinstance(mats, str):
                 mats = [m.strip() for m in re.split(r"[,;\s]+", mats) if m.strip()]
@@ -138,6 +154,17 @@ class SmartCommandParser:
             msg_id = str(json_obj.get("messageId", "") or json_obj.get("MSG_ID", "") or req_id).strip()
             note = str(json_obj.get("note", "")).strip()
             dry_run = bool(json_obj.get("dryRun", False))
+
+            if cmd and cmd not in SUPPORTED_JSON_COMMANDS:
+                return {
+                    "valid": False,
+                    "needHelpReply": True,
+                    "messageId": msg_id or req_id,
+                    "senderEmail": sender_email,
+                    "senderName": sender_name,
+                    "detectedIntent": "UNKNOWN",
+                    "reason": f"Lệnh '{cmd}' không được hỗ trợ trong hệ thống."
+                }
 
             if cmd == "PING":
                 return {

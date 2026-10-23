@@ -123,3 +123,55 @@ def test_build_kpi_badges_sto():
     assert "150 PC" in badges
     assert "40 PC" in badges
 
+
+def test_kpi_computed_over_full_dataset_not_just_12_display():
+    """Đảm bảo KPI tính trên toàn bộ tập dữ liệu (ví dụ 20 dòng) thay vì chỉ 12 dòng hiển thị."""
+    records = [
+        {"product": f"P{i:02d}", "batch": f"B{i:02d}", "bin": f"BIN-{i:02d}", "qty": "1", "unit": "PC"}
+        for i in range(20)
+    ]
+    headers_map = {"product": "Mã hàng", "batch": "Lô", "bin": "Bin", "qty": "SL"}
+    meta = {"messageId": "M01", "command": "VITRI"}
+
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        "REQ-20-ROWS", meta, "SUCCEEDED", "Tra cứu 20 dòng", records, headers_map
+    )
+
+    # Hiển thị tối đa 12 dòng nhưng KPI phải cộng đủ 20 PC
+    assert payload["totalRecords"] == 20
+    assert payload["displayedRecords"] <= 12
+    assert "20 PC" in payload["table_html"]
+    assert "20 Vị trí Bin" in payload["table_html"]
+
+
+def test_kpi_badges_sto_thousand_comma_formatting():
+    """Kiểm tra STO có số lượng '1,000' không bị parse thành 1.0."""
+    records = [
+        {"stoNo": "360001", "product": "BIW100", "orderQty": "1,000", "deliveredQty": "200", "remainingQty": "800", "unit": "PC"},
+        {"stoNo": "360002", "product": "BIW100", "orderQty": "500", "deliveredQty": "300", "remainingQty": "200", "unit": "PC"}
+    ]
+    badges = TeamsDispatcher.build_kpi_badges(records, "STO")
+    assert "1,500 PC" in badges
+    assert "1,000 PC" in badges
+
+
+def test_extreme_payload_reduction_under_26kb():
+    """Kiểm tra trường hợp dữ liệu cực lớn (nhiều text dài) luôn giữ payload <= 26,000 bytes."""
+    massive_records = []
+    for i in range(50):
+        massive_records.append({
+            "colA": f"Long descriptive text for item number {i} " * 20,
+            "colB": f"Additional notes and warehouse explanations {i} " * 20,
+            "qty": "100"
+        })
+    headers_map = {"colA": "Mô tả A", "colB": "Mô tả B", "qty": "Số lượng"}
+    meta = {"messageId": "MASSIVE-01", "command": "MB52"}
+
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        "REQ-MASSIVE", meta, "SUCCEEDED", "Tra cứu cực lớn", massive_records, headers_map
+    )
+
+    assert len(data) <= MAX_TEAMS_PAYLOAD_BYTES
+    assert payload["totalRecords"] == 50
+
+

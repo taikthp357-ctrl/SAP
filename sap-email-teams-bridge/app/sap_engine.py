@@ -17,22 +17,37 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import win32com.client
 
+from app.number_utils import parse_sap_float, format_qty_display
+
 SAP_LOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 SAP_CONNECTION_NAME = ""
+
+
+class SapExecutionError(RuntimeError):
+    """Lỗi phát sinh trong quá trình thực thi nghiệp vụ trên SAP GUI."""
+    pass
 
 
 class SapEngine:
     """Quản lý kết nối và điều khiển tự động SAP GUI theo chuẩn BBBG."""
 
-    def __init__(self, max_alv_rows: int = 300, keep_alive_idle_seconds: int = 900):
+    def __init__(
+        self,
+        max_alv_rows: int = 300,
+        keep_alive_idle_seconds: int = 900,
+        connection_index: int = 0,
+        session_index: int = 0
+    ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
+        self.connection_index = connection_index
+        self.session_index = session_index
         self.session = None
         self.last_activity = time.time()
         self.ensure_session()
 
     def _connect_sap(self):
-        """Kết nối tới phiên SAP GUI đang mở; nếu chưa chạy thì bật qua os.startfile."""
+        """Kết nối tới phiên SAP GUI an toàn, ưu tiên phiên đang ở Main Menu hoặc T-Code của bot."""
         try:
             sap_gui_auto = win32com.client.GetObject("SAPGUI")
             app = sap_gui_auto.GetScriptingEngine
@@ -53,12 +68,39 @@ class SapEngine:
 
         if app.Children.Count == 0:
             raise RuntimeError("Chưa có Connection nào trong SAP Logon. Vui lòng mở SAP và đăng nhập.")
-        conn = app.Children(0)
-        if conn.Children.Count == 0:
-            raise RuntimeError("Chưa có Session nào đang mở trong SAP GUI.")
-        session = conn.Children(0)
+
+        # Quét tìm session an toàn: tránh can thiệp nhầm vào phiên người dùng đang nhập liệu
+        selected_session = None
+        bot_safe_tcodes = {"SESSION_MANAGER", "/SCWM/POST", "MB52", "MB51", "VL06I", "ME2N", ""}
+
+        for c_idx in range(app.Children.Count):
+            conn = app.Children(c_idx)
+            for s_idx in range(conn.Children.Count):
+                sess = conn.Children(s_idx)
+                try:
+                    info = getattr(sess, "Info", None)
+                    tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                    if tcode in bot_safe_tcodes:
+                        selected_session = sess
+                        print(f"[SAP] Đã gắn kết nối an toàn: Connection {c_idx}, Session {s_idx} (T-Code: '{tcode or 'MAIN'}')")
+                        break
+                except Exception:
+                    pass
+            if selected_session is not None:
+                break
+
+        # Nếu không tìm thấy phiên nhàn rỗi, dùng phiên theo chỉ mục cấu hình
+        if selected_session is None:
+            c_idx = min(self.connection_index, app.Children.Count - 1)
+            conn = app.Children(c_idx)
+            if conn.Children.Count == 0:
+                raise RuntimeError("Chưa có Session nào đang mở trong SAP GUI.")
+            s_idx = min(self.session_index, conn.Children.Count - 1)
+            selected_session = conn.Children(s_idx)
+            print(f"[SAP] Dùng phiên mặc định: Connection {c_idx}, Session {s_idx}")
+
         self.last_activity = time.time()
-        return session
+        return selected_session
 
     def _is_session_alive(self) -> bool:
         """Kiểm tra xem session SAP còn phản hồi trong bộ nhớ RAM hay không."""
@@ -79,7 +121,7 @@ class SapEngine:
         return self.session
 
     def keep_alive(self, idle_threshold_seconds: Optional[int] = None):
-        """Gửi xung nhịp nhẹ làm mới phiên SAP chống timeout tự động của SAP Basis."""
+        """Gửi xung nhịp nhẹ làm mới phiên SAP an toàn, không ngắt quãng phiên làm việc của người dùng."""
         thresh = idle_threshold_seconds or self.keep_alive_idle_seconds
         if time.time() - self.last_activity < thresh:
             return
@@ -89,15 +131,32 @@ class SapEngine:
             if not self._is_session_alive():
                 self.session = self._connect_sap()
             else:
-                self.session.findById("wnd[0]/tbar[0]/okcd").Text = "/n"
-                self.session.findById("wnd[0]").sendVKey(0)
-                self._dismiss_popups()
+                # Kiểm tra T-code hiện tại: chỉ gửi /n nếu đang ở màn hình an toàn
+                tcode = ""
+                try:
+                    info = getattr(self.session, "Info", None)
+                    tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                except Exception:
+                    pass
+
+                bot_safe_tcodes = {"SESSION_MANAGER", "/SCWM/POST", "MB52", "MB51", "VL06I", "ME2N", ""}
+                if tcode in bot_safe_tcodes:
+                    self.session.findById("wnd[0]/tbar[0]/okcd").Text = "/n"
+                    self.session.findById("wnd[0]").sendVKey(0)
+                    self._dismiss_popups()
+                else:
+                    # Nếu người dùng đang ở giao dịch khác, chỉ đọc thuộc tính để giữ kết nối RAM
+                    _ = bool(self.session.Busy)
+
             self.last_activity = time.time()
             print(f"[KEEP-ALIVE] Phiên SAP đã được làm mới an toàn ({datetime.now().strftime('%H:%M:%S')})")
         except Exception as e:
             print(f"[KEEP-ALIVE WARNING] Không thể gửi xung nhịp: {e}. Sẽ kết nối lại khi có lệnh mới.")
             try:
                 self.session = self._connect_sap()
+                self.last_activity = time.time()
+            except Exception:
+                pass
                 self.last_activity = time.time()
             except Exception:
                 pass
@@ -386,9 +445,12 @@ class SapEngine:
                 item["product"] = last_product
 
             # LỌC BỎ DÒNG TỔNG CỘNG / DÒNG RỖNG:
-            # Dòng dữ liệu hợp lệ trong SAP ALV phải có ít nhất Batch, Bin, SLoc hoặc DocNo
+            # Dòng dữ liệu hợp lệ trong SAP ALV phải có ít nhất một trường định danh cụ thể:
+            # (Batch, Bin, SLoc, DocNo, STO, IB, Item No, Ref No, MvtType)
             has_identifying_data = bool(
-                item.get("batch") or item.get("bin") or item.get("sloc") or item.get("docNo")
+                item.get("batch") or item.get("bin") or item.get("sloc") or
+                item.get("docNo") or item.get("stoNo") or item.get("ibNo") or
+                item.get("item") or item.get("refNo") or item.get("mvtType")
             )
             if not has_identifying_data:
                 continue
@@ -532,7 +594,7 @@ class SapEngine:
         # 7. Kiểm tra trạng thái
         status_txt, status_type = self._get_status()
         if status_type in ("E", "A"):
-            print(f"[SAP POST ERROR] Trạng thái SAP báo lỗi: {status_txt}")
+            raise SapExecutionError(f"Lỗi SAP /SCWM/POST ({status_type}): {status_txt}")
 
         # 8. Tìm ALV Grid kết quả (Ưu tiên ID chuẩn BBBG, nếu không thì dò tìm đệ quy)
         alv_grid = self._find_by_id_safe(ID_STOCK_GRID)
@@ -642,6 +704,10 @@ class SapEngine:
         self._wait_idle(25.0)
         self._dismiss_popups()
 
+        status_txt, status_type = self._get_status()
+        if status_type in ("E", "A"):
+            raise SapExecutionError(f"Lỗi SAP MB52 ({status_type}): {status_txt}")
+
         alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
         if alv_grid is None:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
@@ -726,6 +792,10 @@ class SapEngine:
 
         self._wait_idle(25.0)
         self._dismiss_popups()
+
+        status_txt, status_type = self._get_status()
+        if status_type in ("E", "A"):
+            raise SapExecutionError(f"Lỗi SAP MB51 ({status_type}): {status_txt}")
 
         alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
         if alv_grid is None:
@@ -832,8 +902,7 @@ class SapEngine:
 
         status_txt, status_type = self._get_status()
         if status_type in ("E", "A"):
-            print(f"[SAP VL06I ERROR] {status_txt}")
-            return []
+            raise SapExecutionError(f"Lỗi SAP VL06I ({status_type}): {status_txt}")
 
         # 7. Chuyển sang chế độ xem chi tiết Item (btn[18] trên tbar[1])
         btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
@@ -952,8 +1021,7 @@ class SapEngine:
 
         status_txt, status_type = self._get_status()
         if status_type in ("E", "A"):
-            print(f"[SAP ME2N ERROR] {status_txt}")
-            return []
+            raise SapExecutionError(f"Lỗi SAP ME2N ({status_type}): {status_txt}")
 
         # 6. Tìm ALV Grid
         alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
@@ -985,21 +1053,14 @@ class SapEngine:
             if str(r.get("deleteInd", "")).strip():
                 continue
 
-            # Tính số lượng còn lại (Remaining Qty)
-            try:
-                ord_q = float(str(r.get("orderQty", "0")).replace(".", "").replace(",", "."))
-            except Exception:
-                ord_q = 0.0
-
-            try:
-                del_q = float(str(r.get("deliveredQty", "0")).replace(".", "").replace(",", "."))
-            except Exception:
-                del_q = 0.0
-
+            # Tính số lượng còn lại (Remaining Qty) chuẩn hóa float
+            ord_q = parse_sap_float(r.get("orderQty"))
+            del_q = parse_sap_float(r.get("deliveredQty"))
             rem_q = max(0.0, ord_q - del_q)
-            r["remainingQty"] = f"{rem_q:,.0f}" if rem_q.is_integer() else f"{rem_q:,.3f}"
-            r["orderQty"] = f"{ord_q:,.0f}" if ord_q.is_integer() else f"{ord_q:,.3f}"
-            r["deliveredQty"] = f"{del_q:,.0f}" if del_q.is_integer() else f"{del_q:,.3f}"
+
+            r["orderQty"] = format_qty_display(ord_q)
+            r["deliveredQty"] = format_qty_display(del_q)
+            r["remainingQty"] = format_qty_display(rem_q)
             records.append(r)
 
         # Sắp xếp số đơn STO mới nhất lên đầu

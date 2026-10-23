@@ -173,3 +173,67 @@ def test_parse_natural_language_sto():
     assert res["materials"] == ["BIW32013765AA"]
     assert res["plant"] == "3093"
 
+
+def test_parse_json_invalid_command_coaching():
+    """Kiểm tra JSON có command không hỗ trợ -> trả về Coaching / Trợ giúp."""
+    body = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "UNKNOWN_TCODE_XYZ",
+      "materials": ["32013765"],
+      "senderEmail": "test@vinfast.vn"
+    }
+    SAP_REQUEST_END
+    """
+    res = EmailCommandParser.parse(body)
+    assert res is not None
+    assert res["valid"] is False
+    assert res["needHelpReply"] is True
+    assert "không được hỗ trợ" in res["reason"]
+
+
+def test_parse_json_days_validation():
+    """Kiểm tra parse an toàn trường days: không crash với string, clamp hợp lệ."""
+    # 1. Chuỗi 'abc' -> mặc định về 7
+    body_str = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "MB51",
+      "materials": ["32013765"],
+      "days": "abc"
+    }
+    SAP_REQUEST_END
+    """
+    res1 = EmailCommandParser.parse(body_str)
+    assert res1 is not None
+    assert res1["days"] == 7
+
+    # 2. Số âm -> clamp về tối thiểu 1 ngày
+    body_neg = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "MB51",
+      "materials": ["32013765"],
+      "days": -10
+    }
+    SAP_REQUEST_END
+    """
+    res2 = EmailCommandParser.parse(body_neg)
+    assert res2 is not None
+    assert res2["days"] == 1
+
+    # 3. Số quá lớn -> clamp về tối đa 365 ngày
+    body_large = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "MB51",
+      "materials": ["32013765"],
+      "days": 1000
+    }
+    SAP_REQUEST_END
+    """
+    res3 = EmailCommandParser.parse(body_large)
+    assert res3 is not None
+    assert res3["days"] == 365
+
+
