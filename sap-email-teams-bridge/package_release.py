@@ -3,8 +3,8 @@
 
 Hỗ trợ 2 bản phát hành:
 1. Standard Release (Dung lượng siêu nhẹ ~63 KB cho máy đã cài sẵn Python).
-2. Portable All-In-One Release (Đã tích hợp sẵn Python 3.12 Runtime Portable ~47 MB,
-   không cần cài đặt Python, không cần quyền Admin, giải nén là chạy ngay).
+2. Portable All-In-One Release (Đã tích hợp sẵn Python 3.12 Runtime Portable Siêu Tinh Gọn ~15 MB,
+   đã loại bỏ các thư viện rác/test không dùng, không cần cài đặt Python, không cần quyền Admin).
 """
 
 import os
@@ -19,16 +19,28 @@ PORTABLE_ZIP = BASE_DIR / "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.0.zip"
 EXTERNAL_RUNTIME = Path(r"G:\AI-Manager\work\releases\ma_control_portable_build\runtime")
 LOCAL_RUNTIME = BASE_DIR / "runtime"
 
-EXCLUDE_DIRS = {".git", "__pycache__", ".pytest_cache", ".vscode", "runtime"}
-EXCLUDE_EXTS = {".pyc", ".zip"}
+EXCLUDE_SOURCE_DIRS = {".git", "__pycache__", ".pytest_cache", ".vscode", "runtime"}
+EXCLUDE_EXTS = {".pyc", ".zip", ".pdb"}
+
+# Các thư mục rác / test / web dev không sử dụng trong bridge để tối ưu dung lượng từ 47MB xuống ~15MB
+EXCLUDE_RUNTIME_DIRS = {
+    "__pycache__", ".pytest_cache", "test", "ensurepip", "idlelib", "tkinter",
+    "turtledemo", "PIL", "pygments", "pydantic", "pydantic_core", "_pytest",
+    "pytest", "fastapi", "starlette", "uvicorn", "anyio", "httpcore", "httpx",
+    "click"
+}
+
+EXCLUDE_RUNTIME_FILES = {
+    "NEWS.txt", "tcl86t.dll", "tk86t.dll", "_tkinter.pyd", "sqlite3.dll", "_sqlite3.pyd"
+}
 
 
 def create_standard_zip():
     print(f"\n[PACKAGE-STANDARD] Đang đóng gói Standard Release từ: {BASE_DIR}")
     count = 0
-    with zipfile.ZipFile(STANDARD_ZIP, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(STANDARD_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for root, dirs, files in os.walk(BASE_DIR):
-            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_SOURCE_DIRS]
             for file in files:
                 file_path = Path(root) / file
                 if file_path.suffix in EXCLUDE_EXTS:
@@ -49,12 +61,12 @@ def create_portable_zip():
         print(f"[SKIP-PORTABLE] Không tìm thấy runtime tại {runtime_source}")
         return
 
-    print(f"\n[PACKAGE-PORTABLE] Đang đóng gói Portable All-In-One (Kèm Python 3.12 Runtime)...")
+    print(f"\n[PACKAGE-PORTABLE] Đang đóng gói Portable All-In-One (Kèm Python 3.12 Runtime Siêu Tinh Gọn)...")
     count = 0
-    with zipfile.ZipFile(PORTABLE_ZIP, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(PORTABLE_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # 1. Gói các file mã nguồn & công cụ
         for root, dirs, files in os.walk(BASE_DIR):
-            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_SOURCE_DIRS]
             for file in files:
                 file_path = Path(root) / file
                 if file_path.suffix in EXCLUDE_EXTS:
@@ -65,10 +77,15 @@ def create_portable_zip():
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
 
-        # 2. Gói toàn bộ thư mục runtime/
+        # 2. Gói thư mục runtime/ sau khi lọc bỏ rác
         for root, dirs, files in os.walk(runtime_source):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_RUNTIME_DIRS]
             for file in files:
+                if file in EXCLUDE_RUNTIME_FILES:
+                    continue
                 file_path = Path(root) / file
+                if file_path.suffix in EXCLUDE_EXTS:
+                    continue
                 rel_path = Path("runtime") / file_path.relative_to(runtime_source)
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1

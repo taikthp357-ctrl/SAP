@@ -296,7 +296,7 @@ def run_bridge():
                         print(f"[PING SUCCESS] {req_id} | Đã phản hồi PONG tới Teams Webhook!")
 
                     elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
-                        records = sap.check_position_posting_change(resolved_mats, batch)
+                        records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
                         # Nếu /SCWM/POST không có kết quả, tự động fallback kiểm tra tồn MB52
                         if not records:
                             print(f"[FALLBACK] /SCWM/POST không có dữ liệu, tự động tra cứu tồn kho qua MB52...")
@@ -305,10 +305,11 @@ def run_bridge():
                                 records = fallback_records
                                 headers = {
                                     "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
-                                    "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm", "unit": "ĐVT"
+                                    "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
+                                    "bin": "Vị trí (Bin)", "unit": "ĐVT"
                                 }
                                 mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                                summary = f"Tồn kho tổng hợp (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                                summary = f"Tồn kho & Vị trí (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
                                 TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
                                 mail.UnRead = False
                                 mail.Save()
@@ -328,6 +329,9 @@ def run_bridge():
                         records = sap.check_stock_mb52(resolved_mats, plant)
                         headers = {
                             "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
+                            "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
+                            "bin": "Vị trí (Bin)", "unit": "ĐVT"
+                        }
                             "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm", "unit": "ĐVT"
                         }
                         mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
