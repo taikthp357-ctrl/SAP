@@ -261,3 +261,52 @@ def test_status_bar_error_raises_sap_execution_error():
     assert "Lỗi SAP ME2N (E)" in str(exc_info.value)
 
 
+def test_validate_grid_selection_screen_stuck_raises_error():
+    """Kiểm tra màn hình bị kẹt ở Selection Screen (btn[8] còn) nhưng không có thông báo không có dữ liệu."""
+    engine = SapEngine.__new__(SapEngine)
+    # Giả lập còn nút btn[8] (selection screen)
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine._validate_grid_or_raise(None, "MB52", "Input timeout or lock error", "")
+    assert "Không thể mở bảng kết quả SAP MB52" in str(exc_info.value)
+
+
+def test_validate_grid_no_data_normal_returns_none():
+    """Kiểm tra thông báo 'No data found' bình thường thì không văng ngoại lệ."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+
+    # Không được raise ngoại lệ khi status là No data
+    engine._validate_grid_or_raise(None, "MB52", "No data found for criteria", "")
+
+
+def test_strict_session_safety_guards_user_work():
+    """Kiểm tra chế độ strict_session_safety từ chối chiếm phiên nếu user đang mở MIGO."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.strict_session_safety = True
+    engine.connection_index = 0
+    engine.session_index = 0
+
+    app_mock = MagicMock()
+    app_mock.Children.Count = 1
+
+    conn_mock = MagicMock()
+    conn_mock.Children.Count = 1
+
+    sess_user = MagicMock()
+    sess_user.Info.Transaction = "MIGO"  # Người dùng đang nhập MIGO!
+
+    conn_mock.Children.side_effect = lambda idx: sess_user
+    app_mock.Children.side_effect = lambda idx: conn_mock
+
+    # Giả lập win32com trả về app_mock
+    import win32com.client
+    with pytest.raises(RuntimeError) as exc_info:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(win32com.client, "GetObject", lambda _: MagicMock(GetScriptingEngine=app_mock))
+            engine._connect_sap()
+    assert "Tất cả các phiên SAP đều đang bận thao tác của người dùng" in str(exc_info.value)
+
+
+

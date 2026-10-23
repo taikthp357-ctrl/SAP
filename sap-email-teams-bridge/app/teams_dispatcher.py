@@ -257,7 +257,15 @@ class TeamsDispatcher:
         # TÍNH KPI TRÊN TOÀN BỘ DỮ LIỆU THỰC TẾ (Không bị giới hạn bởi số dòng hiển thị)
         kpi_html = cls.build_kpi_badges(records, command) if not custom_html else ""
 
-        def _make_payload(cur_records, cur_table_html, include_records_array=True):
+        # Khởi tạo HTML ban đầu đảm bảo luôn tồn tại biến kể cả khi records rỗng hoặc dùng custom_html
+        if custom_html:
+            cur_html = custom_html
+        else:
+            cur_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
+
+        cur_summary = summary
+
+        def _make_payload(cur_recs, cur_tbl_html, cur_sum, include_records_array=True):
             pl = {
                 "requestId": request_id,
                 "messageId": meta.get("messageId", ""),
@@ -266,45 +274,46 @@ class TeamsDispatcher:
                 "senderEmail": meta.get("senderEmail", ""),
                 "senderName": meta.get("senderName", "Đồng nghiệp"),
                 "completedAt": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-                "summary": summary,
+                "summary": cur_sum,
                 "totalRecords": total_records,
-                "displayedRecords": len(cur_records),
-                "table_html": cur_table_html,
-                "records": cur_records if include_records_array else []
+                "displayedRecords": len(cur_recs),
+                "table_html": cur_tbl_html,
+                "records": cur_recs if include_records_array else []
             }
             d = json.dumps(pl, ensure_ascii=False).encode("utf-8")
             return pl, d
 
-        # Giai đoạn 1: Giảm dần số dòng hiển thị từ 12 xuống 1
-        while len(display_records) >= 1:
-            if custom_html:
-                cur_html = custom_html
-            else:
+        # Kiểm tra nhanh: nếu payload ban đầu đã dưới ngưỡng 26 KB thì trả về ngay
+        payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=True)
+        if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+            return payload, data
+
+        # Giai đoạn 1: Giảm dần số dòng hiển thị từ 12 xuống 1 (nếu có records)
+        while len(display_records) > 1:
+            display_records = display_records[:max(1, len(display_records) - 2)]
+            if not custom_html:
                 cur_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
 
-            payload, data = _make_payload(display_records, cur_html, include_records_array=True)
+            payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=True)
             if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
                 return payload, data
 
-            if len(display_records) == 1:
-                break
-            display_records = display_records[:max(1, len(display_records) - 2)]
-
         # Giai đoạn 2: Bỏ mảng JSON `records` nếu payload vẫn > 26 KB (chỉ giữ lại table_html)
-        payload, data = _make_payload(display_records, cur_html, include_records_array=False)
+        payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=False)
         if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
             return payload, data
 
         # Giai đoạn 3: Cắt ngắn độ dài ký tự trong các ô nếu vẫn > 26 KB
-        truncated_records = [
-            {k: (str(v)[:30] + "..." if len(str(v)) > 30 else v) for k, v in display_records[0].items()}
-        ] if display_records else []
-        cur_html = kpi_html + cls.build_html_table(truncated_records, headers_map, total_count=total_records)
-        payload, data = _make_payload(truncated_records, cur_html, include_records_array=False)
-        if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
-            return payload, data
+        if display_records:
+            truncated_records = [
+                {k: (str(v)[:30] + "..." if len(str(v)) > 30 else v) for k, v in display_records[0].items()}
+            ]
+            cur_html = kpi_html + cls.build_html_table(truncated_records, headers_map, total_count=total_records)
+            payload, data = _make_payload(truncated_records, cur_html, cur_summary, include_records_array=False)
+            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+                return payload, data
 
-        # Giai đoạn 4: Biện pháp phòng vệ tuyệt đối cuối cùng (chuyển sang Compact Card)
+        # Giai đoạn 4: Thu gọn bảng sang Compact Card
         compact_card = (
             f"<div style='font-family:Segoe UI,sans-serif;padding:10px 12px;background:#fff8c5;"
             f"border-left:4px solid #d4a72c;font-size:12px;color:#24292f;'>"
@@ -312,8 +321,28 @@ class TeamsDispatcher:
             f"Hệ thống đã thu gọn để đảm bảo gửi thành công. Vui lòng lọc cụ thể hơn theo Lô hoặc Mã hàng."
             f"</div>"
         )
-        final_html = kpi_html + compact_card
-        payload, data = _make_payload([], final_html, include_records_array=False)
+        cur_html = (kpi_html + compact_card) if not custom_html else custom_html
+        payload, data = _make_payload([], cur_html, cur_summary, include_records_array=False)
+        if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+            return payload, data
+
+        # Giai đoạn 5: Cắt giảm triệt để summary và table_html (Bảo vệ tuyệt đối chống vượt 26 KB)
+        if len(cur_summary) > 200:
+            cur_summary = cur_summary[:200] + "..."
+            payload, data = _make_payload([], cur_html, cur_summary, include_records_array=False)
+            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+                return payload, data
+
+        # Cắt ngắn custom_html hoặc table_html nếu bản thân HTML quá dài (> 20 KB)
+        while len(data) > MAX_TEAMS_PAYLOAD_BYTES and len(cur_html) > 200:
+            cur_html = cur_html[:int(len(cur_html) * 0.7)] + "</div>"
+            payload, data = _make_payload([], cur_html, cur_summary, include_records_array=False)
+
+        # Cắt ngắn summary xuống tối đa nếu vẫn còn vượt
+        if len(data) > MAX_TEAMS_PAYLOAD_BYTES:
+            cur_summary = cur_summary[:50] + "..."
+            payload, data = _make_payload([], "<p>Kết quả quá dài, vui lòng thu hẹp phạm vi tìm kiếm.</p>", cur_summary, include_records_array=False)
+
         return payload, data
 
     @classmethod
@@ -367,6 +396,28 @@ class TeamsDispatcher:
                 return True
         except urllib.error.URLError as e:
             print(f"[ERROR] Lỗi gửi Webhook Teams: {e}")
+            return False
+
+    @classmethod
+    def send_raw_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> bool:
+        """Gửi trực tiếp payload đã chuẩn hóa (dùng cho hàng đợi outbox retry)."""
+        if not webhook_url or "YOUR_WEBHOOK_URL_HERE" in webhook_url:
+            print(f"[DRY-RUN] Gửi raw payload: {payload.get('requestId')}")
+            return True
+
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            webhook_url,
+            data=data,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                print(f"[TEAMS RAW] Đã gửi lại payload {payload.get('requestId')} (HTTP {resp.status})")
+                return True
+        except urllib.error.URLError as e:
+            print(f"[TEAMS RAW ERROR] Lỗi gửi raw payload {payload.get('requestId')}: {e}")
             return False
 
     @classmethod

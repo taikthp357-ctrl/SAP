@@ -46,6 +46,27 @@ def test_parse_sap_float_spaces_and_blanks():
     assert parse_sap_float(45.67) == 45.67
 
 
+def test_parse_sap_float_corrupted_and_mixed_strings():
+    """Kiểm tra chuỗi chứa ký tự chữ và số không gây lỗi ValueError."""
+    # 'abc.123' -> trích xuất phần số an toàn
+    assert parse_sap_float("abc.123") == 0.123
+    assert parse_sap_float("QTY: 1,500 PCS") == 1500.0
+    assert parse_sap_float("INVALID_VAL", default=0.0) == 0.0
+    assert parse_sap_float({"not": "a number"}, default=0.0) == 0.0
+
+
+def test_parse_sap_float_explicit_formats():
+    """Kiểm tra chỉ định rõ ràng cấu hình số US vs EU/VN."""
+    # Chuẩn US: '1.000' là 1.0 (với 3 số thập phân), '1,000' là 1000.0
+    assert parse_sap_float("1.000", fmt="US") == 1.0
+    assert parse_sap_float("1,000", fmt="US") == 1000.0
+
+    # Chuẩn EU/VN: '1.000' là 1000.0, '1,234' là 1.234
+    assert parse_sap_float("1.000", fmt="EU") == 1000.0
+    assert parse_sap_float("1,234", fmt="VN") == 1.234
+    assert parse_sap_float("1.000,50", fmt="VN") == 1000.5
+
+
 def test_format_qty_display():
     """Kiểm tra định dạng chuỗi hiển thị số lượng."""
     assert format_qty_display(1000) == "1,000"

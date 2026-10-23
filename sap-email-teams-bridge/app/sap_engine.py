@@ -36,12 +36,14 @@ class SapEngine:
         max_alv_rows: int = 300,
         keep_alive_idle_seconds: int = 900,
         connection_index: int = 0,
-        session_index: int = 0
+        session_index: int = 0,
+        strict_session_safety: bool = True
     ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
         self.connection_index = connection_index
         self.session_index = session_index
+        self.strict_session_safety = strict_session_safety
         self.session = None
         self.last_activity = time.time()
         self.ensure_session()
@@ -89,15 +91,26 @@ class SapEngine:
             if selected_session is not None:
                 break
 
-        # Nếu không tìm thấy phiên nhàn rỗi, dùng phiên theo chỉ mục cấu hình
+        # Nếu không tìm thấy phiên nhàn rỗi, kiểm tra phiên theo cấu hình
         if selected_session is None:
             c_idx = min(self.connection_index, app.Children.Count - 1)
             conn = app.Children(c_idx)
             if conn.Children.Count == 0:
                 raise RuntimeError("Chưa có Session nào đang mở trong SAP GUI.")
             s_idx = min(self.session_index, conn.Children.Count - 1)
-            selected_session = conn.Children(s_idx)
-            print(f"[SAP] Dùng phiên mặc định: Connection {c_idx}, Session {s_idx}")
+            cand_sess = conn.Children(s_idx)
+
+            # Kiểm tra an toàn: không cướp phiên nếu người dùng đang thao tác
+            cand_info = getattr(cand_sess, "Info", None)
+            cand_tcode = str(getattr(cand_info, "Transaction", "")).strip().upper() if cand_info else ""
+            if self.strict_session_safety and cand_tcode and cand_tcode not in bot_safe_tcodes:
+                raise RuntimeError(
+                    f"Tất cả các phiên SAP đều đang bận thao tác của người dùng (Session {s_idx} đang ở T-Code '{cand_tcode}'). "
+                    f"Để bảo vệ dữ liệu, Bot từ chối can thiệp. Vui lòng mở thêm 1 phiên mới ở màn hình chính (SESSION_MANAGER)."
+                )
+
+            selected_session = cand_sess
+            print(f"[SAP] Dùng phiên cấu hình: Connection {c_idx}, Session {s_idx} (T-Code: '{cand_tcode or 'MAIN'}')")
 
         self.last_activity = time.time()
         return selected_session
@@ -407,6 +420,37 @@ class SapEngine:
 
         self._wait_idle(5.0)
 
+    def _validate_grid_or_raise(self, alv_grid, tcode_name: str, status_txt: str, status_type: str):
+        """Phân biệt chính xác giữa việc không có dữ liệu thực sự và lỗi không mở được bảng kết quả SAP."""
+        if alv_grid is not None:
+            return
+
+        is_selection_screen = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]") is not None
+        lower_txt = (status_txt or "").lower()
+
+        empty_phrases = [
+            "no data", "not found", "không tìm thấy", "keine daten",
+            "chưa có", "không có dữ liệu", "no document", "no item",
+            "no suitable", "no records", "không có chứng từ"
+        ]
+
+        if is_selection_screen:
+            if any(p in lower_txt for p in empty_phrases):
+                print(f"[SAP {tcode_name}] Xác nhận không có dữ liệu: '{status_txt}'")
+                return
+            raise SapExecutionError(
+                f"Không thể mở bảng kết quả SAP {tcode_name} (màn hình nhập liệu không phản hồi hoặc bị chặn). "
+                f"Trạng thái: '{status_txt or 'Chưa rõ'}'"
+            )
+
+        if any(p in lower_txt for p in empty_phrases):
+            return
+
+        raise SapExecutionError(
+            f"Không tìm thấy bảng kết quả ALV Grid trong SAP {tcode_name}. "
+            f"Trạng thái: '{status_txt or 'Lỗi hiển thị giao diện SAP'}'"
+        )
+
     def _extract_alv_grid(self, alv_obj, column_mapping: Dict[str, List[str]]) -> List[Dict[str, str]]:
         """Trích xuất ALV Grid kèm cơ chế cuộn dòng, forward-fill mã hàng và lọc bỏ dòng tổng cộng (Summary rows)."""
         try:
@@ -603,7 +647,7 @@ class SapEngine:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
         if alv_grid is None:
-            print(f"[SAP POST] Không tìm thấy ALV Grid trong /SCWM/POST. (Trạng thái SAP: '{status_txt}')")
+            self._validate_grid_or_raise(alv_grid, "/SCWM/POST", status_txt, status_type)
             return []
 
         # 9. Trích xuất các cột với danh mục định danh tương thích tuyệt đối cả SAP ID và Caption
@@ -713,7 +757,7 @@ class SapEngine:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
         if alv_grid is None:
-            print("[SAP MB52] Không tìm thấy bảng kết quả ALV (có thể không có dữ liệu tồn).")
+            self._validate_grid_or_raise(alv_grid, "MB52", status_txt, status_type)
             return []
 
         col_map = {
@@ -802,7 +846,7 @@ class SapEngine:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
         if alv_grid is None:
-            print("[SAP MB51] Không tìm thấy bảng ALV lịch sử.")
+            self._validate_grid_or_raise(alv_grid, "MB51", status_txt, status_type)
             return []
 
         col_map = {
@@ -920,7 +964,7 @@ class SapEngine:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
         if alv_grid is None:
-            print("[SAP VL06I] Không tìm thấy bảng chi tiết ALV (có thể không có IB treo).")
+            self._validate_grid_or_raise(alv_grid, "VL06I", status_txt, status_type)
             return []
 
         col_map = {
@@ -1029,7 +1073,7 @@ class SapEngine:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
         if alv_grid is None:
-            print("[SAP ME2N] Không tìm thấy bảng kết quả ALV (có thể không có STO nào).")
+            self._validate_grid_or_raise(alv_grid, "ME2N", status_txt, status_type)
             return []
 
         col_map = {

@@ -237,3 +237,36 @@ def test_parse_json_days_validation():
     assert res3["days"] == 365
 
 
+def test_parse_json_materials_type_validation():
+    """Kiểm tra bóc tách và lọc danh sách materials: chấp nhận số/chuỗi, loại bỏ rác/None."""
+    # 1. Danh sách có chứa số và chuỗi hợp lệ
+    body_valid = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "MB52",
+      "materials": [32013765, "32024300", "BIW32013765AA"]
+    }
+    SAP_REQUEST_END
+    """
+    res1 = EmailCommandParser.parse(body_valid)
+    assert res1 is not None
+    assert res1["valid"] is True
+    assert res1["materials"] == ["32013765", "32024300", "BIW32013765AA"]
+
+    # 2. Danh sách toàn đối tượng không hợp lệ (None, {}, []) -> báo lỗi thiếu materials
+    body_invalid = """
+    SAP_REQUEST_BEGIN
+    {
+      "command": "MB52",
+      "materials": [null, {}, [], "", false]
+    }
+    SAP_REQUEST_END
+    """
+    res2 = EmailCommandParser.parse(body_invalid)
+    assert res2 is not None
+    assert res2["valid"] is False
+    assert res2["needHelpReply"] is True
+    assert "Không tìm thấy danh sách mã vật tư" in res2["reason"]
+
+
+

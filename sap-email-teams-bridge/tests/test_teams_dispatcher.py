@@ -175,3 +175,35 @@ def test_extreme_payload_reduction_under_26kb():
     assert payload["totalRecords"] == 50
 
 
+def test_prepare_safe_payload_with_empty_records_no_crash():
+    """Kiểm tra phản hồi không có dòng dữ liệu (records=[]) không bao giờ bị UnboundLocalError cur_html."""
+    meta = {"messageId": "EMPTY-01", "command": "VITRI"}
+    # Trường hợp 1: records rỗng, không có custom_html
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        "REQ-EMPTY-1", meta, "SUCCEEDED", "Không có dữ liệu", [], {"col": "Cột"}
+    )
+    assert len(data) <= MAX_TEAMS_PAYLOAD_BYTES
+    assert payload["totalRecords"] == 0
+    assert "Không tìm thấy dữ liệu" in payload["table_html"]
+
+    # Trường hợp 2: records rỗng, có custom_html (ví dụ PING hoặc thẻ lỗi)
+    custom = "<div>Thẻ thông báo lỗi</div>"
+    payload2, data2 = TeamsDispatcher.prepare_safe_payload(
+        "REQ-EMPTY-2", meta, "FAILED", "Tra cứu lỗi", [], {}, custom_html=custom
+    )
+    assert len(data2) <= MAX_TEAMS_PAYLOAD_BYTES
+    assert "Thẻ thông báo lỗi" in payload2["table_html"]
+
+
+def test_prepare_safe_payload_with_massive_summary_strict_26kb():
+    """Kiểm tra summary cực dài (> 35.000 ký tự) vẫn đảm bảo payload <= 26.000 bytes."""
+    massive_summary = "Bản báo cáo tóm tắt rất dài " * 2000  # ~56.000 bytes
+    meta = {"messageId": "SUMMARY-01", "command": "TON"}
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        "REQ-MASSIVE-SUM", meta, "SUCCEEDED", massive_summary, [], {}
+    )
+    assert len(data) <= MAX_TEAMS_PAYLOAD_BYTES
+    assert len(payload["summary"]) <= 300
+
+
+

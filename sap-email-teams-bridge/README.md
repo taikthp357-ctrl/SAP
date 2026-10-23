@@ -25,18 +25,21 @@ sap-email-teams-bridge/
 ├── START_BRIDGE.cmd                # File khởi động 1-Click trên Windows
 ├── package_release.py              # Script đóng gói file ZIP phát hành
 ├── app/
-│   ├── config.py                   # Quản lý đọc cấu hình
-│   ├── email_parser.py             # Bộ bóc tách lệnh email & coaching
+│   ├── config.py                   # Quản lý đọc cấu hình & auto-fix JSON
+│   ├── email_parser.py             # Bộ bóc tách lệnh email, JSON & coaching
 │   ├── material_resolver.py        # Quy đổi mã nội bộ / mã khách hàng qua Excel
-│   ├── number_utils.py             # Chuẩn hóa số lượng SAP đa định dạng
-│   ├── sap_engine.py               # Điều khiển SAP GUI COM & Keep-Alive
+│   ├── number_utils.py             # Chuẩn hóa số lượng SAP đa định dạng (US/EU/AUTO)
+│   ├── sap_engine.py               # Điều khiển SAP GUI COM, bảo vệ session & Keep-Alive
+│   ├── state_manager.py            # Quản lý hàng đợi Outbox & chống trùng bằng SQLite
 │   └── teams_dispatcher.py         # Gửi kết quả Webhook kèm bảng HTML & KPI
+├── data/
+│   └── bridge_state.db             # Cơ sở dữ liệu SQLite lưu Outbox & Processed IDs
 ├── templates/
 │   ├── power_automate_schema.json  # Schema mẫu dán vào Power Automate
 │   └── email_samples.txt           # Mẫu nội dung email để test
 ├── docs/
 │   └── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
-└── tests/                          # Bộ unit tests hồi quy tự động (43 tests)
+└── tests/                          # Bộ unit tests hồi quy tự động (54 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm

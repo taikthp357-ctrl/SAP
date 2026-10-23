@@ -11,7 +11,11 @@ DEFAULT_CONFIG = {
     "poll_interval_seconds": 10,
     "default_plant": "3093",
     "max_alv_rows": 500,
-    "keep_alive_idle_seconds": 900
+    "keep_alive_idle_seconds": 900,
+    "sap_number_format": "AUTO",
+    "strict_session_safety": True,
+    "max_webhook_retries": 3,
+    "allowed_senders": []
 }
 
 

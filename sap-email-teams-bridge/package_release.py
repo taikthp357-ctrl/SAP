@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.6"
+VERSION = "v1.0.7"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
 
@@ -23,16 +23,20 @@ LOCAL_RUNTIME = BASE_DIR / "runtime"
 EXCLUDE_SOURCE_DIRS = {".git", "__pycache__", ".pytest_cache", ".vscode", "runtime"}
 EXCLUDE_EXTS = {".pyc", ".zip", ".pdb"}
 
-# Các thư mục rác / test / web dev không sử dụng trong bridge để tối ưu dung lượng từ 47MB xuống ~12.99MB
+# Các thư mục rác / test / tài liệu dev không sử dụng trong bridge để tối ưu dung lượng
 EXCLUDE_RUNTIME_DIRS = {
-    "__pycache__", ".pytest_cache", "test", "ensurepip", "idlelib", "tkinter",
+    "__pycache__", ".pytest_cache", "test", "tests", "ensurepip", "idlelib", "tkinter",
     "turtledemo", "PIL", "pygments", "pydantic", "pydantic_core", "_pytest",
     "pytest", "fastapi", "starlette", "uvicorn", "anyio", "httpcore", "httpx",
-    "click"
+    "click", "venv", "pydoc_data", "lib2to3", "_testcapi", "_testinternalcapi",
+    "unittest"
 }
 
+# Các file dll/pyd/txt thừa không cần thiết (GIỮ LẠI sqlite3.dll và _sqlite3.pyd cho hàng đợi bền vững)
 EXCLUDE_RUNTIME_FILES = {
-    "NEWS.txt", "tcl86t.dll", "tk86t.dll", "_tkinter.pyd", "sqlite3.dll", "_sqlite3.pyd"
+    "NEWS.txt", "tcl86t.dll", "tk86t.dll", "_tkinter.pyd",
+    "_ctypes_test.pyd", "_testcapi.pyd", "_testinternalcapi.pyd",
+    "_testmultiphase.pyd", "xxlimited.pyd", "xxlimited_35.pyd"
 }
 
 

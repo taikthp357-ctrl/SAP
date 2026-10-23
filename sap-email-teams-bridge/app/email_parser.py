@@ -144,9 +144,21 @@ class SmartCommandParser:
                 days = 7
             days = max(1, min(days, 365))
 
-            mats = json_obj.get("materials", [])
-            if isinstance(mats, str):
-                mats = [m.strip() for m in re.split(r"[,;\s]+", mats) if m.strip()]
+            raw_mats = json_obj.get("materials", [])
+            valid_mats = []
+            if isinstance(raw_mats, (str, int)):
+                candidates = re.split(r"[,;\s]+", str(raw_mats))
+                for c in candidates:
+                    c_clean = c.strip()
+                    if c_clean and re.match(r"^[\w\-./]{2,40}$", c_clean):
+                        valid_mats.append(c_clean)
+            elif isinstance(raw_mats, list):
+                for item in raw_mats:
+                    if isinstance(item, (str, int)) and not isinstance(item, bool):
+                        c_clean = str(item).strip()
+                        if c_clean and re.match(r"^[\w\-./]{2,40}$", c_clean):
+                            valid_mats.append(c_clean)
+            mats = valid_mats
 
             raw_text = str(json_obj.get("rawText", "") or json_obj.get("RAW_TEXT", "") or json_obj.get("note", "")).strip()
             sender_email = str(json_obj.get("senderEmail", "") or json_obj.get("SENDER_EMAIL", "") or "PowerAutomate").strip()
@@ -164,6 +176,17 @@ class SmartCommandParser:
                     "senderName": sender_name,
                     "detectedIntent": "UNKNOWN",
                     "reason": f"Lệnh '{cmd}' không được hỗ trợ trong hệ thống."
+                }
+
+            if cmd in ("VITRI", "BIN", "TON", "MB52", "LICHSU", "MB51", "IB_TREO", "VL06I", "STO", "ME2N") and not mats and not dry_run:
+                return {
+                    "valid": False,
+                    "needHelpReply": True,
+                    "messageId": msg_id or req_id,
+                    "senderEmail": sender_email,
+                    "senderName": sender_name,
+                    "detectedIntent": cmd,
+                    "reason": f"Không tìm thấy danh sách mã vật tư (materials) hợp lệ trong yêu cầu."
                 }
 
             if cmd == "PING":

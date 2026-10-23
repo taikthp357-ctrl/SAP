@@ -35,69 +35,72 @@ class MaterialResolver:
             self.short_to_fulls.clear()
 
             wb = openpyxl.load_workbook(str(self.excel_path), read_only=True)
-            sheet_name = "DATA" if "DATA" in wb.sheetnames else wb.sheetnames[0]
-            ws = wb[sheet_name]
+            try:
+                sheet_name = "DATA" if "DATA" in wb.sheetnames else wb.sheetnames[0]
+                ws = wb[sheet_name]
 
-            # Đọc headers để xác định cột
-            rows_iter = ws.iter_rows(values_only=True)
-            header_row = next(rows_iter, None)
-            if not header_row:
-                return
+                # Đọc headers để xác định cột
+                rows_iter = ws.iter_rows(values_only=True)
+                header_row = next(rows_iter, None)
+                if not header_row:
+                    return
 
-            full_col_idx = 1
-            short_col_idx = 2
-            model_col_idx = 3
+                full_col_idx = 1
+                short_col_idx = 2
+                model_col_idx = 3
 
-            for idx, h in enumerate(header_row):
-                if not h:
-                    continue
-                h_str = str(h).strip().upper()
-                if "ĐẦY ĐỦ" in h_str or "MATNR" in h_str or h_str == "MÃ":
-                    full_col_idx = idx
-                elif "RÚT GỌN" in h_str or "SHORT" in h_str:
-                    short_col_idx = idx
-                elif "MODEL" in h_str or "XE" in h_str:
-                    model_col_idx = idx
+                for idx, h in enumerate(header_row):
+                    if not h:
+                        continue
+                    h_str = str(h).strip().upper()
+                    if "ĐẦY ĐỦ" in h_str or "MATNR" in h_str or h_str == "MÃ":
+                        full_col_idx = idx
+                    elif "RÚT GỌN" in h_str or "SHORT" in h_str:
+                        short_col_idx = idx
+                    elif "MODEL" in h_str or "XE" in h_str:
+                        model_col_idx = idx
 
-            count = 0
-            for row in rows_iter:
-                if not row or len(row) <= full_col_idx:
-                    continue
-                full_val = str(row[full_col_idx]).strip().upper() if row[full_col_idx] else ""
-                if not full_val:
-                    continue
+                count = 0
+                for row in rows_iter:
+                    if not row or len(row) <= full_col_idx:
+                        continue
+                    full_val = str(row[full_col_idx]).strip().upper() if row[full_col_idx] else ""
+                    if not full_val:
+                        continue
 
-                short_val = ""
-                if len(row) > short_col_idx and row[short_col_idx]:
-                    short_val = str(row[short_col_idx]).strip().upper()
-                if not short_val:
-                    # Tự trích xuất 8 số ở giữa nếu có cấu trúc BIWxxxxxxxxYY
-                    if full_val.startswith("BIW") and len(full_val) >= 12:
-                        short_val = full_val[3:-2]
-                    else:
-                        digits = re.findall(r"\d{7,10}", full_val)
-                        if digits:
-                            short_val = digits[0]
+                    short_val = ""
+                    if len(row) > short_col_idx and row[short_col_idx]:
+                        short_val = str(row[short_col_idx]).strip().upper()
+                    if not short_val:
+                        # Tự trích xuất 8 số ở giữa nếu có cấu trúc BIWxxxxxxxxYY
+                        if full_val.startswith("BIW") and len(full_val) >= 12:
+                            short_val = full_val[3:-2]
                         else:
-                            short_val = full_val
+                            digits = re.findall(r"\d{7,10}", full_val)
+                            if digits:
+                                short_val = digits[0]
+                            else:
+                                short_val = full_val
 
-                model_val = str(row[model_col_idx]).strip() if len(row) > model_col_idx and row[model_col_idx] else ""
+                    model_val = str(row[model_col_idx]).strip() if len(row) > model_col_idx and row[model_col_idx] else ""
 
-                self.full_to_meta[full_val] = {
-                    "full": full_val,
-                    "short": short_val,
-                    "model": model_val
-                }
+                    self.full_to_meta[full_val] = {
+                        "full": full_val,
+                        "short": short_val,
+                        "model": model_val
+                    }
 
-                if short_val not in self.short_to_fulls:
-                    self.short_to_fulls[short_val] = []
-                if full_val not in self.short_to_fulls[short_val]:
-                    self.short_to_fulls[short_val].append(full_val)
+                    if short_val not in self.short_to_fulls:
+                        self.short_to_fulls[short_val] = []
+                    if full_val not in self.short_to_fulls[short_val]:
+                        self.short_to_fulls[short_val].append(full_val)
 
-                count += 1
+                    count += 1
 
-            self.last_mtime = current_mtime
-            print(f"[RESOLVER] Đã nạp {count} mã vật tư từ sheet DATA ({self.excel_path.name})")
+                self.last_mtime = current_mtime
+                print(f"[RESOLVER] Đã nạp {count} mã vật tư từ sheet DATA ({self.excel_path.name})")
+            finally:
+                wb.close()
 
         except Exception as e:
             print(f"[RESOLVER ERROR] Lỗi khi nạp dữ liệu DATA: {e}")

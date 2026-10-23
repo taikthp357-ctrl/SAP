@@ -29,6 +29,8 @@ from app.email_parser import NaturalCommandParser
 from app.material_resolver import MaterialResolver
 from app.teams_dispatcher import TeamsDispatcher
 from app.sap_engine import SapEngine, SapExecutionError
+from app.state_manager import StateManager
+from app.number_utils import set_global_sap_number_format
 
 
 def run_self_test():
@@ -78,25 +80,37 @@ def run_self_test():
             print(f"  └─ {note}")
 
 
-def get_or_create_processed_folder(bot_folder):
-    """Lấy hoặc tự động tạo thư mục con Processed bên trong thư mục BOT."""
+def get_or_create_subfolder(parent_folder, folder_name: str):
+    """Lấy hoặc tự động tạo thư mục con (Processed, Failed, v.v.)."""
     try:
-        return bot_folder.Folders["Processed"]
+        return parent_folder.Folders[folder_name]
     except Exception:
         try:
-            return bot_folder.Folders.Add("Processed")
+            return parent_folder.Folders.Add(folder_name)
         except Exception:
             return None
 
 
-def move_mail_to_processed(mail, bot_folder):
-    """Chuyển mail đã đọc vào thư mục Processed để giữ Inbox luôn sạch sẽ."""
+def move_mail_to_folder(mail, target_folder):
+    """Chuyển mail vào thư mục chỉ định an toàn."""
+    if not target_folder:
+        return
     try:
-        proc_folder = get_or_create_processed_folder(bot_folder)
-        if proc_folder:
-            mail.Move(proc_folder)
-    except Exception:
-        pass
+        mail.Move(target_folder)
+    except Exception as e:
+        print(f"[OUTLOOK MOVE WARN] Không thể chuyển thư: {e}")
+
+
+def move_mail_to_processed(mail, bot_folder):
+    """Chuyển mail đã hoàn tất vào thư mục con Processed."""
+    proc = get_or_create_subfolder(bot_folder, "Processed")
+    move_mail_to_folder(mail, proc)
+
+
+def move_mail_to_failed(mail, bot_folder):
+    """Chuyển mail lỗi nghiệp vụ/không xử lý được vào thư mục con Failed."""
+    failed = get_or_create_subfolder(bot_folder, "Failed")
+    move_mail_to_folder(mail, failed)
 
 
 def run_bridge():
@@ -191,18 +205,21 @@ def run_bridge():
                 f"Chi tiết: {add_err}"
             )
 
+    set_global_sap_number_format(config.get("sap_number_format", "AUTO"))
+    state_mgr = StateManager()
+    max_retries = config.get("max_webhook_retries", 3)
+
     resolver = MaterialResolver()
     sap = SapEngine(
         max_alv_rows=max_rows,
         keep_alive_idle_seconds=keep_alive_idle,
         connection_index=config.get("sap_connection_index", 0),
-        session_index=config.get("sap_session_index", 0)
+        session_index=config.get("sap_session_index", 0),
+        strict_session_safety=config.get("strict_session_safety", True)
     )
     print(f"[READY] Đang lắng nghe thư mới trong '{bot_folder.Name}'...")
 
     seq_counter = 1
-    processed_msg_ids = set()
-    retry_counts = {}
     allowed_senders = [s.strip().lower() for s in config.get("allowed_senders", []) if s.strip()]
 
     while True:
@@ -210,7 +227,20 @@ def run_bridge():
             # 1. Giữ phiên SAP không bị timeout khi nhàn rỗi
             sap.keep_alive()
 
-            # 2. Quét tất cả các thư trong thư mục SAP_BOT (kể cả thư đã mở xem lẫn thư chưa đọc)
+            # 2. Xử lý hàng đợi Outbox (Retry gửi Webhook trực tiếp mà KHÔNG CẦN gọi lại SAP GUI)
+            pending_outbox = state_mgr.get_pending_outbox(max_attempts=max_retries)
+            for item in pending_outbox:
+                req_out_id = item["req_id"]
+                url_out = item["webhook_url"]
+                pl_out = item["payload"]
+                print(f"[OUTBOX RETRY] Thử gửi lại Webhook {req_out_id} (Lần thử {item['attempts'] + 1}/{max_retries})...")
+                if TeamsDispatcher.send_raw_payload(url_out, pl_out):
+                    state_mgr.record_outbox_success(req_out_id)
+                    print(f"[OUTBOX SUCCESS] Gửi lại thành công Webhook {req_out_id}!")
+                else:
+                    state_mgr.record_outbox_failure(req_out_id, "Gửi lại thất bại", max_attempts=max_retries)
+
+            # 3. Quét tất cả các thư trong thư mục SAP_BOT (kể cả thư đã mở xem lẫn thư chưa đọc)
             # Mọi thư đã xử lý xong đều được chuyển tự động sang thư mục con 'Processed'.
             # Do đó, bất kỳ thư nào còn nằm trong 'SAP_BOT' đều là yêu cầu đang chờ xử lý!
             folder_items = bot_folder.Items
@@ -229,76 +259,72 @@ def run_bridge():
 
             for mail in mail_candidates:
                 entry_id = getattr(mail, "EntryID", "")
-                if entry_id and entry_id in processed_msg_ids:
+                if entry_id and state_mgr.is_message_processed("", entry_id):
+                    mail.UnRead = False
+                    mail.Save()
+                    move_mail_to_processed(mail, bot_folder)
                     continue
 
                 req_id = f"SAP-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
                 seq_counter += 1
 
-                # 1. Kiểm tra danh sách người gửi được phép (nếu có cấu hình)
-                if allowed_senders:
-                    actual_sender = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
-                    if actual_sender and not any(actual_sender == s or actual_sender.endswith(s) for s in allowed_senders):
-                        print(f"[SECURITY] {req_id} | Người gửi '{actual_sender}' không thuộc allowed_senders. Bỏ qua.")
+                # Cô lập hoàn toàn lỗi từng thư để không chặn luồng
+                try:
+                    # 1. Kiểm tra danh sách người gửi được phép (nếu có cấu hình)
+                    if allowed_senders:
+                        actual_sender = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
+                        if actual_sender and not any(actual_sender == s or actual_sender.endswith(s) for s in allowed_senders):
+                            print(f"[SECURITY] {req_id} | Người gửi '{actual_sender}' không thuộc allowed_senders. Chuyển thư sang Failed.")
+                            mail.UnRead = False
+                            mail.Save()
+                            move_mail_to_failed(mail, bot_folder)
+                            continue
+
+                    raw_body = getattr(mail, "Body", "")
+                    html_body = getattr(mail, "HTMLBody", "")
+                    subject = getattr(mail, "Subject", "")
+
+                    meta = NaturalCommandParser.parse(raw_body, html_body=html_body, subject=subject, default_plant=def_plant)
+
+                    # Kiểm tra trùng lặp qua SQLite
+                    msg_id = meta.get("messageId", "") if meta else ""
+                    if msg_id and state_mgr.is_message_processed(msg_id, entry_id):
+                        print(f"[DUPLICATE] {req_id} | Message ID '{msg_id}' đã xử lý thành công trước đó. Bỏ qua.")
                         mail.UnRead = False
                         mail.Save()
                         move_mail_to_processed(mail, bot_folder)
                         continue
 
-                raw_body = getattr(mail, "Body", "")
-                html_body = getattr(mail, "HTMLBody", "")
-                subject = getattr(mail, "Subject", "")
+                    if not meta or not meta.get("valid"):
+                        if meta and meta.get("needHelpReply") and meta.get("messageId"):
+                            print(f"[COACHING] {req_id} | Người dùng cần hướng dẫn -> Gửi trợ giúp lên Teams...")
+                            help_html = TeamsDispatcher.build_help_html(meta.get("senderName", "Đồng nghiệp"))
+                            payload, data = TeamsDispatcher.prepare_safe_payload(
+                                req_id,
+                                meta,
+                                "INFO",
+                                "Trợ lý SAP: Hướng dẫn tra cứu cú pháp nhanh trên Teams",
+                                [],
+                                {},
+                                custom_html=help_html
+                            )
+                            state_mgr.enqueue_outbox(req_id, webhook_url, payload)
+                            if TeamsDispatcher.send_raw_payload(webhook_url, payload):
+                                state_mgr.record_outbox_success(req_id)
+                            else:
+                                state_mgr.record_outbox_failure(req_id, "Gửi trợ giúp lần đầu thất bại", max_attempts=max_retries)
 
-                meta = NaturalCommandParser.parse(raw_body, html_body=html_body, subject=subject, default_plant=def_plant)
-
-                if not meta or not meta.get("valid"):
-                    if meta and meta.get("needHelpReply") and meta.get("messageId"):
-                        msg_id = meta.get("messageId")
-                        if msg_id in processed_msg_ids:
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_processed(mail, bot_folder)
-                            continue
-
-                        print(f"[COACHING] {req_id} | Người dùng cần hướng dẫn -> Gửi trợ giúp lên Teams...")
-                        help_html = TeamsDispatcher.build_help_html(meta.get("senderName", "Đồng nghiệp"))
-                        coach_ok = TeamsDispatcher.send_reply(
-                            webhook_url,
-                            req_id,
-                            meta,
-                            "INFO",
-                            "Trợ lý SAP: Hướng dẫn tra cứu cú pháp nhanh trên Teams",
-                            [],
-                            {},
-                            custom_html=help_html
-                        )
-                        if coach_ok:
-                            processed_msg_ids.add(msg_id)
-                            if entry_id:
-                                processed_msg_ids.add(entry_id)
+                            state_mgr.mark_message_processed(msg_id, entry_id, req_id, "HELP", "COACHING")
                             mail.UnRead = False
                             mail.Save()
                             move_mail_to_processed(mail, bot_folder)
                         else:
-                            retry_counts[entry_id] = retry_counts.get(entry_id, 0) + 1
-                    else:
-                        reason = meta.get("reason", "Không rõ") if meta else "Thư rỗng hoặc không liên quan"
-                        print(f"[SKIP] {req_id} | Bỏ qua thư: {reason}")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
-                        if entry_id:
-                            processed_msg_ids.add(entry_id)
-                    continue
-
-                # 2. Chống xử lý trùng lặp (Anti-duplicate guard an toàn: KHÔNG thêm vào set trước khi gửi thành công)
-                msg_id = meta.get("messageId")
-                if msg_id and msg_id in processed_msg_ids:
-                    print(f"[DUPLICATE] {req_id} | Message ID '{msg_id}' đã xử lý thành công trước đó. Bỏ qua.")
-                    mail.UnRead = False
-                    mail.Save()
-                    move_mail_to_processed(mail, bot_folder)
-                    continue
+                            reason = meta.get("reason", "Không rõ") if meta else "Thư rỗng hoặc không liên quan"
+                            print(f"[SKIP] {req_id} | Bỏ qua thư không hợp lệ: {reason}")
+                            mail.UnRead = False
+                            mail.Save()
+                            move_mail_to_failed(mail, bot_folder)
+                        continue
 
                 cmd = meta["command"]
                 raw_mats = meta["materials"]
@@ -317,41 +343,51 @@ def run_bridge():
                     resolved_mats = []
                     print(f"\n[DETECTED] {req_id} | Lệnh PING kiểm tra kết nối từ {meta['senderName']}")
 
-                send_success = False
-                try:
-                    if cmd == "PING":
-                        ping_html = (
-                            f"<div style='font-family:Segoe UI,sans-serif;background:#dafbe1;border:1px solid #4ac26b;"
-                            f"border-left:4px solid #1a7f37;padding:12px 14px;border-radius:4px;color:#24292f;'>"
-                            f"<div style='font-weight:bold;color:#1a7f37;font-size:14px;margin-bottom:6px;'>"
-                            f"🏓 PONG! Kết nối hoàn tất thành công!</div>"
-                            f"<div style='font-size:12px;line-height:1.6;'>"
-                            f"• <strong>Request ID:</strong> {meta.get('requestId') or req_id}<br>"
-                            f"• <strong>Thư mục lắng nghe:</strong> Outlook/{bot_folder.Name}<br>"
-                            f"• <strong>Plant:</strong> {plant}<br>"
-                            f"• <strong>Trạng thái SAP:</strong> Sẵn sàng (0 Open Port / 0 PowerShell)<br>"
-                            f"• <strong>Ghi chú:</strong> {meta.get('note', 'Kiểm tra đường truyền hoàn tất.')}"
-                            f"</div></div>"
-                        )
-                        summary = f"Kiểm tra kết nối PING-PONG thành công (Request ID: {meta.get('requestId') or req_id})"
-                        send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, [], {}, custom_html=ping_html)
-                        print(f"[PING SUCCESS] {req_id} | Đã phản hồi PONG tới Teams Webhook!")
+                    records = []
+                    headers = {}
+                    summary = ""
+                    custom_html = None
 
-                    elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
-                        records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
-                        # Nếu /SCWM/POST không có kết quả, tự động fallback kiểm tra tồn MB52
-                        if not records:
-                            print(f"[FALLBACK] /SCWM/POST không có dữ liệu, tự động tra cứu tồn kho qua MB52...")
-                            fallback_records = sap.check_stock_mb52(resolved_mats, plant)
-                            if fallback_records:
-                                headers = {
-                                    "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
-                                    "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
-                                    "bin": "Vị trí (Bin)", "unit": "ĐVT"
-                                }
-                                mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                                summary = f"Tồn kho & Vị trí (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                                send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, fallback_records, headers)
+                    try:
+                        if cmd == "PING":
+                            custom_html = (
+                                f"<div style='font-family:Segoe UI,sans-serif;background:#dafbe1;border:1px solid #4ac26b;"
+                                f"border-left:4px solid #1a7f37;padding:12px 14px;border-radius:4px;color:#24292f;'>"
+                                f"<div style='font-weight:bold;color:#1a7f37;font-size:14px;margin-bottom:6px;'>"
+                                f"🏓 PONG! Kết nối hoàn tất thành công!</div>"
+                                f"<div style='font-size:12px;line-height:1.6;'>"
+                                f"• <strong>Request ID:</strong> {meta.get('requestId') or req_id}<br>"
+                                f"• <strong>Thư mục lắng nghe:</strong> Outlook/{bot_folder.Name}<br>"
+                                f"• <strong>Plant:</strong> {plant}<br>"
+                                f"• <strong>Trạng thái SAP:</strong> Sẵn sàng (0 Open Port / 0 PowerShell)<br>"
+                                f"• <strong>Ghi chú:</strong> {meta.get('note', 'Kiểm tra đường truyền hoàn tất.')}"
+                                f"</div></div>"
+                            )
+                            summary = f"Kiểm tra kết nối PING-PONG thành công (Request ID: {meta.get('requestId') or req_id})"
+
+                        elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
+                            records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
+                            if not records:
+                                print(f"[FALLBACK] /SCWM/POST không có dữ liệu, tự động tra cứu tồn kho qua MB52...")
+                                fallback_records = sap.check_stock_mb52(resolved_mats, plant)
+                                if fallback_records:
+                                    records = fallback_records
+                                    headers = {
+                                        "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
+                                        "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
+                                        "bin": "Vị trí (Bin)", "unit": "ĐVT"
+                                    }
+                                    mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                                    summary = f"Tồn kho & Vị trí (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                                else:
+                                    headers = {
+                                        "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
+                                        "qty": "Số lượng", "unit": "ĐVT",
+                                        "grDate": "Ngày GR", "grTime": "Giờ GR",
+                                        "cat": "Trạng thái"
+                                    }
+                                    mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                                    summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
                             else:
                                 headers = {
                                     "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
@@ -361,102 +397,92 @@ def run_bridge():
                                 }
                                 mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                                 summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                                send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, [], headers)
-                        else:
+
+                        elif cmd in ["TON", "TỒN", "MB52"]:
+                            records = sap.check_stock_mb52(resolved_mats, plant)
                             headers = {
-                                "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                                "qty": "Số lượng", "unit": "ĐVT",
-                                "grDate": "Ngày GR", "grTime": "Giờ GR",
-                                "cat": "Trạng thái"
+                                "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
+                                "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
+                                "bin": "Vị trí (Bin)", "unit": "ĐVT"
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                            summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                            send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                            summary = f"Tồn kho tổng hợp (MB52 - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
-                    elif cmd in ["TON", "TỒN", "MB52"]:
-                        records = sap.check_stock_mb52(resolved_mats, plant)
-                        headers = {
-                            "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
-                            "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
-                            "bin": "Vị trí (Bin)", "unit": "ĐVT"
-                        }
-                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                        summary = f"Tồn kho tổng hợp (MB52 - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                        send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                        elif cmd in ["LICHSU", "LỊCH SỬ", "MB51"]:
+                            records = sap.check_history_mb51(resolved_mats, days, plant)
+                            headers = {
+                                "product": "Mã hàng", "docNo": "Số CT", "mvtType": "Loại GD",
+                                "postDate": "Ngày HT", "qty": "Số lượng", "unit": "ĐVT",
+                                "sloc": "Kho", "batch": "Batch"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            summary = f"Lịch sử giao dịch {days} ngày (MB51) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
-                    elif cmd in ["LICHSU", "LỊCH SỬ", "MB51"]:
-                        records = sap.check_history_mb51(resolved_mats, days, plant)
-                        headers = {
-                            "product": "Mã hàng", "docNo": "Số CT", "mvtType": "Loại GD",
-                            "postDate": "Ngày HT", "qty": "Số lượng", "unit": "ĐVT",
-                            "sloc": "Kho", "batch": "Batch"
-                        }
-                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                        summary = f"Lịch sử giao dịch {days} ngày (MB51) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                        send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                        elif cmd in ["IB_TREO", "IB", "INBOUND", "VL06I"]:
+                            records = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
+                            headers = {
+                                "ibNo": "Số IB", "refNo": "Số OB / Vận đơn", "product": "Mã hàng",
+                                "batch": "Số Lô", "qty": "SL giao", "unit": "ĐVT",
+                                "plant": "Plant", "sloc": "Kho nhận", "status": "Trạng thái"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            summary = f"Danh sách đơn Inbound (IB) treo chưa GR (VL06I) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
-                    elif cmd in ["IB_TREO", "IB", "INBOUND", "VL06I"]:
-                        records = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
-                        headers = {
-                            "ibNo": "Số IB", "refNo": "Số OB / Vận đơn", "product": "Mã hàng",
-                            "batch": "Số Lô", "qty": "SL giao", "unit": "ĐVT",
-                            "plant": "Plant", "sloc": "Kho nhận", "status": "Trạng thái"
-                        }
-                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                        summary = f"Danh sách đơn Inbound (IB) treo chưa GR (VL06I) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                        send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                        elif cmd in ["STO", "ME2N", "MB5T", "DIEUCHUYEN"]:
+                            records = sap.check_sto_me2n(resolved_mats, plant=plant)
+                            headers = {
+                                "stoNo": "Số STO", "item": "Item", "product": "Mã hàng",
+                                "orderQty": "SL Đặt", "deliveredQty": "Đã xuất", "remainingQty": "Còn nợ",
+                                "unit": "ĐVT", "supplyingPlant": "Plant cấp", "receivingPlant": "Plant nhận"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            summary = f"Danh sách đơn điều chuyển STO (ME2N) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
-                    elif cmd in ["STO", "ME2N", "MB5T", "DIEUCHUYEN"]:
-                        records = sap.check_sto_me2n(resolved_mats, plant=plant)
-                        headers = {
-                            "stoNo": "Số STO", "item": "Item", "product": "Mã hàng",
-                            "orderQty": "SL Đặt", "deliveredQty": "Đã xuất", "remainingQty": "Còn nợ",
-                            "unit": "ĐVT", "supplyingPlant": "Plant cấp", "receivingPlant": "Plant nhận"
-                        }
-                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                        summary = f"Danh sách đơn điều chuyển STO (ME2N) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                        send_success = TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+                        # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
+                        payload, data = TeamsDispatcher.prepare_safe_payload(
+                            req_id, meta, "SUCCEEDED", summary, records, headers, custom_html=custom_html
+                        )
+                        state_mgr.enqueue_outbox(req_id, webhook_url, payload)
 
-                except Exception as sap_err:
-                    err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {sap_err}</p>"
-                    send_success = TeamsDispatcher.send_reply(
-                        webhook_url, req_id, meta, "FAILED", f"Không thể hoàn tất tra cứu SAP: {sap_err}", [], {}, custom_html=err_html
-                    )
-                    print(f"[SAP ERROR] {sap_err}")
+                        # Thử gửi ngay lập tức
+                        if TeamsDispatcher.send_raw_payload(webhook_url, payload):
+                            state_mgr.record_outbox_success(req_id)
+                            print(f"[COMPLETED] {req_id} | Đã hoàn tất tra cứu SAP & gửi thành công tới Teams!")
+                        else:
+                            state_mgr.record_outbox_failure(req_id, "Lần gửi đầu tiên qua Webhook thất bại", max_attempts=max_retries)
+                            print(f"[OUTBOX QUEUED] {req_id} | Tra cứu SAP xong. Webhook chưa gửi được, đã lưu vào Outbox SQLite để tự động thử lại.")
 
-                # 4. Kiểm tra kết quả giao Webhook trước khi đánh dấu hoàn tất và chuyển thư sang Processed
-                if send_success:
-                    if msg_id:
-                        processed_msg_ids.add(msg_id)
-                    if entry_id:
-                        processed_msg_ids.add(entry_id)
-                    if entry_id in retry_counts:
-                        del retry_counts[entry_id]
-
-                    if len(processed_msg_ids) > 1000:
-                        processed_msg_ids.clear()
-
-                    mail.UnRead = False
-                    mail.Save()
-                    move_mail_to_processed(mail, bot_folder)
-                    print(f"[COMPLETED] {req_id} | Đã hoàn tất phản hồi Teams & chuyển thư vào Processed.")
-                else:
-                    retry_counts[entry_id] = retry_counts.get(entry_id, 0) + 1
-                    cur_tries = retry_counts[entry_id]
-                    max_tries = 3
-                    if cur_tries < max_tries:
-                        print(f"[RETRY QUEUE] {req_id} | Gửi Webhook thất bại ({cur_tries}/{max_tries}). Giữ lại thư trong SAP_BOT để tự động thử lại ở chu kỳ kế tiếp!")
-                    else:
-                        print(f"[MAX RETRIES] {req_id} | Đã thử lại {cur_tries} lần vẫn không gửi được Webhook. Chuyển thư sang Processed để tránh tắc nghẽn.")
-                        if msg_id:
-                            processed_msg_ids.add(msg_id)
-                        if entry_id:
-                            processed_msg_ids.add(entry_id)
-                        if entry_id in retry_counts:
-                            del retry_counts[entry_id]
+                        state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "SUCCEEDED")
                         mail.UnRead = False
                         mail.Save()
                         move_mail_to_processed(mail, bot_folder)
+
+                    except Exception as sap_err:
+                        print(f"[SAP ERROR] {req_id} | {sap_err}")
+                        err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {sap_err}</p>"
+                        fail_summary = f"Lỗi tra cứu SAP: {sap_err}"
+                        fail_payload, fail_data = TeamsDispatcher.prepare_safe_payload(
+                            req_id, meta, "FAILED", fail_summary, [], {}, custom_html=err_html
+                        )
+                        state_mgr.enqueue_outbox(req_id, webhook_url, fail_payload)
+                        if TeamsDispatcher.send_raw_payload(webhook_url, fail_payload):
+                            state_mgr.record_outbox_success(req_id)
+                        else:
+                            state_mgr.record_outbox_failure(req_id, f"Lỗi Webhook sau lỗi SAP: {sap_err}", max_attempts=max_retries)
+
+                        state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "FAILED")
+                        mail.UnRead = False
+                        mail.Save()
+                        move_mail_to_failed(mail, bot_folder)
+
+                except Exception as mail_err:
+                    print(f"[MAIL ERROR] {req_id} | Lỗi khi xử lý thư: {mail_err}")
+                    try:
+                        mail.UnRead = False
+                        mail.Save()
+                        move_mail_to_failed(mail, bot_folder)
+                    except Exception:
+                        pass
 
         except Exception as loop_err:
             print(f"[LOOP WARN] {loop_err}")
