@@ -14,6 +14,7 @@ import sys
 import os
 import time
 import json
+import gc
 from pathlib import Path
 from datetime import datetime
 import pythoncom
@@ -486,6 +487,14 @@ def run_bridge():
 
         except Exception as loop_err:
             print(f"[LOOP WARN] {loop_err}")
+
+        # Tối ưu giải phóng RAM và COM object sau mỗi vòng lặp chạy nền
+        try:
+            import gc
+            gc.collect()
+            pythoncom.CoFreeUnusedLibraries()
+        except Exception:
+            pass
 
         time.sleep(poll_sec)
 
