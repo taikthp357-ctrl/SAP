@@ -309,4 +309,32 @@ def test_strict_session_safety_guards_user_work():
     assert "Tất cả các phiên SAP đều đang bận thao tác của người dùng" in str(exc_info.value)
 
 
+def test_check_stock_mb52_slocs_filtering():
+    """Kiểm tra MB52 lọc đúng danh sách kho slocs (ví dụ 1005 và 3093)."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+
+    mock_records = [
+        {"product": "BIW71004683", "sloc": "9004", "unrest": "810", "batch": "261019-05"},
+        {"product": "BIW71004683", "sloc": "1005", "unrest": "150", "batch": "LOT1005"},
+        {"product": "BIW71004683", "sloc": "3093", "unrest": "200", "batch": "LOT3093"},
+        {"product": "BIW71004683", "sloc": "601D", "unrest": "2", "batch": "PROD"},
+    ]
+    engine._extract_alv_grid = MagicMock(return_value=mock_records)
+
+    # 1. Tra cứu tồn kho (chỉ lọc 1005 và 3093)
+    res_wh = engine.check_stock_mb52(["BIW71004683"], plant="3093", slocs=["1005", "3093"])
+    assert len(res_wh) == 2
+    assert {r["sloc"] for r in res_wh} == {"1005", "3093"}
+
+    # 2. Tra cứu tồn tổng hợp (slocs=None -> giữ nguyên toàn bộ)
+    res_all = engine.check_stock_mb52(["BIW71004683"], plant="3093", slocs=None)
+    assert len(res_all) == 4
+
+
+
 

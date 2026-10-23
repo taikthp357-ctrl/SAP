@@ -269,4 +269,27 @@ def test_parse_json_materials_type_validation():
     assert "Không tìm thấy danh sách mã vật tư" in res2["reason"]
 
 
+def test_parse_ton_kho_distinction():
+    """Kiểm tra phân biệt 'Tồn kho' (chỉ SLoc 1005 & 3093) vs 'Tồn' (toàn plant 3093)."""
+    # 1. Có từ 'kho' -> TON_KHO
+    res1 = EmailCommandParser.parse("Tồn kho BIW71004683 @Phạm Tiến Tài")
+    assert res1 is not None
+    assert res1["valid"] is True
+    assert res1["command"] == "TON_KHO"
+    assert "BIW71004683" in res1["materials"]
+
+    # 2. Không có từ 'kho' -> TON (Toàn bộ sloc)
+    res2 = EmailCommandParser.parse("Check tồn BIW71004683")
+    assert res2 is not None
+    assert res2["valid"] is True
+    assert res2["command"] == "TON"
+    assert "BIW71004683" in res2["materials"]
+
+    # 3. JSON TON_KHO
+    res3 = EmailCommandParser.parse('{"command": "TON_KHO", "materials": ["BIW71004683"]}')
+    assert res3 is not None
+    assert res3["command"] == "TON_KHO"
+
+
+
 

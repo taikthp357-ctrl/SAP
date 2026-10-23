@@ -206,4 +206,23 @@ def test_prepare_safe_payload_with_massive_summary_strict_26kb():
     assert len(payload["summary"]) <= 300
 
 
+def test_teams_dispatcher_greeting_and_sloc_tooltip():
+    """Kiểm tra greeting sinh tự động và tooltip mô tả kho khi render Sloc."""
+    records = [
+        {"product": "BIW71004683", "plant": "3093", "sloc": "1005", "batch": "LOT1", "unrest": "100", "unit": "EA"},
+        {"product": "BIW71004683", "plant": "3093", "sloc": "9004", "batch": "LOT2", "unrest": "50", "unit": "EA"}
+    ]
+    headers = {"product": "Mã hàng", "plant": "Plant", "sloc": "Sloc", "batch": "Batch", "unrest": "Tồn", "unit": "ĐVT"}
+    meta = {"messageId": "M99", "command": "TON_KHO", "senderName": "Thu"}
+
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        "REQ-GREET", meta, "SUCCEEDED", "Tra cứu tồn kho", records, headers
+    )
+    assert payload["greeting"] == "Sếp ơi, em đã tra tồn kho (Kho 1005 & 3093) cho sếp rồi ạ 👇"
+    assert "title='Kho NVL'" in payload["table_html"]
+    assert "title='Hàng thiếu/thừa của NCC'" in payload["table_html"]
+    assert "✅ Tồn: 150 EA" in payload["table_html"]
+
+
+
 

@@ -8,5 +8,28 @@
   "sap_number_format": "AUTO",
   "strict_session_safety": true,
   "max_webhook_retries": 3,
-  "allowed_senders": []
+  "allowed_senders": [],
+  "warehouse_slocs": ["1005", "3093"],
+  "sloc_master": {
+    "1005": "Kho NVL",
+    "1013": "Kho Production COI,BLN",
+    "200C": "Kho hóa chất,keo",
+    "201Q": "GR hàng OS (Tier1) cho xưởng khác",
+    "201R": "Sloc trống",
+    "3093": "Kho FG",
+    "600O": "Hàng lỗi thời",
+    "60VR": "Hàng return NCC",
+    "80B2": "Hàng hỏng hủy",
+    "9004": "Hàng thiếu/thừa của NCC",
+    "3001": "Line Hàn",
+    "701A": "Hàng lỗi công đoạn Hàn",
+    "9999": "Sloc QC",
+    "3002": "Line Blank",
+    "3003": "Line Dập",
+    "604D": "Hàng lỗi công đoạn dập",
+    "701B": "Hàng hold line Dập",
+    "3006": "Sloc PE",
+    "P000": "Try out công đoạn Dập",
+    "200E": "Waiting"
+  }
 }

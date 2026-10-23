@@ -368,46 +368,33 @@ def run_bridge():
 
                         elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
                             records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
-                            if not records:
-                                print(f"[FALLBACK] /SCWM/POST không có dữ liệu, tự động tra cứu tồn kho qua MB52...")
-                                fallback_records = sap.check_stock_mb52(resolved_mats, plant)
-                                if fallback_records:
-                                    records = fallback_records
-                                    headers = {
-                                        "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
-                                        "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
-                                        "bin": "Vị trí (Bin)", "unit": "ĐVT"
-                                    }
-                                    mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                                    summary = f"Tồn kho & Vị trí (MB52 - Tự động tra cứu) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                                else:
-                                    headers = {
-                                        "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                                        "qty": "Số lượng", "unit": "ĐVT",
-                                        "grDate": "Ngày GR", "grTime": "Giờ GR",
-                                        "cat": "Trạng thái"
-                                    }
-                                    mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                                    summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
-                            else:
-                                headers = {
-                                    "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                                    "qty": "Số lượng", "unit": "ĐVT",
-                                    "grDate": "Ngày GR", "grTime": "Giờ GR",
-                                    "cat": "Trạng thái"
-                                }
-                                mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                                summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                            headers = {
+                                "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
+                                "qty": "Số lượng", "unit": "ĐVT",
+                                "grDate": "Ngày GR", "grTime": "Giờ GR",
+                                "cat": "Trạng thái"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+
+                        elif cmd in ["TON_KHO", "TONKHO"]:
+                            wh_slocs = cfg.get("warehouse_slocs", ["1005", "3093"])
+                            records = sap.check_stock_mb52(resolved_mats, plant, slocs=wh_slocs)
+                            headers = {
+                                "product": "Mã hàng", "plant": "Plant", "sloc": "Sloc",
+                                "batch": "Batch", "unrest": "Tồn", "unit": "ĐVT"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            summary = f"Tồn kho (Kho 1005 & 3093 - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["TON", "TỒN", "MB52"]:
                             records = sap.check_stock_mb52(resolved_mats, plant)
                             headers = {
-                                "product": "Mã hàng", "plant": "Plant", "sloc": "Kho (SLoc)",
-                                "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
-                                "bin": "Vị trí (Bin)", "unit": "ĐVT"
+                                "product": "Mã hàng", "plant": "Plant", "sloc": "Sloc",
+                                "batch": "Batch", "unrest": "Tồn", "unit": "ĐVT"
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                            summary = f"Tồn kho tổng hợp (MB52 - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                            summary = f"Tồn tổng hợp (Toàn bộ SLoc - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["LICHSU", "LỊCH SỬ", "MB51"]:
                             records = sap.check_history_mb51(resolved_mats, days, plant)

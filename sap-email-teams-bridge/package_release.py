@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Script đóng gói bản phát hành độc lập SAP_EMAIL_TEAMS_BRIDGE thành file ZIP.
 
-Hỗ trợ 2 bản phát hành:
-1. Standard Release (Dung lượng siêu nhẹ ~68 KB cho máy đã cài sẵn Python).
-2. Portable All-In-One Release (Đã tích hợp sẵn Python 3.12 Runtime Portable Siêu Tinh Gọn ~12.99 MB,
-   đã loại bỏ các thư viện rác/test không dùng, không cần cài đặt Python, không cần quyền Admin).
+Hỗ trợ 3 bản phát hành:
+1. Update Patch Release (Dung lượng siêu nhẹ ~45 KB, chỉ chứa các file cập nhật mã nguồn & cấu hình).
+2. Standard Release (Dung lượng ~170 KB cho máy đã cài sẵn Python).
+3. Portable All-In-One Release (Đã tích hợp sẵn Python 3.12 Runtime Portable Siêu Tinh Gọn ~13 MB).
 """
 
 import os
@@ -13,7 +13,8 @@ import zipfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.7"
+VERSION = "v1.0.8"
+PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
 
@@ -50,6 +51,42 @@ def clean_old_zips():
             pass
 
 
+def create_patch_zip():
+    """Tạo gói Patch cập nhật siêu nhẹ chỉ gồm các file vừa thay đổi."""
+    print(f"\n[PACKAGE-PATCH] Đang đóng gói Bản Cập Nhật Siêu Nhẹ ({VERSION}) - Chỉ các file vừa update...")
+    count = 0
+    patch_includes = [
+        "main.py",
+        "config.json",
+        "README.md",
+        "START_BRIDGE.cmd",
+        "START_BACKGROUND.vbs",
+        "DATA_MASTER.xlsx"
+    ]
+    with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for fname in patch_includes:
+            fpath = BASE_DIR / fname
+            if fpath.exists():
+                zf.write(fpath, arcname=fname)
+                count += 1
+
+        for folder in ["app", "tests"]:
+            folder_path = BASE_DIR / folder
+            if folder_path.exists():
+                for root, _, files in os.walk(folder_path):
+                    if "__pycache__" in root or ".pytest_cache" in root:
+                        continue
+                    for file in files:
+                        if file.endswith(".py"):
+                            file_path = Path(root) / file
+                            rel_path = file_path.relative_to(BASE_DIR)
+                            zf.write(file_path, arcname=str(rel_path))
+                            count += 1
+
+    print(f"[SUCCESS] Đã tạo file Update Patch Siêu Nhẹ ({count} files): {PATCH_ZIP.name}")
+    print(f"[SIZE] Dung lượng: {os.path.getsize(PATCH_ZIP):,} bytes ({os.path.getsize(PATCH_ZIP)/1024:.1f} KB)")
+
+
 def create_standard_zip():
     print(f"\n[PACKAGE-STANDARD] Đang đóng gói Standard Release ({VERSION}) từ: {BASE_DIR}")
     count = 0
@@ -79,7 +116,6 @@ def create_portable_zip():
     print(f"\n[PACKAGE-PORTABLE] Đang đóng gói Portable All-In-One ({VERSION} Kèm Python 3.12 Runtime Siêu Tinh Gọn)...")
     count = 0
     with zipfile.ZipFile(PORTABLE_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        # 1. Gói các file mã nguồn & công cụ
         for root, dirs, files in os.walk(BASE_DIR):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_SOURCE_DIRS]
             for file in files:
@@ -92,7 +128,6 @@ def create_portable_zip():
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
 
-        # 2. Gói thư mục runtime/ sau khi lọc bỏ rác
         for root, dirs, files in os.walk(runtime_source):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_RUNTIME_DIRS]
             for file in files:
@@ -111,5 +146,6 @@ def create_portable_zip():
 
 if __name__ == "__main__":
     clean_old_zips()
+    create_patch_zip()
     create_standard_zip()
     create_portable_zip()

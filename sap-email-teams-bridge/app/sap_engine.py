@@ -684,8 +684,14 @@ class SapEngine:
     # --------------------------------------------------------------------------
     # 2. KIỂM TRA TỒN KHO TỔNG THỂ (MB52 - KÈM VỊ TRÍ BIN LGPBE THEO CHUẨN BBBG)
     # --------------------------------------------------------------------------
-    def check_stock_mb52(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
-        """Tra cứu tồn kho tổng hợp MB52 kèm Vị trí Bin (LGPBE) theo modMB52.bas của BBBG."""
+    def check_stock_mb52(
+        self,
+        materials: List[str],
+        plant: str = "3093",
+        slocs: Optional[List[str]] = None
+    ) -> List[Dict[str, str]]:
+        """Tra cứu tồn kho tổng hợp MB52 kèm Vị trí Bin (LGPBE) theo modMB52.bas của BBBG.
+        Hỗ trợ lọc theo danh sách kho (slocs, ví dụ ['1005', '3093'])."""
         if not materials:
             return []
 
@@ -773,6 +779,11 @@ class SapEngine:
         }
         records = self._extract_alv_grid(alv_grid, col_map)
         print(f"[SAP MB52] Đã trích xuất {len(records)} dòng dữ liệu tồn kho.")
+
+        if slocs:
+            clean_slocs = {s.strip().upper() for s in slocs if s.strip()}
+            records = [r for r in records if str(r.get("sloc", "")).strip().upper() in clean_slocs]
+            print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs}: còn {len(records)} dòng.")
 
         # SẮP XẾP: Ưu tiên dòng có Tồn khả dụng lớn nhất và Batch mới nhất lên đầu
         def _mb52_sort_key(item):

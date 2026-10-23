@@ -15,6 +15,12 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from app.number_utils import parse_sap_float, format_qty_display
 
+try:
+    from app.config import DEFAULT_CONFIG
+    SLOC_MASTER = DEFAULT_CONFIG.get("sloc_master", {})
+except Exception:
+    SLOC_MASTER = {}
+
 MAX_DISPLAY_RECORDS = 12          # Số dòng tối đa hiển thị trực quan trên Teams
 MAX_TEAMS_PAYLOAD_BYTES = 26000   # Trần dung lượng an toàn (dưới mốc 28 KB của Teams)
 
@@ -54,7 +60,11 @@ class TeamsDispatcher:
             html.append(f"<tr style='background-color:{bg_color};'>")
             for key in headers_map.keys():
                 val = row.get(key, "")
-                html.append(f"<td style='{td_style}'>{val}</td>")
+                desc = SLOC_MASTER.get(str(val).strip().upper(), "") if key == "sloc" else ""
+                if desc:
+                    html.append(f"<td style='{td_style}' title='{desc}'>{val}</td>")
+                else:
+                    html.append(f"<td style='{td_style}'>{val}</td>")
             html.append("</tr>")
         html.append("</tbody></table>")
 
@@ -111,23 +121,16 @@ class TeamsDispatcher:
             elif any(k in cmd_upper for k in ["TON", "MB52"]):
                 batches = {r.get("batch") for r in records if r.get("batch")}
                 unrest_sum = 0.0
-                qual_sum = 0.0
                 unit = ""
                 for r in records:
                     unrest_sum += parse_sap_float(r.get("unrest"))
-                    qual_sum += parse_sap_float(r.get("qual"))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
                 badges.append(
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"✅ Khả dụng: {format_qty_display(unrest_sum)} {unit}</span>"
+                    f"✅ Tồn: {format_qty_display(unrest_sum)} {unit}</span>"
                 )
-                if qual_sum > 0:
-                    badges.append(
-                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-                        f"⏳ Chờ kiểm (QI): {format_qty_display(qual_sum)} {unit}</span>"
-                    )
                 badges.append(
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
                     f"🏷️ {len(batches)} Lô (Batch)</span>"
@@ -266,11 +269,36 @@ class TeamsDispatcher:
         cur_summary = summary
 
         def _make_payload(cur_recs, cur_tbl_html, cur_sum, include_records_array=True):
+            cmd_u = (command or "").upper()
+            if status == "FAILED":
+                greeting = "Sếp ơi, lần này em chưa tra cứu được SAP ạ. Chi tiết em để bên dưới nhé."
+            elif status == "INFO":
+                greeting = "Sếp ơi, em gửi hướng dẫn tra cứu bên dưới ạ 👇"
+            elif cmd_u == "PING":
+                greeting = "Sếp ơi, em nhận được yêu cầu kiểm tra kết nối rồi ạ 👇"
+            elif total_records == 0:
+                greeting = "Sếp ơi, em chưa tìm thấy dữ liệu phù hợp ạ. Sếp kiểm tra lại mã hàng, lô hoặc plant giúp em nhé."
+            elif cmd_u in ["VITRI", "BIN", "POST"]:
+                greeting = "Sếp ơi, em đã tra vị trí Bin trên hệ thống rồi ạ 👇"
+            elif cmd_u in ["TON_KHO", "TONKHO"]:
+                greeting = "Sếp ơi, em đã tra tồn kho (Kho 1005 & 3093) cho sếp rồi ạ 👇"
+            elif cmd_u in ["TON", "MB52"]:
+                greeting = "Sếp ơi, em đã tra tổng hợp tồn các kho cho sếp rồi ạ 👇"
+            elif cmd_u in ["IB_TREO", "VL06I", "INBOUND"]:
+                greeting = "Sếp ơi, em đã tra danh sách đơn Inbound (IB) treo cho sếp rồi ạ 👇"
+            elif cmd_u in ["STO", "ME2N", "MB5T", "DIEUCHUYEN"]:
+                greeting = "Sếp ơi, em đã tra danh sách đơn điều chuyển STO cho sếp rồi ạ 👇"
+            elif cmd_u in ["LICHSU", "MB51"]:
+                greeting = "Sếp ơi, em đã tra lịch sử giao dịch cho sếp rồi ạ 👇"
+            else:
+                greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
+
             pl = {
                 "requestId": request_id,
                 "messageId": meta.get("messageId", ""),
                 "command": command,
                 "status": status,
+                "greeting": greeting,
                 "senderEmail": meta.get("senderEmail", ""),
                 "senderName": meta.get("senderName", "Đồng nghiệp"),
                 "completedAt": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),

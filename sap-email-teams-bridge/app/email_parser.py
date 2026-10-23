@@ -124,7 +124,7 @@ class SmartCommandParser:
 
         SUPPORTED_JSON_COMMANDS = {
             "PING", "VITRI", "BIN", "POST", "SCWM", "/SCWM/POST",
-            "TON", "MB52",
+            "TON", "TON_KHO", "TONKHO", "MB52",
             "LICHSU", "MB51",
             "IB_TREO", "IB", "INBOUND", "VL06I",
             "STO", "ME2N", "MB5T", "DIEUCHUYEN",
@@ -133,6 +133,8 @@ class SmartCommandParser:
 
         if json_obj:
             cmd = str(json_obj.get("command", "")).strip().upper()
+            if cmd in ["TON_KHO", "TONKHO"]:
+                cmd = "TON_KHO"
             req_id = str(json_obj.get("requestId", "") or json_obj.get("messageId", "")).strip()
             plant = str(json_obj.get("plant", default_plant)).strip().upper() or default_plant
             batch = str(json_obj.get("batch", "")).strip().upper()
@@ -279,6 +281,14 @@ class SmartCommandParser:
 
         best_intent = max(scores, key=scores.get)
         best_score = scores[best_intent]
+
+        # Phân biệt TỒN KHO (Chỉ kiểm tra Kho 1005 & 3093) vs TỒN TỔNG HỢP (Toàn bộ SLoc)
+        if best_intent == "TON":
+            if re.search(r"\b(?:kho|warehouse)\b", norm_text):
+                best_intent = "TON_KHO"
+                matched_keywords.append("TON_KHO: Lọc riêng Kho NVL 1005 & Kho FG 3093")
+            else:
+                matched_keywords.append("TON: Tra cứu toàn bộ SLoc plant")
 
         # 2. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         plant = default_plant
