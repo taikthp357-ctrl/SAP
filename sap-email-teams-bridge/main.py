@@ -130,12 +130,53 @@ def run_bridge():
         outlook_app = win32com.client.Dispatch("Outlook.Application")
         outlook_ns = outlook_app.GetNamespace("MAPI")
         inbox = outlook_ns.GetDefaultFolder(6)  # 6 = olFolderInbox
-        bot_folder = inbox.Folders[folder_name]
     except Exception as e:
         raise RuntimeError(
-            f"Không tìm thấy thư mục con 'Inbox/{folder_name}' trong Outlook. "
-            f"Vui lòng tạo thư mục này trong Outlook Classic trước khi chạy!\nChi tiết: {e}"
+            f"Không thể kết nối tới ứng dụng Microsoft Outlook qua COM.\n"
+            f"Vui lòng đảm bảo Outlook Classic (Desktop) đang được mở trên máy!\nChi tiết: {e}"
         )
+
+    # Tìm hoặc tự động tạo mới thư mục BOT trong Outlook
+    bot_folder = None
+
+    # 1. Thử lấy trực tiếp theo tên
+    try:
+        bot_folder = inbox.Folders[folder_name]
+    except Exception:
+        pass
+
+    # 2. Tìm không phân biệt hoa thường trong Inbox
+    if bot_folder is None:
+        try:
+            for f in inbox.Folders:
+                if f.Name.strip().lower() == folder_name.strip().lower():
+                    bot_folder = f
+                    break
+        except Exception:
+            pass
+
+    # 3. Tìm ở cấp thư mục gốc (Root Account Folders) phòng khi tạo ngoài Inbox
+    if bot_folder is None:
+        try:
+            root_store = inbox.Parent
+            for f in root_store.Folders:
+                if f.Name.strip().lower() == folder_name.strip().lower():
+                    bot_folder = f
+                    break
+        except Exception:
+            pass
+
+    # 4. Nếu chưa có ở bất kỳ đâu -> TỰ ĐỘNG TẠO MỚI ngay trong Inbox
+    if bot_folder is None:
+        try:
+            bot_folder = inbox.Folders.Add(folder_name)
+            print(f"[OUTLOOK] Đã tự động tạo mới thư mục 'Inbox/{folder_name}' trong Outlook thành công!")
+        except Exception as add_err:
+            raise RuntimeError(
+                f"Không tìm thấy và không thể tự động tạo thư mục 'Inbox/{folder_name}' trong Outlook.\n"
+                f"Hướng dẫn: Nhấp chuột phải vào 'Hộp thư đến (Inbox)' -> Chọn 'Thư mục mới (New Folder)' -> Đặt tên là '{folder_name}'.\n"
+                f"Chi tiết: {add_err}"
+            )
 
     resolver = MaterialResolver()
     sap = SapEngine(max_alv_rows=max_rows, keep_alive_idle_seconds=keep_alive_idle)
