@@ -134,3 +134,42 @@ def test_parse_real_mail_v3_with_sender_id_chat_id():
     assert res["chatId"] == "19:2def"
     assert res["command"] == "VITRI"
     assert res["materials"] == ["32013765"]
+
+
+def test_parse_check_ib_treo():
+    body = "@Bot check ib treo mã 32013765 plant 3093"
+    res = EmailCommandParser.parse(body)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "IB_TREO"
+    assert res["materials"] == ["32013765"]
+    assert res["plant"] == "3093"
+
+
+def test_parse_natural_language_ib_treo():
+    body = "mã này BIW32013765AA có ib treo không"
+    res = EmailCommandParser.parse(body)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "IB_TREO"
+    assert res["materials"] == ["BIW32013765AA"]
+
+
+def test_parse_check_sto():
+    body = "check sto mã 32013765"
+    res = EmailCommandParser.parse(body)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "STO"
+    assert res["materials"] == ["32013765"]
+
+
+def test_parse_natural_language_sto():
+    body = "kiểm tra đơn điều chuyển STO cho vật tư BIW32013765AA plant 3093"
+    res = EmailCommandParser.parse(body)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "STO"
+    assert res["materials"] == ["BIW32013765AA"]
+    assert res["plant"] == "3093"
+

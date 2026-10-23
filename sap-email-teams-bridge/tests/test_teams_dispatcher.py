@@ -97,4 +97,29 @@ def test_build_help_html():
     help_html = TeamsDispatcher.build_help_html("Anh Ba")
     assert "Anh Ba" in help_html
     assert "@Bot check vị trí" in help_html
+    assert "VL06I" in help_html
+    assert "ME2N" in help_html
     assert "32013765" in help_html
+
+
+def test_build_kpi_badges_ib_treo():
+    records = [
+        {"ibNo": "180001", "product": "BIW100", "batch": "LOT1", "qty": "50", "unit": "PC", "status": "Treo (Chưa GR)"},
+        {"ibNo": "180002", "product": "BIW100", "batch": "LOT2", "qty": "30", "unit": "PC", "status": "Treo (Chưa GR)"}
+    ]
+    badges = TeamsDispatcher.build_kpi_badges(records, "IB_TREO")
+    assert "2 Đơn IB treo" in badges
+    assert "80 PC" in badges
+    assert "2 Lô" in badges
+
+
+def test_build_kpi_badges_sto():
+    records = [
+        {"stoNo": "360001", "product": "BIW100", "orderQty": "100", "deliveredQty": "60", "remainingQty": "40", "unit": "PC"},
+        {"stoNo": "360002", "product": "BIW100", "orderQty": "50", "deliveredQty": "50", "remainingQty": "0", "unit": "PC"}
+    ]
+    badges = TeamsDispatcher.build_kpi_badges(records, "STO")
+    assert "2 Đơn STO" in badges
+    assert "150 PC" in badges
+    assert "40 PC" in badges
+

@@ -762,3 +762,246 @@ class SapEngine:
 
         records.sort(key=_mb51_sort_key, reverse=True)
         return records
+
+    # --------------------------------------------------------------------------
+    # 4. KIỂM TRA ĐƠN INBOUND (IB) TREO CHƯA GR (VL06I)
+    # --------------------------------------------------------------------------
+    def check_inbound_treo_vl06i(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
+        """Tra cứu các đơn Inbound Delivery (IB) đang treo chưa GR qua VL06I theo chuẩn BBBG."""
+        if not materials:
+            return []
+
+        self._open_transaction("VL06I")
+        self._wait_idle(10.0)
+
+        print(f"[SAP VL06I] Đang tra cứu IB treo cho Materials={materials}, Plant={plant}...")
+        clean_mats = [m.strip().upper() for m in materials if m.strip()]
+
+        # 1. Bấm BUTTON7: List Inbound Deliveries
+        btn7 = self._find_by_id_safe("wnd[0]/usr/btnBUTTON7")
+        if btn7 is not None:
+            btn7.press()
+            self._wait_idle(5.0)
+
+        # 2. Xóa trường ngày giao để lấy trọn vẹn không bị lọc ngày
+        lfdat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-LOW")
+        if lfdat_ctl is not None:
+            try:
+                lfdat_ctl.text = ""
+            except Exception:
+                pass
+
+        # 3. Điền mã vật tư
+        mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
+        if len(clean_mats) == 1 and mat_single is not None:
+            mat_single.text = clean_mats[0]
+        else:
+            multi_mat_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
+            if self._find_by_id_safe(multi_mat_id) is not None:
+                self._fill_multiple_selection(multi_mat_id, clean_mats)
+            elif mat_single is not None and clean_mats:
+                mat_single.text = clean_mats[0]
+
+        # 4. Điền Plant nếu có
+        if plant:
+            werks_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WERKS-LOW")
+            if werks_ctl is not None:
+                try:
+                    werks_ctl.text = plant
+                except Exception:
+                    pass
+
+        # 5. ĐIỀU KIỆN THEN CHỐT: Đặt trạng thái Goods Movement IT_WBSTK-LOW = 'a' (chưa GR / Treo)
+        wbstk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
+        if wbstk_ctl is not None:
+            try:
+                wbstk_ctl.text = "a"
+            except Exception:
+                pass
+
+        # 6. Bấm thực thi (F8)
+        print("[SAP VL06I] Đang bấm thực thi (F8)...")
+        exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+        if exec_btn is not None:
+            exec_btn.press()
+        else:
+            self.session.findById("wnd[0]").sendVKey(8)
+
+        self._wait_idle(25.0)
+        self._dismiss_popups()
+
+        status_txt, status_type = self._get_status()
+        if status_type in ("E", "A"):
+            print(f"[SAP VL06I ERROR] {status_txt}")
+            return []
+
+        # 7. Chuyển sang chế độ xem chi tiết Item (btn[18] trên tbar[1])
+        btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
+        if btn18 is not None:
+            try:
+                btn18.press()
+                self._wait_idle(10.0)
+                self._dismiss_popups()
+            except Exception as e:
+                print(f"[SAP VL06I WARN] Không thể bấm btn[18]: {e}")
+
+        # 8. Tìm ALV Grid chi tiết
+        alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+        if alv_grid is None:
+            alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+        if alv_grid is None:
+            print("[SAP VL06I] Không tìm thấy bảng chi tiết ALV (có thể không có IB treo).")
+            return []
+
+        col_map = {
+            "ibNo":    ["VBELN", "DELIVERY", "INBOUND DELIVERY", "INBOUND"],
+            "refNo":   ["LIFEX", "EXTERNAL IDENTIFICATION", "BILL OF LADING", "REF. DOC.", "EXTERNAL DELIVERY", "REFERENCE"],
+            "product": ["MATNR", "MATERIAL", "PRODUCT"],
+            "batch":   ["CHARG", "S_CHARG", "BATCH"],
+            "qty":     ["LFIMG", "DELIVERY QUANTITY", "ACTUAL DELIVERED QTY", "MENGE", "QUANTITY"],
+            "unit":    ["VRKME", "MEINS", "SALES UNIT", "BASE UNIT", "UNIT", "UOM"],
+            "plant":   ["WERKS", "PLANT"],
+            "sloc":    ["LGORT", "STORAGE LOCATION", "SLOC"],
+            "status":  ["WBSTK", "GM STATUS", "OVERALL GM STATUS", "GOODS MOVEMENT STATUS", "STATUS"]
+        }
+        records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP VL06I] Đã trích xuất {len(records)} dòng IB treo.")
+
+        for r in records:
+            st = str(r.get("status", "")).strip().upper()
+            if not st or st in ("A", "a"):
+                r["status"] = "Treo (Chưa GR)"
+            elif st in ("B", "b"):
+                r["status"] = "GR 1 phần"
+            elif st in ("C", "c"):
+                r["status"] = "Đã hoàn tất GR"
+
+        # Sắp xếp số đơn IB mới nhất lên đầu
+        records.sort(key=lambda x: str(x.get("ibNo", "")), reverse=True)
+        return records
+
+    # --------------------------------------------------------------------------
+    # 5. KIỂM TRA ĐƠN ĐIỀU CHUYỂN KHO (STO - ME2N)
+    # --------------------------------------------------------------------------
+    def check_sto_me2n(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
+        """Tra cứu đơn STO (Stock Transport Order) điều chuyển kho qua ME2N."""
+        if not materials:
+            return []
+
+        self._open_transaction("ME2N")
+        self._wait_idle(10.0)
+
+        print(f"[SAP ME2N] Đang tra cứu STO cho Materials={materials}, Plant={plant}...")
+        clean_mats = [m.strip().upper() for m in materials if m.strip()]
+
+        # 1. Đặt định dạng hiển thị ALV
+        listu_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtLISTU")
+        if listu_ctl is not None:
+            try:
+                listu_ctl.text = "ALV"
+            except Exception:
+                pass
+
+        # 2. Đặt Selection Parameter AVIS (Đơn đang thực hiện giao nhận)
+        selpa_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtSELPA-LOW")
+        if selpa_ctl is not None:
+            try:
+                selpa_ctl.text = "AVIS"
+            except Exception:
+                pass
+
+        # 3. Điền mã vật tư
+        mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtS_MATNR-LOW")
+        if len(clean_mats) == 1 and mat_single is not None:
+            mat_single.text = clean_mats[0]
+        else:
+            multi_mat_id = "wnd[0]/usr/btn%_S_MATNR_%_APP_%-VALU_PUSH"
+            if self._find_by_id_safe(multi_mat_id) is not None:
+                self._fill_multiple_selection(multi_mat_id, clean_mats)
+            elif mat_single is not None and clean_mats:
+                mat_single.text = clean_mats[0]
+
+        # Xóa trường high của Material nếu có
+        mat_high = self._find_by_id_safe("wnd[0]/usr/ctxtS_MATNR-HIGH")
+        if mat_high is not None:
+            try:
+                mat_high.text = ""
+            except Exception:
+                pass
+
+        # 4. Điền Supplying Plant (Nhà máy cấp hàng) nếu có
+        if plant:
+            reswk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_RESWK-LOW")
+            if reswk_ctl is not None:
+                try:
+                    reswk_ctl.text = plant
+                except Exception:
+                    pass
+
+        # 5. Bấm thực thi (F8)
+        print("[SAP ME2N] Đang bấm thực thi (F8)...")
+        exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+        if exec_btn is not None:
+            exec_btn.press()
+        else:
+            self.session.findById("wnd[0]").sendVKey(8)
+
+        self._wait_idle(25.0)
+        self._dismiss_popups()
+
+        status_txt, status_type = self._get_status()
+        if status_type in ("E", "A"):
+            print(f"[SAP ME2N ERROR] {status_txt}")
+            return []
+
+        # 6. Tìm ALV Grid
+        alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+        if alv_grid is None:
+            alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+        if alv_grid is None:
+            print("[SAP ME2N] Không tìm thấy bảng kết quả ALV (có thể không có STO nào).")
+            return []
+
+        col_map = {
+            "stoNo":          ["EBELN", "PURCHASING DOCUMENT", "PO NUMBER", "DOCUMENT", "PO"],
+            "item":           ["EBELP", "ITEM"],
+            "product":        ["EMATN", "MATNR", "MATERIAL"],
+            "orderQty":       ["MENGE", "ORDER QUANTITY", "PO QUANTITY", "QUANTITY", "QTY"],
+            "deliveredQty":   ["MGLIEF", "DELIVERED QUANTITY", "ISSUED QTY", "QTY DELIVERED", "DELIVERED"],
+            "unit":           ["MEINS", "BPRME", "UNIT", "ORDER UNIT"],
+            "supplyingPlant": ["RESWK", "SUPPLYING PLANT", "SUPPL. PLANT"],
+            "receivingPlant": ["WERKS", "RECEIVING PLANT", "PLANT"],
+            "docDate":        ["BEDAT", "DOCUMENT DATE", "PO DATE", "DATE"],
+            "deleteInd":      ["LOEKZ", "DELETION INDICATOR", "DEL"]
+        }
+        raw_records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP ME2N] Đã trích xuất {len(raw_records)} dòng đơn STO.")
+
+        records = []
+        for r in raw_records:
+            # Bỏ qua dòng đã xóa
+            if str(r.get("deleteInd", "")).strip():
+                continue
+
+            # Tính số lượng còn lại (Remaining Qty)
+            try:
+                ord_q = float(str(r.get("orderQty", "0")).replace(".", "").replace(",", "."))
+            except Exception:
+                ord_q = 0.0
+
+            try:
+                del_q = float(str(r.get("deliveredQty", "0")).replace(".", "").replace(",", "."))
+            except Exception:
+                del_q = 0.0
+
+            rem_q = max(0.0, ord_q - del_q)
+            r["remainingQty"] = f"{rem_q:,.0f}" if rem_q.is_integer() else f"{rem_q:,.3f}"
+            r["orderQty"] = f"{ord_q:,.0f}" if ord_q.is_integer() else f"{ord_q:,.3f}"
+            r["deliveredQty"] = f"{del_q:,.0f}" if del_q.is_integer() else f"{del_q:,.3f}"
+            records.append(r)
+
+        # Sắp xếp số đơn STO mới nhất lên đầu
+        records.sort(key=lambda x: str(x.get("stoNo", "")), reverse=True)
+        return records

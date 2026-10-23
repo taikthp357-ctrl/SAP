@@ -35,6 +35,16 @@ class SmartCommandParser:
             (r"\b(?:so\s*luong\s*ton|con\s*ton|con\s*hang|stock)\b", 8),
             (r"\b(?:ton)\b", 6),
         ],
+        "IB_TREO": [
+            (r"\b(?:ib\s*treo|ibtreo|don\s*treo|inbound\s*treo|vl06i|check\s*ib|inbound)\b", 12),
+            (r"\b(?:chua\s*gr|chua\s*nhap|hang\s*chua\s*ve|cho\s*nhap|treo)\b", 9),
+            (r"\b(?:ib)\b", 6),
+        ],
+        "STO": [
+            (r"\b(?:sto|stock\s*transport|me2n|check\s*sto|dieu\s*chuyen)\b", 12),
+            (r"\b(?:hang\s*di\s*duong|di\s*duong|mb5t)\b", 9),
+            (r"\b(?:po\s*dieu\s*chuyen|don\s*dieu\s*chuyen)\b", 8),
+        ],
         "HELP": [
             (r"\b(?:huong\s*dan|tro\s*giup|help|cu\s*phap|cach\s*dung|menu)\b", 15),
         ]
@@ -48,7 +58,8 @@ class SmartCommandParser:
         "BOT", "SAP", "XEM", "TIM", "CHO", "HOI", "XIN", "BAO", "NHIEU", "XUAT", "NHAP",
         "GIAO", "DICH", "LO", "CHARG", "GR", "DATE", "TIME", "STOCK", "TRONG", "VONG",
         "GAN", "NHAT", "SENDER", "EMAIL", "NAME", "MSG", "RAW", "TEXT", "CON", "KHONG",
-        "NAM", "DAU", "NAO", "NHE", "NHA", "THANKS", "CAM", "ON", "DUM", "HO", "STATUS"
+        "NAM", "DAU", "NAO", "NHE", "NHA", "THANKS", "CAM", "ON", "DUM", "HO", "STATUS",
+        "IB", "TREO", "IBTREO", "STO", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN", "DIEU", "CHUYEN", "DON"
     }
 
     @staticmethod
@@ -206,7 +217,7 @@ class SmartCommandParser:
         norm_text = cls.remove_accents(command_text)
 
         # 1. Chấm điểm Ý định (Intent Scoring)
-        scores = {"VITRI": 0, "LICHSU": 0, "TON": 0, "HELP": 0}
+        scores = {k: 0 for k in cls.INTENT_SCORES.keys()}
         matched_keywords = []
 
         for intent, rules in cls.INTENT_SCORES.items():

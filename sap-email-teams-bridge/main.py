@@ -375,6 +375,28 @@ def run_bridge():
                         summary = f"Lịch sử giao dịch {days} ngày (MB51) cho mã: {', '.join(resolved_mats)}{mapping_info}"
                         TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
 
+                    elif cmd in ["IB_TREO", "IB", "INBOUND", "VL06I"]:
+                        records = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
+                        headers = {
+                            "ibNo": "Số IB", "refNo": "Số OB / Vận đơn", "product": "Mã hàng",
+                            "batch": "Số Lô", "qty": "SL giao", "unit": "ĐVT",
+                            "plant": "Plant", "sloc": "Kho nhận", "status": "Trạng thái"
+                        }
+                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                        summary = f"Danh sách đơn Inbound (IB) treo chưa GR (VL06I) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                        TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+
+                    elif cmd in ["STO", "ME2N", "MB5T", "DIEUCHUYEN"]:
+                        records = sap.check_sto_me2n(resolved_mats, plant=plant)
+                        headers = {
+                            "stoNo": "Số STO", "item": "Item", "product": "Mã hàng",
+                            "orderQty": "SL Đặt", "deliveredQty": "Đã xuất", "remainingQty": "Còn nợ",
+                            "unit": "ĐVT", "supplyingPlant": "Plant cấp", "receivingPlant": "Plant nhận"
+                        }
+                        mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                        summary = f"Danh sách đơn điều chuyển STO (ME2N) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                        TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
+
                 except Exception as sap_err:
                     err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {sap_err}</p>"
                     TeamsDispatcher.send_reply(

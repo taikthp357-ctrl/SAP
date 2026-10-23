@@ -141,3 +141,68 @@ def test_extract_alv_grid_with_forward_fill():
     assert records[1]["batch"] == "B2"
     assert records[2]["product"] == "BIW200"
     assert records[2]["batch"] == "B3"
+
+
+def test_resolve_vl06i_columns():
+    """Kiểm tra phân giải các cột của màn hình VL06I (Item ALV)."""
+    engine = SapEngine.__new__(SapEngine)
+    alv_mock = MagicMock()
+    alv_mock.ColumnOrder = FakeColumnCollection(["VBELN", "LIFEX", "MATNR", "S_CHARG", "LFIMG", "VRKME", "WERKS", "LGORT", "WBSTK"])
+    alv_mock.GetDisplayedColumnTitle.return_value = ""
+    alv_mock.GetColumnTitles.return_value = []
+    alv_mock.GetColumnTooltip.return_value = ""
+
+    col_map = {
+        "ibNo":    ["VBELN", "DELIVERY", "INBOUND DELIVERY"],
+        "refNo":   ["LIFEX", "BILL OF LADING", "REF. DOC."],
+        "product": ["MATNR", "MATERIAL", "PRODUCT"],
+        "batch":   ["CHARG", "S_CHARG", "BATCH"],
+        "qty":     ["LFIMG", "DELIVERY QUANTITY", "MENGE"],
+        "unit":    ["VRKME", "MEINS", "UNIT"],
+        "plant":   ["WERKS", "PLANT"],
+        "sloc":    ["LGORT", "STORAGE LOCATION", "SLOC"],
+        "status":  ["WBSTK", "GM STATUS", "STATUS"]
+    }
+    resolved = engine._resolve_grid_columns(alv_mock, col_map)
+    assert resolved["ibNo"] == "VBELN"
+    assert resolved["refNo"] == "LIFEX"
+    assert resolved["product"] == "MATNR"
+    assert resolved["batch"] == "S_CHARG"
+    assert resolved["qty"] == "LFIMG"
+    assert resolved["unit"] == "VRKME"
+    assert resolved["plant"] == "WERKS"
+    assert resolved["sloc"] == "LGORT"
+    assert resolved["status"] == "WBSTK"
+
+
+def test_resolve_me2n_columns():
+    """Kiểm tra phân giải các cột của màn hình ME2N (ALV Grid)."""
+    engine = SapEngine.__new__(SapEngine)
+    alv_mock = MagicMock()
+    alv_mock.ColumnOrder = FakeColumnCollection(["EBELN", "EBELP", "EMATN", "MENGE", "MGLIEF", "MEINS", "RESWK", "WERKS", "BEDAT"])
+    alv_mock.GetDisplayedColumnTitle.return_value = ""
+    alv_mock.GetColumnTitles.return_value = []
+    alv_mock.GetColumnTooltip.return_value = ""
+
+    col_map = {
+        "stoNo":          ["EBELN", "PURCHASING DOCUMENT", "PO NUMBER"],
+        "item":           ["EBELP", "ITEM"],
+        "product":        ["EMATN", "MATNR", "MATERIAL"],
+        "orderQty":       ["MENGE", "ORDER QUANTITY", "QTY"],
+        "deliveredQty":   ["MGLIEF", "DELIVERED QUANTITY", "ISSUED QTY"],
+        "unit":           ["MEINS", "BPRME", "UNIT"],
+        "supplyingPlant": ["RESWK", "SUPPLYING PLANT"],
+        "receivingPlant": ["WERKS", "RECEIVING PLANT", "PLANT"],
+        "docDate":        ["BEDAT", "DOCUMENT DATE", "PO DATE"]
+    }
+    resolved = engine._resolve_grid_columns(alv_mock, col_map)
+    assert resolved["stoNo"] == "EBELN"
+    assert resolved["item"] == "EBELP"
+    assert resolved["product"] == "EMATN"
+    assert resolved["orderQty"] == "MENGE"
+    assert resolved["deliveredQty"] == "MGLIEF"
+    assert resolved["unit"] == "MEINS"
+    assert resolved["supplyingPlant"] == "RESWK"
+    assert resolved["receivingPlant"] == "WERKS"
+    assert resolved["docDate"] == "BEDAT"
+

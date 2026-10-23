@@ -159,6 +159,68 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
                         f"🏷️ {len(batches)} Lô</span>"
                     )
+
+            elif any(k in cmd_upper for k in ["IB_TREO", "VL06I", "INBOUND"]):
+                ib_set = {r.get("ibNo") for r in records if r.get("ibNo")}
+                batches = {r.get("batch") for r in records if r.get("batch")}
+                total_qty = 0.0
+                unit = ""
+                for r in records:
+                    q_str = str(r.get("qty", "0")).replace(".", "").replace(",", ".")
+                    try:
+                        total_qty += float(q_str)
+                    except Exception:
+                        pass
+                    if not unit and r.get("unit"):
+                        unit = r.get("unit")
+
+                badges.append(
+                    f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                    f"⏳ {len(ib_set)} Đơn IB treo</span>"
+                )
+                if total_qty > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"📦 Tổng: {total_qty:,.0f} {unit}</span>"
+                    )
+                if batches:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                        f"🏷️ {len(batches)} Lô</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["STO", "ME2N"]):
+                sto_set = {r.get("stoNo") for r in records if r.get("stoNo")}
+                total_ord = 0.0
+                total_rem = 0.0
+                unit = ""
+                for r in records:
+                    o_str = str(r.get("orderQty", "0")).replace(".", "").replace(",", ".")
+                    r_str = str(r.get("remainingQty", "0")).replace(".", "").replace(",", ".")
+                    try:
+                        total_ord += float(o_str)
+                    except Exception:
+                        pass
+                    try:
+                        total_rem += float(r_str)
+                    except Exception:
+                        pass
+                    if not unit and r.get("unit"):
+                        unit = r.get("unit")
+
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📋 {len(sto_set)} Đơn STO</span>"
+                )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"📦 Đặt: {total_ord:,.0f} {unit}</span>"
+                )
+                if total_rem > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⏳ Còn nợ: {total_rem:,.0f} {unit}</span>"
+                    )
         except Exception:
             return ""
 
@@ -187,6 +249,10 @@ class TeamsDispatcher:
             f"<code>@Bot kiểm tra tồn kho 32013765 plant 3093</code></li>"
             f"<li>⏱️ <strong>Xem Lịch sử xuất nhập (MB51):</strong><br>"
             f"<code>@Bot xem lịch sử 32013765 trong 14 ngày</code></li>"
+            f"<li>🚚 <strong>Kiểm tra Inbound (IB) treo chưa GR (VL06I):</strong><br>"
+            f"<code>@Bot check ib treo 32013765</code> hoặc <code>@Bot 32013765 có ib treo không</code></li>"
+            f"<li>📋 <strong>Kiểm tra đơn điều chuyển STO (ME2N):</strong><br>"
+            f"<code>@Bot check sto 32013765</code> hoặc <code>@Bot kiểm tra đơn sto 32013765</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "

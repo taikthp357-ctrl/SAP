@@ -9,9 +9,12 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
 2. **Cơ chế Keep-Alive & Auto-Reconnect:**
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
-3. **Tra cứu vị trí chính xác:**
-   - Tích hợp chuẩn giao diện **Posting Change (`/SCWM/POST`)** để trích xuất đầy đủ: Mã hàng, Số Batch, Vị trí Bin, Ngày và Giờ GR.
-   - Hỗ trợ cả **MB52** (Tồn kho tự do) và **MB51** (Lịch sử hạch toán).
+3. **Hỗ trợ 5 T-Code logistics hàng đầu:**
+   - **/SCWM/POST:** Vị trí lưu kho (Bin), Số lượng khả dụng, Số Lô, Ngày GR, Giờ GR, Trạng thái kho EWM.
+   - **MB52:** Tồn kho tổng hợp theo Plant/SLoc, Tồn tự do, Tồn chờ kiểm, Vị trí Bin tĩnh LGPBE.
+   - **MB51:** Lịch sử xuất - nhập - chuyển kho trong N ngày gần nhất (Posting Date, Movement Type).
+   - **VL06I:** Danh sách đơn Inbound (IB) treo chưa Goods Receipt (GM = A).
+   - **ME2N:** Danh sách đơn điều chuyển kho (STO) theo mã hàng (SL đặt, đã xuất, còn nợ).
 
 ## Cấu trúc thư mục
 ```text

@@ -33,9 +33,11 @@ Người dùng chỉ cần gửi email với nội dung là mã hàng (ở Tiêu
 ### Cách 2: Cú pháp đầy đủ
 | Mục đích tra cứu | Cú pháp nội dung email |
 |---|---|
-| **1. Vị trí Bin, Batch, Ngày & Giờ GR** | `LENH: VITRI \| MA: 32013765 \| BATCH: B2610` |
+| **1. Vị trí Bin, Batch, Ngày & Giờ GR (/SCWM/POST)** | `LENH: VITRI \| MA: 32013765 \| BATCH: B2610` |
 | **2. Tồn kho khả dụng (MB52)** | `LENH: TON \| MA: 32013765, 32024300 \| PLANT: 3093` |
 | **3. Lịch sử giao dịch (MB51)** | `LENH: LICHSU \| MA: 32013765 \| NGAY: 7 \| PLANT: 3093` |
+| **4. Đơn Inbound treo chưa GR (VL06I)** | `LENH: IB_TREO \| MA: 32013765 \| PLANT: 3093` hoặc `check ib treo 32013765` |
+| **5. Đơn điều chuyển kho STO (ME2N)** | `LENH: STO \| MA: 32013765 \| PLANT: 3093` hoặc `check sto 32013765` |
 
 ---
 
