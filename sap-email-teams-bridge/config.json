@@ -1,0 +1,8 @@
+{
+  "teams_webhook_url": "https://prod-xx.southeastasia.logic.azure.com:443/workflows/YOUR_WEBHOOK_URL_HERE",
+  "outlook_folder_name": "SAP_BOT",
+  "poll_interval_seconds": 10,
+  "default_plant": "3093",
+  "max_alv_rows": 500,
+  "keep_alive_idle_seconds": 900
+}

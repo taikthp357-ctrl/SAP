@@ -1,0 +1,25 @@
+# ==============================================================================
+# MẪU NỘI DUNG EMAIL GỬI VÀO THƯ MỤC SAP_BOT
+# ==============================================================================
+
+MẪU 1: Tra cứu Vị trí lưu kho (Bin), Batch và Ngày giờ GR qua Posting Change (/SCWM/POST)
+--------------------------------------------------------------------------------
+Tiêu đề: [SAP-REQUEST] Kiem tra vi tri hang
+Nội dung:
+LENH: VITRI | MA: 1002345 | BATCH: B2610
+
+*(Hoặc có thể bỏ trống BATCH để lấy tất cả các lô: LENH: VITRI | MA: 1002345)*
+
+
+MẪU 2: Tra cứu Tồn kho khả dụng qua MB52
+--------------------------------------------------------------------------------
+Tiêu đề: [SAP-REQUEST] Check ton kho 3093
+Nội dung:
+LENH: TON | MA: 1002345, 1002346 | PLANT: 3093
+
+
+MẪU 3: Tra cứu Lịch sử biến động xuất nhập qua MB51
+--------------------------------------------------------------------------------
+Tiêu đề: [SAP-REQUEST] Lich su nhap xuat 7 ngay
+Nội dung:
+LENH: LICHSU | MA: 1002345 | NGAY: 7 | PLANT: 3093

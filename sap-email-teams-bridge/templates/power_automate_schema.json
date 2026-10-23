@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "requestId": { "type": "string" },
+    "command": { "type": "string" },
+    "status": { "type": "string" },
+    "sender": { "type": "string" },
+    "completedAt": { "type": "string" },
+    "summary": { "type": "string" },
+    "table_html": { "type": "string" },
+    "records": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  }
+}
