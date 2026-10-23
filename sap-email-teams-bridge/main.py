@@ -203,9 +203,28 @@ def run_bridge():
             # 1. Giữ phiên SAP không bị timeout khi nhàn rỗi
             sap.keep_alive()
 
-            # 2. Quét các thư chưa đọc trong thư mục BOT
-            unread_items = bot_folder.Items.Restrict("[UnRead] = True")
-            for mail in list(unread_items):
+            # 2. Quét tất cả các thư trong thư mục SAP_BOT (kể cả thư đã mở xem lẫn thư chưa đọc)
+            # Mọi thư đã xử lý xong đều được chuyển tự động sang thư mục con 'Processed'.
+            # Do đó, bất kỳ thư nào còn nằm trong 'SAP_BOT' đều là yêu cầu đang chờ xử lý!
+            folder_items = bot_folder.Items
+            try:
+                folder_items.Sort("[ReceivedTime]", False)  # Sắp xếp từ cũ đến mới (FIFO)
+            except Exception:
+                pass
+
+            mail_candidates = []
+            for item in list(folder_items):
+                try:
+                    if getattr(item, "Class", 0) == 43 or hasattr(item, "Subject"):
+                        mail_candidates.append(item)
+                except Exception:
+                    pass
+
+            for mail in mail_candidates:
+                entry_id = getattr(mail, "EntryID", "")
+                if entry_id and entry_id in processed_msg_ids:
+                    continue
+
                 req_id = f"SAP-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
                 seq_counter += 1
 
@@ -224,6 +243,8 @@ def run_bridge():
                             move_mail_to_processed(mail, bot_folder)
                             continue
                         processed_msg_ids.add(msg_id)
+                        if entry_id:
+                            processed_msg_ids.add(entry_id)
 
                         print(f"[COACHING] {req_id} | Người dùng cần hướng dẫn -> Gửi trợ giúp lên Teams...")
                         help_html = TeamsDispatcher.build_help_html(meta.get("senderName", "Đồng nghiệp"))
@@ -244,6 +265,8 @@ def run_bridge():
                     mail.UnRead = False
                     mail.Save()
                     move_mail_to_processed(mail, bot_folder)
+                    if entry_id:
+                        processed_msg_ids.add(entry_id)
                     continue
 
                 # Chống xử lý trùng lặp (Anti-duplicate guard)
@@ -256,8 +279,12 @@ def run_bridge():
                         move_mail_to_processed(mail, bot_folder)
                         continue
                     processed_msg_ids.add(msg_id)
+                    if entry_id:
+                        processed_msg_ids.add(entry_id)
                     if len(processed_msg_ids) > 1000:
                         processed_msg_ids.clear()
+                elif entry_id:
+                    processed_msg_ids.add(entry_id)
 
                 cmd = meta["command"]
                 raw_mats = meta["materials"]

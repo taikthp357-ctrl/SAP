@@ -171,6 +171,8 @@ class SmartCommandParser:
             "messageId": "",
             "senderEmail": "Unknown",
             "senderName": "Đồng nghiệp",
+            "senderId": "",
+            "chatId": "",
             "rawText": ""
         }
 
@@ -179,10 +181,13 @@ class SmartCommandParser:
         if subj_id:
             meta["messageId"] = subj_id.group(1).strip()
 
-        # Bóc tách 4 trường từ Body của Mail V3
-        msg_m = re.search(r"MSG_ID\s*:\s*([^\r\n]+?)(?=\s*SENDER_EMAIL\s*:|\s*SENDER_NAME\s*:|\s*RAW_TEXT\s*:|\r|\n|$)", cleaned, re.I)
-        mail_m = re.search(r"SENDER_EMAIL\s*:\s*([^\r\n]+?)(?=\s*SENDER_NAME\s*:|\s*RAW_TEXT\s*:|\r|\n|$)", cleaned, re.I)
-        name_m = re.search(r"SENDER_NAME\s*:\s*([^\r\n]+?)(?=\s*RAW_TEXT\s*:|\r|\n|$)", cleaned, re.I)
+        # Bóc tách các trường từ Body của Mail V3 (hỗ trợ cả SENDER_ID, CHAT_ID)
+        TAG_STOP = r"(?=\s*(?:MSG_ID|SENDER_EMAIL|SENDER_NAME|SENDER_ID|CHAT_ID|CONVERSATION_ID|RAW_TEXT)\s*:|\r|\n|$)"
+        msg_m = re.search(r"MSG_ID\s*:\s*([^\r\n]+?)" + TAG_STOP, cleaned, re.I)
+        mail_m = re.search(r"SENDER_EMAIL\s*:\s*([^\r\n]+?)" + TAG_STOP, cleaned, re.I)
+        name_m = re.search(r"SENDER_NAME\s*:\s*([^\r\n]+?)" + TAG_STOP, cleaned, re.I)
+        sid_m = re.search(r"SENDER_ID\s*:\s*([^\r\n]+?)" + TAG_STOP, cleaned, re.I)
+        chat_m = re.search(r"(?:CHAT_ID|CONVERSATION_ID)\s*:\s*([^\r\n]+?)" + TAG_STOP, cleaned, re.I)
         raw_m = re.search(r"RAW_TEXT\s*:\s*(.+)", cleaned, re.I | re.DOTALL)
 
         if msg_m and msg_m.group(1).strip():
@@ -191,6 +196,10 @@ class SmartCommandParser:
             meta["senderEmail"] = mail_m.group(1).strip()
         if name_m:
             meta["senderName"] = name_m.group(1).strip()
+        if sid_m:
+            meta["senderId"] = sid_m.group(1).strip()
+        if chat_m:
+            meta["chatId"] = chat_m.group(1).strip()
 
         command_text = raw_m.group(1).strip() if raw_m else cleaned
         meta["rawText"] = command_text

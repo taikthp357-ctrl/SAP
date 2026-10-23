@@ -113,3 +113,24 @@ def test_parse_real_power_automate_ping_json():
     assert res["requestId"] == "08584088749507581526025903895CU04"
     assert res["dryRun"] is True
     assert res["plant"] == "3093"
+
+
+def test_parse_real_mail_v3_with_sender_id_chat_id():
+    mail_body = """
+    THẬN TRỌNG: Email này là từ bên ngoài của VinFast.
+    CAUTION: This email originated from outside of VinFast.
+
+    MSG_ID: 179275160350 SENDER_EMAIL: taipt8@futurevn.com SENDER_NAME: Phạm Tấn Tài SENDER_ID: 29:1abc CHAT_ID: 19:2def RAW_TEXT: @Bot check vị trí giúp mã 32013765
+
+    If you want to unsubscribe from these emails, please use this form.
+    """
+    res = EmailCommandParser.parse(mail_body, subject="[SAP-REQUEST] 179275160350")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["messageId"] == "179275160350"
+    assert res["senderEmail"] == "taipt8@futurevn.com"
+    assert res["senderName"] == "Phạm Tấn Tài"
+    assert res["senderId"] == "29:1abc"
+    assert res["chatId"] == "19:2def"
+    assert res["command"] == "VITRI"
+    assert res["materials"] == ["32013765"]
