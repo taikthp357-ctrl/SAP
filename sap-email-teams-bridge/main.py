@@ -332,8 +332,6 @@ def run_bridge():
                             "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm",
                             "bin": "Vị trí (Bin)", "unit": "ĐVT"
                         }
-                            "batch": "Batch", "unrest": "Tồn tự do", "qual": "Chờ kiểm", "unit": "ĐVT"
-                        }
                         mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                         summary = f"Tồn kho tổng hợp (MB52 - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
                         TeamsDispatcher.send_reply(webhook_url, req_id, meta, "SUCCEEDED", summary, records, headers)
