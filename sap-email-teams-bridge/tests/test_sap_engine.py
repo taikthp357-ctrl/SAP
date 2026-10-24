@@ -598,6 +598,77 @@ def test_clear_all_selection_inputs():
     assert mock_field2.Text == ""
 
 
+def test_read_sap_exported_file_openxml(tmp_path):
+    """Kiểm tra đọc file Excel MB52 xuất ra qua openpyxl với forward-fill và loại bỏ dòng tổng theo chuẩn Stock_FG_MA_BODY."""
+    import openpyxl
+    file_path = str(tmp_path / "test_mb52.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Material", "Material Description", "Plant", "SLoc", "Batch", "Unrestr.", "Blocked", "Transit/Transf.", "Base Unit"])
+    ws.append(["BIW32011220HA", "LEFT_FRONT_LONGI...", "3001", "3003", "PROD_BAT01", 155, 0, 0, "EA"])
+    ws.append(["", "", "3001", "600G", "HUYVIN3252", 1, 0, 0, "EA"])
+    ws.append(["", "", "3093", "3000", "261024-256", 175, 0, 0, "EA"])
+    ws.append(["BIW32011230HA", "LEFT_FRONT_LONGI...", "3001", "", "", 0, 0, 200, "EA"])
+    ws.append(["", "", "3001", "3003", "PROD_BAT02", 213, 0, 0, "EA"])
+    ws.append(["", "", "3093", "3000", "261023-250", 200, 0, 0, "EA"])
+    ws.append(["Total", "", "", "", "", 744, 0, 200, "EA"])
+    wb.save(file_path)
+
+    engine = SapEngine.__new__(SapEngine)
+    col_map = {
+        "product": ["MATERIAL", "MATNR"],
+        "plant":   ["PLANT", "WERKS"],
+        "sloc":    ["SLOC", "STORAGE LOCATION"],
+        "batch":   ["BATCH", "CHARG"],
+        "unrest":  ["UNRESTR.", "UNRESTRICTED"],
+        "transit": ["TRANSIT/TRANSF.", "TRANSIT"],
+        "unit":    ["BASE UNIT", "UNIT"]
+    }
+    records = engine._read_sap_exported_file(file_path, col_map)
+    assert len(records) == 6
+    assert records[0]["product"] == "BIW32011220HA"
+    assert records[0]["plant"] == "3001"
+    assert records[0]["sloc"] == "3003"
+    assert records[0]["unrest"] == "155"
+
+    # Kiểm tra forward-fill: dòng 2 phải kế thừa product và plant từ dòng 1
+    assert records[1]["product"] == "BIW32011220HA"
+    assert records[1]["plant"] == "3001"
+    assert records[1]["sloc"] == "600G"
+    assert records[1]["unrest"] == "1"
+
+    # Dòng 3 chuyển sang plant 3093 nhưng product vẫn là BIW32011220HA
+    assert records[2]["product"] == "BIW32011220HA"
+    assert records[2]["plant"] == "3093"
+    assert records[2]["unrest"] == "175"
+
+    # Dòng 4 chuyển sang mã BIW32011230HA
+    assert records[3]["product"] == "BIW32011230HA"
+    assert records[3]["plant"] == "3001"
+    assert records[3]["transit"] == "200"
+
+    # Dòng tổng cộng Total bị loại bỏ hoàn toàn
+    assert not any(r["product"].lower() == "total" for r in records)
+
+
+def test_reset_to_session_manager():
+    """Kiểm tra reset_to_session_manager gửi lệnh /n về SAP GUI."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._dismiss_popups = MagicMock()
+    mock_okcd = MagicMock()
+    mock_okcd.__class__.__name__ = "GuiTextField"
+    engine._find_by_id_safe = MagicMock(return_value=mock_okcd)
+    engine._wait_idle = MagicMock()
+    mock_session = MagicMock()
+    mock_session.__class__.__name__ = "GuiSession"
+    engine.session = mock_session
+
+    engine._reset_to_session_manager()
+    assert mock_okcd.text == "/n"
+    mock_session.findById.return_value.sendVKey.assert_called_with(0)
+
+
+
 
 
 
