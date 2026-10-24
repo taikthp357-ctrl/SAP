@@ -9,7 +9,7 @@ CURRENT_DIR = Path(__file__).resolve().parent.parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from app.number_utils import parse_sap_float, format_qty_display
+from app.number_utils import parse_sap_float, format_qty_display, parse_sap_datetime_sort_key
 
 
 def test_parse_sap_float_us_format():
@@ -75,3 +75,37 @@ def test_format_qty_display():
     assert format_qty_display("1000.500") == "1,000.5"
     assert format_qty_display(0) == "0"
     assert format_qty_display("0.000") == "0"
+
+
+def test_parse_sap_datetime_sort_key_comprehensive():
+    """Kiểm tra R04: Phân giải ngày giờ GR đa định dạng và đẩy ngày thiếu xuống cuối cùng."""
+    # 1. Các định dạng ngày phổ biến trong SAP
+    k_eu = parse_sap_datetime_sort_key("15.10.2026", "08:30:00")
+    assert k_eu == ("20261015", "083000")
+
+    k_slash = parse_sap_datetime_sort_key("15/10/2026", "14:15")
+    assert k_slash == ("20261015", "141500")
+
+    k_iso = parse_sap_datetime_sort_key("2026-10-20", "09:00:00")
+    assert k_iso == ("20261020", "090000")
+
+    k_raw8 = parse_sap_datetime_sort_key("20261022", "120000")
+    assert k_raw8 == ("20261022", "120000")
+
+    # 2. Ngày bị thiếu / N/A / rỗng phải có key lớn nhất để xếp cuối bảng trong sort ascending
+    k_empty = parse_sap_datetime_sort_key("", "")
+    assert k_empty == ("99999999", "999999")
+
+    k_na = parse_sap_datetime_sort_key("N/A", "-")
+    assert k_na == ("99999999", "999999")
+
+    # 3. Kiểm tra sắp xếp danh sách 3 phần tử: 20.10, thiếu ngày, 15.10
+    sample = [
+        {"batch": "B2", "d": "20.10.2026", "t": "10:00"},
+        {"batch": "B_NO_DATE", "d": "", "t": ""},
+        {"batch": "B1", "d": "15.10.2026", "t": "08:00"},
+    ]
+    sample.sort(key=lambda x: parse_sap_datetime_sort_key(x["d"], x["t"]))
+    assert sample[0]["batch"] == "B1"          # Cũ nhất -> FIFO #1
+    assert sample[1]["batch"] == "B2"          # Nhập sau -> FIFO #2
+    assert sample[2]["batch"] == "B_NO_DATE"   # Không có ngày -> Xếp cuối cùng

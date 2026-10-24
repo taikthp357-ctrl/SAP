@@ -310,3 +310,24 @@ def test_teams_dispatcher_fg_and_nvl_migo_badges():
     assert "Posting Change kho NVL 1005 (Plant 3093)" in pl_nvl["greeting"]
     assert "Plant 3093 - Kho NVL 1005" in pl_nvl["table_html"]
     assert "Sẵn sàng ra đơn MIGO 311" in pl_nvl["table_html"]
+
+
+def test_teams_dispatcher_nvl_qc_only_shows_zero_available():
+    """Kiểm tra R02: Khi toàn bộ lô là QC (tot_avail = 0, tot_all = 500), badge Khả dụng phải ghi 0 PC."""
+    records = [
+        {
+            "product": "BIW32013765AA", "plant": "3093", "sloc": "1005",
+            "bin": "APFL-01", "batch": "LOT-QC", "qty": "500", "unit": "PC",
+            "grDate": "15.10.2026", "grTime": "08:00:00", "cat": "QT",
+            "fifoRank": "-", "migoAdvice": "⚠️ Chờ kiểm định QC (TST QT) - Chưa thể ra đơn"
+        }
+    ]
+    meta = {"command": "CHECK_NVL_MIGO", "messageId": "M-QC"}
+    pl, _ = TeamsDispatcher.prepare_safe_payload("REQ-QC", meta, "SUCCEEDED", "Summary QC", records, {"product": "Mã"})
+    # Khả dụng = 0 PC
+    assert "Khả dụng: 0 PC" in pl["table_html"]
+    # Không được có badge 'Sẵn sàng ra đơn MIGO 311'
+    assert "Sẵn sàng ra đơn MIGO 311" not in pl["table_html"]
+    # Phải có badge báo chờ QC
+    assert "1 Lô chờ QC" in pl["table_html"]
+    assert "Không có tồn khả dụng (Chờ QC/Khóa)" in pl["table_html"]

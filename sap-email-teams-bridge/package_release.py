@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.18"
+VERSION = "v1.0.19"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
@@ -58,11 +58,9 @@ def create_patch_zip():
     patch_includes = [
         "main.py",
         "sap_email_teams_bridge.py",
-        "config.json",
         "README.md",
         "START_BRIDGE.cmd",
-        "START_BACKGROUND.vbs",
-        "DATA_MASTER.xlsx"
+        "START_BACKGROUND.vbs"
     ]
     with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for fname in patch_includes:

@@ -2,6 +2,8 @@
 
 Ngày lập: 24/10/2026. Trạng thái: kế hoạch đề xuất, chưa triển khai hoặc kích hoạt.
 
+**Cập nhật theo source v1.0.18:** dùng [Kế hoạch nâng cấp chi tiết từ v1.0.18](KE_HOACH_NANG_CAP_TU_v1.0.18_CHI_TIET.md) để triển khai tiếp. Tài liệu này giữ làm lịch sử; tên phiên bản dự kiến và các mục “chưa có” bên dưới không tự phản ánh trạng thái source hiện tại.
+
 ## 1. Mục tiêu và phạm vi
 
 Ưu tiên kết quả đúng và không mất yêu cầu trước khi giảm dung lượng. Giữ một worker Python, master Excel, SQLite và log có giới hạn; tiếp tục dùng Outlook Classic, SAP GUI và Power Automate hiện có.

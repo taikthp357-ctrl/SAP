@@ -98,9 +98,12 @@ class TeamsDispatcher:
 
         try:
             if any(k in cmd_upper for k in ["CHECK_FG_OB", "DIEN_OB"]):
-                tot_fg = sum(parse_sap_float(r.get("fgStock", 0.0)) for r in records)
-                tot_ob = sum(parse_sap_float(r.get("openObQty", 0.0)) for r in records)
-                tot_avail = sum(parse_sap_float(r.get("availableQty", 0.0)) for r in records)
+                tot_fg = sum(parse_sap_float(r.get("fgStock", 0.0)) for r in records if r.get("fgStock") != "N/A")
+                tot_ob = sum(parse_sap_float(r.get("openObQty", 0.0)) for r in records if r.get("openObQty") != "N/A")
+                tot_avail = sum(parse_sap_float(r.get("availableQty", 0.0)) for r in records if r.get("availableQty") != "N/A")
+                unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
+                has_error = any("Lỗi" in str(r.get("workAdvice", "")) or "Chưa" in str(r.get("workAdvice", "")) for r in records)
+
                 badges.append(
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
                     f"🏢 Tồn FG 3093: {format_qty_display(tot_fg)}</span>"
@@ -110,18 +113,24 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
                         f"🚚 OB chờ điền: {format_qty_display(tot_ob)}</span>"
                     )
-                badges.append(
-                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"✅ Khả dụng xuất: {format_qty_display(tot_avail)}</span>"
-                )
+                if has_error:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Một nguồn gặp sự cố</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Khả dụng xuất: {format_qty_display(tot_avail)}</span>"
+                    )
 
             elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]):
                 tot_avail = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
-                tot_all = sum(parse_sap_float(r.get("qty", 0.0)) for r in records)
-                bins = {r.get("bin") for r in records if r.get("bin") and r.get("bin") not in ["-", "Chưa có Bin"]}
+                tot_all = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if r.get("qty") not in ["0", "N/A"])
+                bins = {r.get("bin") for r in records if r.get("bin") and r.get("bin") not in ["-", "Chưa có Bin", "Chưa xác định (Lỗi /SCWM/POST)"]}
                 batches = {r.get("batch") for r in records if r.get("batch") and r.get("batch") != "-"}
                 ready_count = sum(1 for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
-                qc_count = sum(1 for r in records if "QC" in str(r.get("migoAdvice", "")))
+                qc_count = sum(1 for r in records if "QC" in str(r.get("migoAdvice", "")) or "chờ kiểm" in str(r.get("migoAdvice", "")).lower())
                 unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
 
                 badges.append(
@@ -138,11 +147,11 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
                         f"🏷️ {len(batches)} Lô (Batch)</span>"
                     )
-                if tot_all > 0:
-                    badges.append(
-                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                        f"📦 Khả dụng: {format_qty_display(tot_avail or tot_all)} {unit}</span>"
-                    )
+                # BẢO ĐẢM R02: tot_avail = 0 thì hiển thị Khả dụng = 0, TUYỆT ĐỐI KHÔNG dùng `tot_avail or tot_all`!
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"📦 Khả dụng: {format_qty_display(tot_avail)} {unit}</span>"
+                )
                 if qc_count > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
@@ -157,6 +166,11 @@ class TeamsDispatcher:
                     badges.append(
                         f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
                         f"🔴 Hết hàng kho 1005</span>"
+                    )
+                elif qc_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚠️ Không có tồn khả dụng (Chờ QC/Khóa)</span>"
                     )
 
             elif any(k in cmd_upper for k in ["VITRI", "BIN", "POST"]):

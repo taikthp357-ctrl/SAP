@@ -902,3 +902,89 @@ def test_check_nvl_migo_fallback_mb52_sloc_1005():
     assert records[0]["plant"] == "3093"
     assert records[0]["qty"] == "150"
     assert "Có tồn MB52 Kho 1005 (150 PC)" in records[0]["migoAdvice"]
+
+
+def test_check_nvl_migo_both_sources_fail_raises_sap_execution_error():
+    """Kiểm tra R01: Khi cả /SCWM/POST và MB52 đều lỗi -> Báo lỗi SapExecutionError, không nuốt thành hết hàng 0."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_position_posting_change = MagicMock(side_effect=RuntimeError("SAP POST timeout"))
+    engine.check_stock_mb52 = MagicMock(side_effect=RuntimeError("SAP MB52 timeout"))
+
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093")
+    assert "Lỗi truy vấn SAP NVL" in str(exc_info.value)
+
+
+def test_check_nvl_migo_qc_and_unknown_tst_handling():
+    """Kiểm tra R02 & R03: TST là QC hoặc rỗng (UNKNOWN) tuyệt đối không được coi là sẵn sàng ra đơn MIGO."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_position_posting_change = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "batch": "LOT-QC", "bin": "APFL-01", "qty": "500", "unit": "PC", "grDate": "15.10.2026", "grTime": "08:00", "cat": "QT"},
+        {"product": "BIW32013765AA", "batch": "LOT-EMPTY", "bin": "APFL-02", "qty": "100", "unit": "PC", "grDate": "16.10.2026", "grTime": "09:00", "cat": ""},
+    ])
+
+    records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093")
+    assert len(records) == 2
+    # LOT-QC: TST QT -> Chờ kiểm định QC
+    assert records[0]["cat"] == "QT"
+    assert records[0]["fifoRank"] == "-"
+    assert "Chờ kiểm định QC" in records[0]["migoAdvice"]
+    assert "Sẵn sàng" not in records[0]["migoAdvice"]
+
+    # LOT-EMPTY: TST rỗng -> UNKNOWN, không tự nhận là FT
+    assert records[1]["cat"] == "UNKNOWN"
+    assert records[1]["fifoRank"] == "-"
+    assert "chưa xác định" in records[1]["migoAdvice"]
+    assert "Sẵn sàng" not in records[1]["migoAdvice"]
+
+
+def test_check_nvl_migo_rejects_invalid_plant():
+    """Kiểm tra R07: Nhánh NVL từ chối plant khác 3093 một cách an toàn."""
+    engine = SapEngine.__new__(SapEngine)
+    records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="2001")
+    assert len(records) == 1
+    assert records[0]["cat"] == "INVALID_SCOPE"
+    assert "chỉ hỗ trợ Plant 3093" in records[0]["migoAdvice"]
+
+
+def test_check_nvl_migo_fallback_mb52_filters_batch_strictly():
+    """Kiểm tra R08: Fallback MB52 khi có chỉ định Batch phải lọc đúng Batch, không nhận nhầm lô khác."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_position_posting_change = MagicMock(return_value=[])
+    engine.check_stock_mb52 = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "1005", "batch": "LOT-OTHER", "unrest": "200", "unit": "PC"}
+    ])
+
+    # Yêu cầu tìm LOT-WANTED nhưng kho chỉ có LOT-OTHER
+    records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093", batch="LOT-WANTED")
+    assert len(records) == 1
+    assert records[0]["qty"] == "0"
+    assert "Không có lô LOT-WANTED" in records[0]["migoAdvice"]
+
+
+def test_check_fg_ob_vl06o_error_reports_warning_without_guessing_available():
+    """Kiểm tra R05: Khi VL06O lỗi nhưng MB52 thành công, báo lỗi VL06O chứ không suy đoán hết OB."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_stock_mb52 = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "3093", "unrest": "300", "unit": "PC"}
+    ])
+    engine.check_open_ob_vl06o = MagicMock(side_effect=RuntimeError("VL06O Session Busy"))
+
+    records = engine.check_fg_ob_status(["BIW32013765AA"], plant="3093")
+    assert len(records) == 1
+    assert records[0]["fgStock"] == "300"
+    assert records[0]["openObQty"] == "N/A"
+    assert records[0]["availableQty"] == "N/A"
+    assert "Chưa xác định (Lỗi VL06O)" in records[0]["openObList"]
+    assert "Không suy đoán khả dụng" in records[0]["workAdvice"]
+
+
+def test_check_fg_ob_both_fail_raises_sap_execution_error():
+    """Kiểm tra R05: Khi cả MB52 và VL06O đều lỗi -> Raise SapExecutionError."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_stock_mb52 = MagicMock(side_effect=RuntimeError("MB52 Error"))
+    engine.check_open_ob_vl06o = MagicMock(side_effect=RuntimeError("VL06O Error"))
+
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine.check_fg_ob_status(["BIW32013765AA"], plant="3093")
+    assert "Lỗi truy vấn điều độ FG/OB" in str(exc_info.value)

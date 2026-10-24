@@ -118,3 +118,53 @@ def format_qty_display(val: Union[int, float, str]) -> str:
     if f_val.is_integer():
         return f"{int(f_val):,}"
     return f"{f_val:,.3f}".rstrip("0").rstrip(".")
+
+
+def parse_sap_datetime_sort_key(d_raw: Any, t_raw: Any) -> tuple[str, str]:
+    """Phân giải Ngày và Giờ GR từ SAP thành canonical tuple (YYYYMMDD, HHMMSS) để sắp xếp FIFO chuẩn xác.
+
+    Hỗ trợ định dạng:
+    - DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY
+    - YYYY-MM-DD, YYYY.MM.DD
+    - YYYYMMDD
+    - Giờ: HH:MM:SS, HH:MM, HHMMSS
+    Đặc biệt (R04): Ngày/giờ bị thiếu, rỗng hoặc N/A sẽ được xếp xuống cuối cùng ('99999999', '999999'),
+    tuyệt đối không bao giờ bị xếp lên đầu trong sắp xếp FIFO tăng dần.
+    """
+    d_clean = str(d_raw or "").strip().upper()
+    t_clean = str(t_raw or "").strip().upper()
+
+    if not d_clean or d_clean in ["-", "N/A", "NONE", "NULL"]:
+        return ("99999999", "999999")
+
+    # 1. Phân giải ngày
+    m_iso = re.match(r"^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$", d_clean)
+    if m_iso:
+        yyyy, mm, dd = m_iso.groups()
+        d_sort = f"{yyyy}{mm.zfill(2)}{dd.zfill(2)}"
+    else:
+        m_eu = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$", d_clean)
+        if m_eu:
+            dd, mm, yyyy = m_eu.groups()
+            d_sort = f"{yyyy}{mm.zfill(2)}{dd.zfill(2)}"
+        elif len(d_clean) == 8 and d_clean.isdigit():
+            d_sort = d_clean
+        else:
+            return ("99999999", "999999")
+
+    # 2. Phân giải giờ
+    t_clean_no_colon = t_clean.replace(":", "").replace(".", "")
+    if len(t_clean_no_colon) == 6 and t_clean_no_colon.isdigit():
+        t_sort = t_clean_no_colon
+    elif len(t_clean_no_colon) == 4 and t_clean_no_colon.isdigit():
+        t_sort = t_clean_no_colon + "00"
+    else:
+        t_parts = re.split(r"[:.]", t_clean)
+        if len(t_parts) == 3 and all(p.isdigit() for p in t_parts):
+            t_sort = "".join(p.zfill(2) for p in t_parts)
+        elif len(t_parts) == 2 and all(p.isdigit() for p in t_parts):
+            t_sort = "".join(p.zfill(2) for p in t_parts) + "00"
+        else:
+            t_sort = "000000"
+
+    return (d_sort, t_sort)
