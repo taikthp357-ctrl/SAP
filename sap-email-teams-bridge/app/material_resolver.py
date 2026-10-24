@@ -148,6 +148,61 @@ class MaterialResolver:
         # 5. Fallback: Giữ nguyên mã người dùng nhập để gửi thẳng vào SAP
         return [clean], "Mã nhập trực tiếp (không qua từ điển)"
 
+    def get_materials_by_model(self, model_name: str, limit: int = 0) -> List[str]:
+        """Lấy danh sách mã SAP đầy đủ theo Model xe (vd: Limo, VF5, VF8...)."""
+        self.load_master_data()
+        clean_model = model_name.strip().upper()
+        results = []
+        for full_code, meta in self.full_to_meta.items():
+            item_model = str(meta.get("model", "")).strip().upper()
+            if clean_model in item_model or (clean_model == "LIMO" and "LIMO" in item_model):
+                if full_code not in results:
+                    results.append(full_code)
+                    if limit > 0 and len(results) >= limit:
+                        break
+        return results
+
+    @staticmethod
+    def detect_model_and_shop(text: str) -> Tuple[Optional[str], str, List[str]]:
+        """Phân tích văn bản để nhận diện Model và xác định Shop (BODY vs XMĐ) cùng danh sách Plant chuẩn.
+        
+        Trả về: (model_name, shop_name, list_of_plants)
+        - BODY: Plant 3093 & 3001
+        - XMĐ:  Plant 3093, 2001 & 3001
+        """
+        norm = text.upper()
+        # 1. Kiểm tra XMĐ trước nếu có từ khóa xe máy điện / trạm mạ / xmd
+        xmd_patterns = [
+            ("XMD", ["XMD", "XE MAY DIEN", "XE MÁY ĐIỆN", "TRAM MA", "TRẠM MẠ", "MA SAU SON", "MÃ SAU SƠN"]),
+            ("KLARA", ["KLARA"]),
+            ("FELIZ", ["FELIZ"]),
+            ("VENTO", ["VENTO"]),
+            ("THEON", ["THEON"]),
+            ("EVO", ["EVO"])
+        ]
+        for m_name, kws in xmd_patterns:
+            if any(re.search(rf"\b{re.escape(kw)}\b", norm) for kw in kws):
+                return m_name, "XMD", ["3093", "2001", "3001"]
+
+        # 2. Kiểm tra các model BODY
+        body_patterns = [
+            ("LIMO", ["LIMO", "VF8 LIMO", "LIMOUSINE"]),
+            ("VF3", ["VF3", "VF 3"]),
+            ("VF5", ["VF5", "VF 5", "VF5 RHD", "VF5 LHD"]),
+            ("VF6", ["VF6", "VF 6", "VF6 CIS", "VF6 RHD"]),
+            ("VF7", ["VF7", "VF 7", "VF7 RHD"]),
+            ("VF8", ["VF8", "VF 8", "VF8N", "VF8NP", "VF8 EU"]),
+            ("VF9", ["VF9", "VF 9", "VF9NP", "VF9 LH"]),
+            ("VFE34", ["VFE34", "VF E34", "E34"]),
+            ("VF6,7", ["VF6,7", "VF67"]),
+            ("BODY", ["BODY", "THAN VO", "THÂN VỎ", "HAN", "HÀN"])
+        ]
+        for m_name, kws in body_patterns:
+            if any(re.search(rf"\b{re.escape(kw)}\b", norm) for kw in kws):
+                return m_name, "BODY", ["3093", "3001"]
+
+        return None, "BODY", ["3093", "3001"]
+
     def resolve_list(self, raw_inputs: List[str]) -> Tuple[List[str], List[str]]:
         """Phân giải một danh sách mã hàng, loại bỏ trùng lặp."""
         all_resolved = []

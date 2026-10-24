@@ -336,5 +336,84 @@ def test_check_stock_mb52_slocs_filtering():
     assert len(res_all) == 4
 
 
+def test_check_low_stock_multi_plant():
+    """Kiểm tra tổng hợp tồn thấp qua nhiều plant (vd: 3093 và 3001 cho BODY)."""
+    engine = SapEngine.__new__(SapEngine)
+
+    def mock_mb52(mats, plant="3093", slocs=None, batch=""):
+        if plant == "3093":
+            return [
+                {"product": "BIW001", "unrest": "10", "unit": "PC"},
+                {"product": "BIW002", "unrest": "0", "unit": "PC"}
+            ]
+        elif plant == "3001":
+            return [
+                {"product": "BIW001", "unrest": "5", "unit": "PC"},
+                {"product": "BIW002", "unrest": "0", "unit": "PC"}
+            ]
+        return []
+
+    engine.check_stock_mb52 = MagicMock(side_effect=mock_mb52)
+
+    res = engine.check_low_stock(["BIW001", "BIW002"], plants=["3093", "3001"], limit=10, model_name="LIMO")
+    assert len(res) == 2
+    # BIW002 có tổng tồn 0 nên được sắp lên đầu
+    assert res[0]["product"] == "BIW002"
+    assert res[0]["total_stock"] == "0"
+    assert "Hết hàng" in res[0]["status"]
+
+    # BIW001 có tổng tồn 15 (10 + 5)
+    assert res[1]["product"] == "BIW001"
+    assert res[1]["stock_3093"] == "10"
+    assert res[1]["stock_3001"] == "5"
+    assert res[1]["total_stock"] == "15"
+    assert "Tồn thấp" in res[1]["status"]
+
+
+def test_check_open_ob_vl06o_mock():
+    """Kiểm tra trích xuất VL06O đơn OB mở."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+
+    mock_records = [
+        {"obNo": "80012345", "product": "BIW001", "qty": "50,000", "unit": "PC", "sloc": "3093", "batch": "2610A"},
+        {"obNo": "80012346", "product": "BIW001", "qty": "20,000", "unit": "PC", "sloc": "", "batch": ""}
+    ]
+    engine._find_largest_grid = MagicMock(return_value=MagicMock())
+    engine._extract_alv_grid = MagicMock(return_value=mock_records)
+
+    res = engine.check_open_ob_vl06o(materials=["BIW001"])
+    assert len(res) == 2
+    assert res[0]["obNo"] == "80012346"  # Sắp xếp số OB giảm dần
+    assert res[1]["obNo"] == "80012345"
+
+
+def test_check_bin_history_mon_mock():
+    """Kiểm tra trích xuất /SCWM/MON lịch sử chuyển Bin."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+
+    mock_records = [
+        {"wtNo": "1001", "product": "BIW001", "batch": "B1", "srcBin": "10-A-01", "destBin": "10-B-02", "qty": "10", "status": "C"},
+        {"wtNo": "1002", "product": "BIW001", "batch": "B1", "srcBin": "10-A-01", "destBin": "10-C-03", "qty": "10", "status": "A"},
+    ]
+    engine._find_largest_grid = MagicMock(return_value=MagicMock())
+    engine._extract_alv_grid = MagicMock(return_value=mock_records)
+
+    res = engine.check_bin_history_mon(materials=["BIW001"])
+    assert len(res) == 2
+    assert "Hoàn thành" in res[1]["status"]
+    assert "Đã hủy" in res[0]["status"]
+
+
+
 
 

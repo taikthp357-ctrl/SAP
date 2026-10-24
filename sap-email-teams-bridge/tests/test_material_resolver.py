@@ -39,3 +39,24 @@ def test_resolve_unknown_8_digits(resolver):
     # 8 chữ số chưa có trong file -> suy đoán BIW...AA
     codes, note = resolver.resolve("99998888")
     assert "BIW99998888AA" in codes
+
+
+def test_get_materials_by_model():
+    resolver = MaterialResolver()
+    limo_mats = resolver.get_materials_by_model("Limo", limit=5)
+    assert isinstance(limo_mats, list)
+    assert len(limo_mats) > 0
+    assert any("32013765" in m or "BIW" in m for m in limo_mats)
+
+
+def test_detect_model_and_shop():
+    m1, s1, p1 = MaterialResolver.detect_model_and_shop("@tài check cho tôi 20 mã limo tồn thấp")
+    assert m1 == "LIMO"
+    assert s1 == "BODY"
+    assert p1 == ["3093", "3001"]
+
+    m2, s2, p2 = MaterialResolver.detect_model_and_shop("check tồn thấp xmd 10 mã")
+    assert m2 == "XMD"
+    assert s2 == "XMD"
+    assert p2 == ["3093", "2001", "3001"]
+

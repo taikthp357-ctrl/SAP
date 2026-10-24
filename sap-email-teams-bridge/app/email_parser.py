@@ -19,10 +19,25 @@ class SmartCommandParser:
     """Bộ bóc tách ý định câu lệnh và thực thể từ Email V3 của Power Automate."""
 
     INTENT_SCORES = {
+        "TON_THAP": [
+            (r"\b(?:ton\s*thap|thap|canh\s*bao\s*ton|low\s*stock|doh\s*thap|sap\s*het|thieu\s*hang)\b", 16),
+            (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 22),
+            (r"\b(?:ton\s*thap\s*(?:body|xmd|limo|vf\d+))\b", 20),
+        ],
+        "CHECK_OB": [
+            (r"\b(?:check\s*ob|kiem\s*tra\s*ob|kt\s*ob|ob\s*co\s*khong|co\s*ob|ob\s*treo|vl06o|don\s*xuat|outbound)\b", 16),
+            (r"\b(?:ob\s*nao\s*dang\s*cho|cho\s*xuat|ob\s*mo|ob\s*chua\s*xuat)\b", 14),
+            (r"\b(?:check\s*don\s*ob|xem\s*ob)\b", 12),
+        ],
+        "LICHSU_BIN": [
+            (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|wht|scwm/mon|/scwm/mon)\b", 18),
+            (r"\b(?:ls\s*bin|vet\s*bin|di\s*chuyen\s*bin|lich\s*su\s*dich\s*chuyen)\b", 14),
+        ],
         "VITRI": [
             (r"\b(?:vi\s*tri|vitri|vtri|bin|posting|scwm/post|scwm)\b", 10),
             (r"\b(?:ngay\s*gr|gio\s*gr|check\s*gr|kiem\s*tra\s*gr)\b", 10),
             (r"\b(?:tim\s*hang|o\s*dau|ke\s*nao|nam\s*o|khu\s*vuc|zone)\b", 8),
+            (r"\b(?:check\s*bin|kiem\s*tra\s*bin|bin\s*nao|o\s*ke|tra\s*bin)\b", 12),
             (r"\b(?:post|gr)\b", 5),
         ],
         "LICHSU": [
@@ -59,7 +74,10 @@ class SmartCommandParser:
         "GIAO", "DICH", "LO", "CHARG", "GR", "DATE", "TIME", "STOCK", "TRONG", "VONG",
         "GAN", "NHAT", "SENDER", "EMAIL", "NAME", "MSG", "RAW", "TEXT", "CON", "KHONG",
         "NAM", "DAU", "NAO", "NHE", "NHA", "THANKS", "CAM", "ON", "DUM", "HO", "STATUS",
-        "IB", "TREO", "IBTREO", "STO", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN", "DIEU", "CHUYEN", "DON"
+        "IB", "TREO", "IBTREO", "STO", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN", "DIEU", "CHUYEN", "DON",
+        "TAI", "TÀI", "@TAI", "@TÀI", "TOI", "TÔI", "MINH", "MÌNH", "SEP", "SẾP", "NHO", "NHỜ",
+        "BAN", "BẠN", "GIÚP", "VỚI", "CÓ", "ĐANG", "CHỜ", "TOP", "TOP20", "TOP10", "THAP", "THẤP",
+        "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT"
     }
 
     @staticmethod
@@ -128,6 +146,7 @@ class SmartCommandParser:
             "LICHSU", "MB51",
             "IB_TREO", "IB", "INBOUND", "VL06I",
             "STO", "ME2N", "MB5T", "DIEUCHUYEN",
+            "TON_THAP", "CHECK_OB", "LICHSU_BIN",
             "HELP"
         }
 
@@ -180,6 +199,32 @@ class SmartCommandParser:
                     "reason": f"Lệnh '{cmd}' không được hỗ trợ trong hệ thống."
                 }
 
+            if cmd == "TON_THAP":
+                model_name = str(json_obj.get("model", "")).strip().upper() or "LIMO"
+                shop = str(json_obj.get("shop", "")).strip().upper() or ("XMD" if "XMD" in model_name else "BODY")
+                plants = json_obj.get("plants", ["3093", "3001"] if shop == "BODY" else ["3093", "2001", "3001"])
+                limit = int(json_obj.get("limit", 20))
+                return {
+                    "valid": True,
+                    "command": "TON_THAP",
+                    "intentReason": f"JSON Command TON_THAP (Model={model_name}, Shop={shop})",
+                    "materials": mats,
+                    "model": model_name,
+                    "shop": shop,
+                    "plants": plants,
+                    "limit": limit,
+                    "plant": plant,
+                    "batch": batch,
+                    "days": days,
+                    "requestId": req_id,
+                    "messageId": msg_id or req_id,
+                    "senderEmail": sender_email,
+                    "senderName": sender_name,
+                    "rawText": raw_text or f"TON_THAP {model_name}",
+                    "dryRun": dry_run,
+                    "note": note
+                }
+
             if cmd in ("VITRI", "BIN", "TON", "MB52", "LICHSU", "MB51", "IB_TREO", "VL06I", "STO", "ME2N") and not mats and not dry_run:
                 return {
                     "valid": False,
@@ -209,7 +254,7 @@ class SmartCommandParser:
                     "note": note
                 }
 
-            if mats:
+            if mats or cmd in ("CHECK_OB", "LICHSU_BIN"):
                 return {
                     "valid": True,
                     "command": cmd or "VITRI",
@@ -290,7 +335,30 @@ class SmartCommandParser:
             else:
                 matched_keywords.append("TON: Tra cứu toàn bộ SLoc plant")
 
-        # 2. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
+        # 2. Xử lý các thực thể đặc biệt: MODEL, SHOP, PLANTS, LIMIT, OB, BIN
+        from app.material_resolver import MaterialResolver
+        model_name, shop_name, plants_list = MaterialResolver.detect_model_and_shop(command_text)
+
+        limit_val = 20
+        top_m = re.search(r"\b(?:top\s*|check\s*(?:cho\s*toi\s*)?)?(\d{1,3})\s*(?:ma|dong)\b|\btop\s*(\d{1,3})\b", norm_text)
+        if top_m:
+            val = top_m.group(1) or top_m.group(2)
+            if val and val.isdigit():
+                limit_val = max(1, min(int(val), 100))
+
+        ob_no = ""
+        ob_m = re.search(r"\b(?:ob\s*[:=]?\s*)?(80\d{6,8}|08\d{6,8}|10\d{8})\b", command_text, re.I)
+        if ob_m:
+            ob_no = ob_m.group(1)
+
+        bin_val = ""
+        bin_m = re.search(r"\b(?:bin|ke|o)\s*[:=]?\s*([a-z0-9_-]{3,15})\b|\b(\d{2}-[a-z0-9]+-[a-z0-9]+)\b", norm_text)
+        if bin_m:
+            bin_cand = (bin_m.group(1) or bin_m.group(2)).upper()
+            if bin_cand not in cls.STOP_WORDS:
+                bin_val = bin_cand
+
+        # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         plant = default_plant
         plant_m = re.search(r"\b(?:plant|nha\s*may|werks)\s*[:=]?\s*(\d{4})\b", norm_text)
         if plant_m:
@@ -312,7 +380,7 @@ class SmartCommandParser:
                 best_intent = "LICHSU"
                 best_score = 5
 
-        # 3. Bóc tách danh sách Mã hàng (Materials)
+        # 4. Bóc tách danh sách Mã hàng (Materials)
         work_str = command_text.upper()
         if meta["messageId"]:
             work_str = work_str.replace(meta["messageId"].upper(), " ")
@@ -352,8 +420,17 @@ class SmartCommandParser:
                         batch = candidate
                         break
 
-        # 4. Xử lý Thông minh (Smart Fallback & Coaching):
-        if best_intent == "HELP" or not materials:
+        # 5. Xử lý Thông minh (Smart Fallback & Coaching):
+        is_no_mat_allowed = (
+            best_score > 0 and (
+                best_intent == "TON_THAP"
+                or (best_intent == "CHECK_OB" and ob_no)
+                or (best_intent == "LICHSU_BIN" and bin_val)
+                or (best_intent == "VITRI" and bin_val)
+            )
+        ) or (best_score == 0 and bool(bin_val))
+
+        if (best_intent == "HELP" or not materials) and not is_no_mat_allowed:
             if not meta["messageId"] and best_intent != "HELP":
                 return None
             meta.update({
@@ -367,6 +444,9 @@ class SmartCommandParser:
         if best_score == 0 and materials:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có mã hàng -> Check Vị trí & GR)")
+        elif best_score == 0 and bin_val:
+            best_intent = "VITRI"
+            matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")
 
         meta.update({
             "valid": True,
@@ -375,7 +455,13 @@ class SmartCommandParser:
             "materials": materials,
             "plant": plant,
             "batch": batch,
-            "days": days
+            "days": days,
+            "model": model_name or ("LIMO" if best_intent == "TON_THAP" else ""),
+            "shop": shop_name,
+            "plants": plants_list,
+            "limit": limit_val,
+            "obNo": ob_no,
+            "bin": bin_val
         })
         return meta
 

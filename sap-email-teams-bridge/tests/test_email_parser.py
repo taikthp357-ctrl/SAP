@@ -291,5 +291,62 @@ def test_parse_ton_kho_distinction():
     assert res3["command"] == "TON_KHO"
 
 
+def test_parse_ton_thap_limo():
+    """Kiểm tra nhận diện tự nhiên: '@tài check cho tôi 20 mã limo tồn thấp'."""
+    cmd = "@tài check cho tôi 20 mã limo tồn thấp"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TON_THAP"
+    assert res["model"] == "LIMO"
+    assert res["shop"] == "BODY"
+    assert res["plants"] == ["3093", "3001"]
+    assert res["limit"] == 20
+
+
+def test_parse_ton_thap_xmd():
+    """Kiểm tra nhận diện xe máy điện: 'check tồn thấp xmd 10 mã' -> Plant 3093, 2001, 3001."""
+    cmd = "check tồn thấp xmd 10 mã"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TON_THAP"
+    assert res["model"] == "XMD"
+    assert res["shop"] == "XMD"
+    assert res["plants"] == ["3093", "2001", "3001"]
+    assert res["limit"] == 10
+
+
+def test_parse_check_ob():
+    """Kiểm tra nhận diện câu hỏi kiểm tra OB: 'check ob có không mã BIW32013800AB'."""
+    cmd = "check ob có không mã BIW32013800AB"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_OB"
+    assert "BIW32013800AB" in res["materials"]
+
+
+def test_parse_lichsu_bin():
+    """Kiểm tra nhận diện lịch sử bin-to-bin: 'lịch sử bin BIW32013800AB'."""
+    cmd = "lịch sử bin BIW32013800AB"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "LICHSU_BIN"
+    assert "BIW32013800AB" in res["materials"]
+
+
+def test_parse_vitri_by_bin():
+    """Kiểm tra tra cứu trực tiếp theo tên bin: 'check bin 10-A-01'."""
+    cmd = "check bin 10-A-01"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "VITRI"
+    assert res["bin"] == "10-A-01"
+
+
+
 
 

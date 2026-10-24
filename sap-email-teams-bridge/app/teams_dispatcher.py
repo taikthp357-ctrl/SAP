@@ -202,6 +202,55 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
                         f"⏳ Còn nợ: {format_qty_display(total_rem)} {unit}</span>"
                     )
+
+            elif any(k in cmd_upper for k in ["TON_THAP", "LOW_STOCK"]):
+                zero_count = sum(1 for r in records if "Hết hàng" in str(r.get("status", "")))
+                low_count = sum(1 for r in records if "Tồn thấp" in str(r.get("status", "")))
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📊 {len(records)} Mã báo cáo</span>"
+                )
+                if zero_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"🔴 {zero_count} Mã hết hàng (0)</span>"
+                    )
+                if low_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"🟡 {low_count} Mã tồn thấp (<50)</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["CHECK_OB", "VL06O", "OB"]):
+                ob_set = {r.get("obNo") for r in records if r.get("obNo")}
+                total_qty = sum(parse_sap_float(r.get("qty")) for r in records)
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📦 {len(ob_set)} Đơn OB mở</span>"
+                )
+                if total_qty > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"🔢 Tổng SL: {format_qty_display(total_qty)}</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["LICHSU_BIN", "MON", "WHT"]):
+                cf_count = sum(1 for r in records if "Hoàn thành" in str(r.get("status", "")))
+                can_count = sum(1 for r in records if "Đã hủy" in str(r.get("status", "")))
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🔄 {len(records)} Lệnh chuyển Bin</span>"
+                )
+                if cf_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ {cf_count} Hoàn thành</span>"
+                    )
+                if can_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚠️ {can_count} Đã hủy (Cancel)</span>"
+                    )
         except Exception:
             return ""
 
@@ -234,6 +283,12 @@ class TeamsDispatcher:
             f"<code>@Bot check ib treo 32013765</code> hoặc <code>@Bot 32013765 có ib treo không</code></li>"
             f"<li>📋 <strong>Kiểm tra đơn điều chuyển STO (ME2N):</strong><br>"
             f"<code>@Bot check sto 32013765</code> hoặc <code>@Bot kiểm tra đơn sto 32013765</code></li>"
+            f"<li>⚠️ <strong>Cảnh báo tồn thấp theo dòng xe (BODY 3093+3001 / XMĐ 3093+2001+3001):</strong><br>"
+            f"<code>@Bot check cho tôi 20 mã limo tồn thấp</code> hoặc <code>@Bot check tồn thấp xmd</code></li>"
+            f"<li>📦 <strong>Kiểm tra đơn Outbound (OB) đang mở (VL06O):</strong><br>"
+            f"<code>@Bot check ob có không mã 32013765</code> hoặc <code>@Bot check ob 80012345</code></li>"
+            f"<li>🔄 <strong>Xem Lịch sử chuyển Bin-to-Bin & Cancel WHT (/SCWM/MON):</strong><br>"
+            f"<code>@Bot lịch sử bin 32013765</code> hoặc <code>@Bot xem lịch sử bin 10-A-01</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "

@@ -341,7 +341,18 @@ def run_bridge():
                     days = meta["days"]
 
                     # 3. Phân giải mã thông minh từ Sheet DATA (vd: 32013765 -> BIW32013765AA)
-                    if cmd != "PING":
+                    if cmd == "TON_THAP":
+                        model_name = meta.get("model", "LIMO")
+                        if not raw_mats:
+                            resolved_mats = resolver.get_materials_by_model(model_name)
+                        else:
+                            resolved_mats, notes = resolver.resolve_list(raw_mats)
+                        print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
+                        print(f"  -> Ý định:   TON_THAP ({meta['intentReason']})")
+                        print(f"  -> Model:    {model_name} (Xưởng: {meta.get('shop', 'BODY')})")
+                        print(f"  -> Plants:   {meta.get('plants', ['3093', '3001'])} | Top={meta.get('limit', 20)}")
+                        print(f"  -> Mã quét:  {len(resolved_mats)} mã tìm thấy cho model {model_name}")
+                    elif cmd != "PING":
                         resolved_mats, notes = resolver.resolve_list(raw_mats)
                         print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
                         print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
@@ -432,6 +443,48 @@ def run_bridge():
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                             summary = f"Danh sách đơn điều chuyển STO (ME2N) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+
+                        elif cmd in ["TON_THAP", "LOW_STOCK"]:
+                            model_name = meta.get("model", "LIMO")
+                            shop_name = meta.get("shop", "BODY")
+                            target_plants = meta.get("plants", ["3093", "3001"] if shop_name == "BODY" else ["3093", "2001", "3001"])
+                            limit_cnt = meta.get("limit", 20)
+                            records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name)
+                            if shop_name == "XMD":
+                                headers = {
+                                    "product": "Mã hàng", "model": "Model",
+                                    "stock_3093": "Kho 3093", "stock_2001": "XMĐ 2001", "stock_3001": "Sơn 3001",
+                                    "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
+                                }
+                            else:
+                                headers = {
+                                    "product": "Mã hàng", "model": "Model",
+                                    "stock_3093": "Kho FG 3093", "stock_3001": "Line Body 3001",
+                                    "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
+                                }
+                            summary = f"Cảnh báo tồn thấp Top {len(records)} mã {model_name} - Xưởng {shop_name} (Plant {', '.join(target_plants)})"
+
+                        elif cmd in ["CHECK_OB", "VL06O"]:
+                            ob_no = meta.get("obNo", "")
+                            records = sap.check_open_ob_vl06o(resolved_mats, ob_no=ob_no, plant=plant)
+                            headers = {
+                                "obNo": "Số OB", "product": "Mã hàng", "qty": "SL xuất", "unit": "ĐVT",
+                                "sloc": "Sloc", "batch": "Batch", "shipTo": "Khách nhận", "createDate": "Ngày tạo"
+                            }
+                            target_label = ob_no or ', '.join(resolved_mats) or 'Tất cả'
+                            summary = f"Danh sách đơn Outbound (OB) đang mở (VL06O) cho: {target_label}"
+
+                        elif cmd in ["LICHSU_BIN", "MON", "WHT"]:
+                            bin_name = meta.get("bin", "")
+                            records = sap.check_bin_history_mon(resolved_mats, bin_name=bin_name, days=days)
+                            headers = {
+                                "wtNo": "Số WT", "product": "Mã hàng", "batch": "Số lô",
+                                "srcBin": "Bin xuất", "destBin": "Bin đích",
+                                "qty": "SL chuyển", "unit": "ĐVT", "status": "Trạng thái",
+                                "createDate": "Ngày tạo", "user": "Người xử lý"
+                            }
+                            target_label = f"Bin {bin_name}" if bin_name else f"Mã {', '.join(resolved_mats)}"
+                            summary = f"Lịch sử chuyển Bin-to-Bin & Cancel WHT (/SCWM/MON) cho: {target_label}"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

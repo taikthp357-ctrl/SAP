@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.8"
+VERSION = "v1.0.9"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
@@ -150,3 +150,19 @@ if __name__ == "__main__":
     create_patch_zip()
     create_standard_zip()
     create_portable_zip()
+
+    # Tự động đồng bộ ra thư mục Downloads và Artifacts
+    import shutil
+    destinations = [
+        Path(r"C:\Users\taikt\Downloads"),
+        Path(r"C:\Users\taikt\.gemini\antigravity\brain\393da05a-90fd-4275-aec3-dee4a841da63")
+    ]
+    for dest in destinations:
+        if dest.exists():
+            for zf in [PATCH_ZIP, STANDARD_ZIP, PORTABLE_ZIP]:
+                if zf.exists():
+                    try:
+                        shutil.copy2(zf, dest / zf.name)
+                        print(f"[COPIED] {zf.name} -> {dest}")
+                    except Exception as e:
+                        print(f"[COPY WARN] Không thể copy sang {dest}: {e}")
