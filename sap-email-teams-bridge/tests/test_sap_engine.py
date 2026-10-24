@@ -371,25 +371,35 @@ def test_check_low_stock_multi_plant():
 
 
 def test_check_open_ob_vl06o_mock():
-    """Kiểm tra trích xuất VL06O đơn OB mở."""
+    """Kiểm tra trích xuất VL06O đơn OB mở theo chuẩn RC65."""
     engine = SapEngine.__new__(SapEngine)
     engine._open_transaction = MagicMock()
     engine._wait_idle = MagicMock()
-    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
-    engine._dismiss_popups = MagicMock()
+    mock_controls = {}
+    def mock_find(id_str):
+        if id_str not in mock_controls:
+            mock_controls[id_str] = MagicMock()
+        return mock_controls[id_str]
+    engine._find_by_id_safe = MagicMock(side_effect=mock_find)
+    engine._dismiss_popups = MagicMock(return_value="")
     engine._get_status = MagicMock(return_value=("", "S"))
+    engine._resolve_grid_columns = MagicMock(return_value={"product": "MATNR"})
 
     mock_records = [
         {"obNo": "80012345", "product": "BIW001", "qty": "50,000", "unit": "PC", "sloc": "3093", "batch": "2610A"},
-        {"obNo": "80012346", "product": "BIW001", "qty": "20,000", "unit": "PC", "sloc": "", "batch": ""}
+        {"obNo": "80012346", "product": "BIW001", "qty": "20,000", "unit": "PC", "sloc": "", "batch": ""},
+        {"obNo": "80012347", "product": "OTHER_MAT", "qty": "10,000", "unit": "PC", "sloc": "", "batch": ""}
     ]
     engine._find_largest_grid = MagicMock(return_value=MagicMock())
     engine._extract_alv_grid = MagicMock(return_value=mock_records)
 
     res = engine.check_open_ob_vl06o(materials=["BIW001"])
+    # Chỉ giữ lại 2 dòng của BIW001, lọc bỏ OTHER_MAT
     assert len(res) == 2
     assert res[0]["obNo"] == "80012346"  # Sắp xếp số OB giảm dần
     assert res[1]["obNo"] == "80012345"
+    # Kiểm tra Shipping Point IF_VSTEL-LOW được điền 3093 chuẩn RC65
+    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-LOW"].text == "3093"
 
 
 def test_check_bin_history_mon_mock():

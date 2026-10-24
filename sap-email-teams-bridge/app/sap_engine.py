@@ -1296,11 +1296,15 @@ class SapEngine:
         plant: str = "3093",
         ship_to: str = ""
     ) -> List[Dict[str, str]]:
-        """Tra cứu các đơn Outbound Delivery (OB) đang mở (GM Status = A) qua VL06O."""
+        """Tra cứu các đơn Outbound Delivery (OB) đang mở (GM Status = A) qua VL06O chuẩn theo 261010_OB_TOOL_V1_RC65."""
         self._open_transaction("VL06O")
         self._wait_idle(10.0)
 
-        print(f"[SAP VL06O] Tra cứu OB mở: OB='{ob_no}', Materials={materials}, Plant={plant}...")
+        target_shipping_point = str(plant or "3093").strip().upper()
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        clean_ob = str(ob_no or "").strip()
+
+        print(f"[SAP VL06O] Tra cứu OB mở theo chuẩn RC65: OB='{clean_ob}', Materials={clean_mats}, ShippingPoint={target_shipping_point}, ShipTo='{ship_to}'...")
 
         # 1. Điều hướng vào màn hình chọn List Outbound Deliveries (nút btnBUTTON6)
         date_low_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
@@ -1317,12 +1321,26 @@ class SapEngine:
                         self._wait_idle(10.0)
                         break
 
-        # 2. Xóa sạch các trường lọc cũ còn đọng lại trên màn hình chọn
+        # 2. Xóa sạch các bộ lọc cũ còn lưu trên màn hình chọn
         self._clear_all_selection_inputs()
 
-        # 3. Điền Planned GI Date (Bắt buộc trong VL06O để không bị lỗi bắt buộc nhập)
+        # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Shipping Point / Receiving Pt. (BẮT BUỘC trong VL06O)
+        vstel_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-LOW")
+        if vstel_ctl is not None:
+            try:
+                vstel_ctl.text = target_shipping_point
+            except Exception as e:
+                print(f"[SAP VL06O WARN] Không thể điền Shipping Point: {e}")
+        vstel_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-HIGH")
+        if vstel_hi is not None:
+            try:
+                vstel_hi.text = ""
+            except Exception:
+                pass
+
+        # 4. Khoảng ngày Planned GI Date: -60 ngày đến +60 ngày theo đúng RC65
         from_date = (datetime.now() - timedelta(days=60)).strftime("%d.%m.%Y")
-        to_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+        to_date = (datetime.now() + timedelta(days=60)).strftime("%d.%m.%Y")
         d_from = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
         if d_from is not None:
             try:
@@ -1336,7 +1354,7 @@ class SapEngine:
             except Exception:
                 pass
 
-        # 4. Goods Movement Status = "A" (Chưa Goods Issue / Đang mở)
+        # 5. Goods Movement Status = "A" (Chưa xuất hàng / Đang mở)
         gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
         if gm_ctl is None:
             gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTA-LOW")
@@ -1346,46 +1364,35 @@ class SapEngine:
             except Exception:
                 pass
 
-        # 5. Điền số OB nếu có
-        if ob_no:
-            for ob_f_id in ["wnd[0]/usr/ctxtIT_VBELN-LOW", "wnd[0]/usr/ctxtS_VBELN-LOW"]:
-                ctl = self._find_by_id_safe(ob_f_id)
-                if ctl is not None:
-                    try:
-                        ctl.text = ob_no.strip()
-                    except Exception:
-                        pass
-                    break
+        # 6. Điền Ship-to nếu người dùng yêu cầu cụ thể (nếu không có thì để trống để quét trọn vẹn cả 3093, 3001, 4007)
+        kunwe_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNWE-LOW")
+        if kunwe_ctl is None:
+            kunwe_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNNR-LOW")
+        if kunwe_ctl is not None:
+            try:
+                kunwe_ctl.text = ship_to.strip() if ship_to else ""
+            except Exception:
+                pass
+        kunwe_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNWE-HIGH")
+        if kunwe_hi is not None:
+            try:
+                kunwe_hi.text = ""
+            except Exception:
+                pass
 
-        # 6. Điền mã vật tư nếu có
-        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
-        if clean_mats:
-            multi_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
-            if self._find_by_id_safe(multi_id) is not None:
-                self._fill_multiple_selection(multi_id, clean_mats)
-            else:
-                mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
-                if mat_single is not None:
-                    mat_single.text = clean_mats[0]
-
-        # 7. Điền Plant & Ship-to nếu có
-        if plant:
-            p_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WERKS-LOW")
-            if p_ctl is not None:
-                try:
-                    p_ctl.text = plant
-                except Exception:
-                    pass
-
-        if ship_to:
-            sh_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNWE-LOW")
-            if sh_ctl is None:
-                sh_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNNR-LOW")
-            if sh_ctl is not None:
-                try:
-                    sh_ctl.text = ship_to
-                except Exception:
-                    pass
+        # 7. Điền số OB nếu có
+        ob_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_VBELN-LOW")
+        if ob_ctl is not None:
+            try:
+                ob_ctl.text = clean_ob
+            except Exception:
+                pass
+        ob_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIT_VBELN-HIGH")
+        if ob_hi is not None:
+            try:
+                ob_hi.text = ""
+            except Exception:
+                pass
 
         # 8. Thực thi F8
         print("[SAP VL06O] Đang bấm thực thi (F8)...")
@@ -1395,30 +1402,19 @@ class SapEngine:
         else:
             self.session.findById("wnd[0]").sendVKey(8)
 
-        self._wait_idle(25.0)
+        self._wait_idle(30.0)
         popup_msg = self._dismiss_popups()
 
         status_txt, status_type = self._get_status()
         comb = f"{status_txt} {popup_msg}".lower()
-        if any(k in comb for k in ["no data", "not found", "không tìm thấy", "no deliver", "giao hàng", "selected", "chưa có"]):
+        if any(k in comb for k in ["no deliveries", "no data", "không tìm thấy", "keine lieferungen", "không có giao hàng"]):
             print(f"[SAP VL06O] Xác nhận không có đơn Outbound nào: '{status_txt or popup_msg}'")
             return []
 
         if status_type in ("E", "A"):
             raise SapExecutionError(f"Lỗi SAP VL06O ({status_type}): {status_txt}")
 
-        # 9. Bấm btn[18] (Item View) để xem danh sách chi tiết Item
-        btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
-        if btn18 is not None:
-            try:
-                print("[SAP VL06O] Bấm btn[18] (Item View) để xem chi tiết mã hàng...")
-                btn18.press()
-                self._wait_idle(15.0)
-                self._dismiss_popups()
-            except Exception as e:
-                print(f"[SAP VL06O WARN] Không thể bấm btn[18]: {e}")
-
-        # 10. Tìm ALV Grid kết quả
+        # 9. BẢO ĐẢM HIỂN THỊ ITEM VIEW THEO CHUẨN VL6_EnsureItemGrid CỦA RC65
         alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
         if alv_grid is None:
             alv_grid = self._find_largest_grid(max_wait_sec=10.0)
@@ -1427,24 +1423,57 @@ class SapEngine:
             self._validate_grid_or_raise(alv_grid, "VL06O", status_txt, status_type)
             return []
 
+        # Kiểm tra xem đã có cột MATNR chưa, nếu chưa có (đang ở Header View) thì bấm btn[18] (Item View)
+        resolved_test = self._resolve_grid_columns(alv_grid, {"product": ["MATNR", "MATERIAL"]})
+        if "product" not in resolved_test:
+            btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
+            if btn18 is not None:
+                try:
+                    print("[SAP VL06O] Đang ở Header View, bấm btn[18] chuyển sang Item View theo chuẩn RC65...")
+                    btn18.press()
+                    self._wait_idle(20.0)
+                    self._dismiss_popups()
+                    alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+                    if alv_grid is None:
+                        alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+                except Exception as e:
+                    print(f"[SAP VL06O WARN] Không thể chuyển Item View: {e}")
+
+        if alv_grid is None:
+            self._validate_grid_or_raise(alv_grid, "VL06O", status_txt, status_type)
+            return []
+
+        # 10. Trích xuất toàn bộ dữ liệu từ lưới Item View
         col_map = {
             "obNo":       ["VBELN", "DELIVERY", "OUTBOUND DELIVERY"],
-            "product":    ["MATNR", "MATERIAL"],
+            "item":       ["POSNR", "DELIVERY ITEM", "ITEM"],
+            "product":    ["MATNR", "MATERIAL", "PRODUCT"],
             "qty":        ["LFIMG", "DLV.QTY", "DELIVERY QTY", "QUANTITY"],
-            "unit":       ["MEINS", "VRKME", "UNIT"],
+            "unit":       ["VRKME", "MEINS", "SALES UNIT", "UNIT"],
             "sloc":       ["LGORT", "SLOC", "STORAGE LOCATION"],
-            "batch":      ["CHARG", "BATCH", "S_CHARG"],
+            "batch":      ["S_CHARG", "CHARG", "BATCH"],
             "shipTo":     ["KUNNR", "KUNWE", "SHIP-TO PARTY", "SHIP TO"],
+            "gmStatus":   ["WBSTA", "WBSTK", "GOODS MOVEMENT STATUS", "GM STATUS"],
+            "refSTO":     ["VGBEL", "REFERENCE DOCUMENT", "STO"],
             "createDate": ["ERDAT", "CREATED ON", "DATE"]
         }
-        records = self._extract_alv_grid(alv_grid, col_map)
-        print(f"[SAP VL06O] Đã trích xuất {len(records)} dòng đơn OB.")
+        all_records = self._extract_alv_grid(alv_grid, col_map)
+        print(f"[SAP VL06O] Đã trích xuất {len(all_records)} dòng đơn OB từ SAP.")
 
-        for r in records:
+        # 11. Lọc theo mã hàng (Material) theo chuẩn RC65
+        filtered_records = []
+        for r in all_records:
+            prod = str(r.get("product", "")).strip().upper()
+            if clean_mats and prod not in clean_mats:
+                continue
+            if clean_ob and clean_ob not in str(r.get("obNo", "")).strip():
+                continue
             r["qty"] = format_qty_display(parse_sap_float(r.get("qty")))
+            filtered_records.append(r)
 
-        records.sort(key=lambda x: str(x.get("obNo", "")), reverse=True)
-        return records
+        print(f"[SAP VL06O] Sau khi lọc theo điều kiện: còn {len(filtered_records)} dòng đơn OB thỏa mãn.")
+        filtered_records.sort(key=lambda x: str(x.get("obNo", "")), reverse=True)
+        return filtered_records
 
     # --------------------------------------------------------------------------
     # 8. KIỂM TRA LỊCH SỬ XUẤT NHẬP & CHUYỂN BIN-TO-BIN (/SCWM/MON)
