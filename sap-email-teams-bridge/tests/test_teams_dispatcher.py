@@ -298,10 +298,15 @@ def test_teams_dispatcher_fg_and_nvl_migo_badges():
 
     # NVL MIGO
     nvl_recs = [
-        {"product": "BIW32013765AA", "whStock": "500", "lineStock": "5", "totalStock": "505", "unit": "PC", "migoAdvice": "Cần ra đơn MIGO"}
+        {
+            "product": "BIW32013765AA", "plant": "3093", "sloc": "1005",
+            "bin": "APFL-01", "batch": "LOT-A", "qty": "200", "unit": "PC",
+            "grDate": "15.10.2026", "grTime": "08:00:00", "cat": "FT",
+            "fifoRank": "#1", "migoAdvice": "✅ FIFO #1 - Sẵn sàng ra đơn MIGO 311 (200 PC)"
+        }
     ]
     meta_nvl = {"command": "CHECK_NVL_MIGO", "messageId": "M-NVL"}
     pl_nvl, _ = TeamsDispatcher.prepare_safe_payload("REQ-NVL", meta_nvl, "SUCCEEDED", "Summary NVL", nvl_recs, {"product": "Mã"})
-    assert "cân đối NVL và nhu cầu ra đơn MIGO 311" in pl_nvl["greeting"]
-    assert "Kho NVL 1005" in pl_nvl["table_html"]
-    assert "Mã cần cấp MIGO 311" in pl_nvl["table_html"]
+    assert "Posting Change kho NVL 1005 (Plant 3093)" in pl_nvl["greeting"]
+    assert "Plant 3093 - Kho NVL 1005" in pl_nvl["table_html"]
+    assert "Sẵn sàng ra đơn MIGO 311" in pl_nvl["table_html"]

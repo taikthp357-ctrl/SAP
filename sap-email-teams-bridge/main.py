@@ -549,14 +549,17 @@ def run_bridge():
                             }
                             summary = f"Điều độ Thành Phẩm (FG) & Đơn OB cho: {', '.join(resolved_mats)}"
 
-                        elif cmd in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]:
-                            records = sap.check_nvl_migo_balance(resolved_mats, plant=plant)
+                        elif cmd in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]:
+                            records = sap.check_nvl_migo_balance(resolved_mats, plant=plant or "3093", batch=batch)
                             headers = {
-                                "product": "Mã hàng", "whStock": "Kho NVL 1005",
-                                "lineStock": "Line Body 3001", "totalStock": "Tổng tồn",
-                                "unit": "ĐVT", "migoAdvice": "Khuyến nghị ra đơn MIGO 311"
+                                "product": "Mã hàng", "plant": "Plant", "sloc": "Kho",
+                                "bin": "Vị trí Bin", "batch": "Số lô",
+                                "qty": "SL Khả dụng", "unit": "ĐVT",
+                                "grDate": "Ngày GR", "grTime": "Giờ GR",
+                                "cat": "Trạng thái", "fifoRank": "Thứ tự FIFO",
+                                "migoAdvice": "Khuyến nghị ra đơn MIGO 311"
                             }
-                            summary = f"Cân đối Nguyên Vật Liệu (NVL) & Đề xuất MIGO 311 cho: {', '.join(resolved_mats)}"
+                            summary = f"Posting Change NVL (Plant {plant or '3093'} - Kho 1005) cho: {', '.join(resolved_mats)}"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

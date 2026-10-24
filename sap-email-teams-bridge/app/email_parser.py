@@ -48,7 +48,7 @@ class SmartCommandParser:
             (r"\b(?:dien\s*ob|di\s*en\s*ob|check\s*ob\s*fg|kha\s*dung\s*ob|ob\s*fg|ton\s*ob)\b", 24),
         ],
         "CHECK_NVL_MIGO": [
-            (r"\b(?:ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo)\b", 24),
+            (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
         ],
         "CHECK_PO": [
             (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 20),
@@ -98,7 +98,7 @@ class SmartCommandParser:
         "IB", "TREO", "IBTREO", "STO", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN", "DIEU", "CHUYEN", "DON",
         "TAI", "TÀI", "@TAI", "@TÀI", "TOI", "TÔI", "MINH", "MÌNH", "SEP", "SẾP", "NHO", "NHỜ",
         "BAN", "BẠN", "GIÚP", "VỚI", "CÓ", "ĐANG", "CHỜ", "TOP", "TOP20", "TOP10", "THAP", "THẤP",
-        "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT"
+        "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT", "POSTING", "POSTINGCHANGE", "MIGO", "NVL", "CHANGE"
     }
 
     @staticmethod
@@ -178,7 +178,7 @@ class SmartCommandParser:
             "TIM_IB", "FIND_IB",
             "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
             "CHECK_FG_OB", "DIEN_OB",
-            "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL",
+            "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
             "HELP"
         }
 
@@ -304,7 +304,7 @@ class SmartCommandParser:
                     canonical_cmd = "CHECK_PO"
                 elif cmd in ("CHECK_FG_OB", "DIEN_OB"):
                     canonical_cmd = "CHECK_FG_OB"
-                elif cmd in ("CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"):
+                elif cmd in ("CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"):
                     canonical_cmd = "CHECK_NVL_MIGO"
 
                 expected_q = 0.0

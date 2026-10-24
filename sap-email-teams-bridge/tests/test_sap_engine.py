@@ -864,18 +864,41 @@ def test_check_fg_ob_status_mock():
 
 
 def test_check_nvl_migo_balance_mock():
-    """Kiểm tra check_nvl_migo_balance phát hiện Line đói hàng và đề xuất MIGO 311."""
+    """Kiểm tra check_nvl_migo_balance kiểm tra Plant 3093 và duy nhất SLoc 1005 qua /SCWM/POST."""
     engine = SapEngine.__new__(SapEngine)
-    # Line 3001 chỉ còn 5 PC (<=10) -> Đói hàng; Kho 1005 có 500 PC
+    # Mock /SCWM/POST trả về 2 lô: 1 lô nhập sớm (FIFO 1), 1 lô nhập muộn (FIFO 2)
+    engine.check_position_posting_change = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "batch": "LOT-B", "bin": "APFL-02", "qty": "300", "unit": "PC", "grDate": "20.10.2026", "grTime": "14:00:00", "cat": "FT"},
+        {"product": "BIW32013765AA", "batch": "LOT-A", "bin": "APFL-01", "qty": "200", "unit": "PC", "grDate": "15.10.2026", "grTime": "08:00:00", "cat": "FT"}
+    ])
+
+    records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093")
+    assert len(records) == 2
+    # LOT-A nhập 15.10 phải được xếp trước (FIFO #1)
+    assert records[0]["batch"] == "LOT-A"
+    assert records[0]["fifoRank"] == "#1"
+    assert "Sẵn sàng ra đơn MIGO 311" in records[0]["migoAdvice"]
+    assert records[0]["sloc"] == "1005"
+    assert records[0]["plant"] == "3093"
+
+    # LOT-B nhập 20.10 xếp sau (FIFO #2)
+    assert records[1]["batch"] == "LOT-B"
+    assert records[1]["fifoRank"] == "#2"
+    assert records[1]["sloc"] == "1005"
+
+
+def test_check_nvl_migo_fallback_mb52_sloc_1005():
+    """Kiểm tra fallback MB52: Chỉ lấy SLoc 1005 và bỏ qua các SLoc khác."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_position_posting_change = MagicMock(return_value=[])
     engine.check_stock_mb52 = MagicMock(return_value=[
-        {"product": "BIW32013765AA", "plant": "3093", "sloc": "1005", "unrest": "500", "unit": "PC"},
-        {"product": "BIW32013765AA", "plant": "3093", "sloc": "3001", "unrest": "5", "unit": "PC"}
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "1005", "unrest": "150", "unit": "PC"},
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "3001", "unrest": "50", "unit": "PC"}
     ])
 
     records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093")
     assert len(records) == 1
-    assert records[0]["whStock"] == "500"
-    assert records[0]["lineStock"] == "5"
-    assert records[0]["totalStock"] == "505"
-    assert "Line đói hàng" in records[0]["migoAdvice"]
-    assert "MIGO 311" in records[0]["migoAdvice"]
+    assert records[0]["sloc"] == "1005"
+    assert records[0]["plant"] == "3093"
+    assert records[0]["qty"] == "150"
+    assert "Có tồn MB52 Kho 1005 (150 PC)" in records[0]["migoAdvice"]

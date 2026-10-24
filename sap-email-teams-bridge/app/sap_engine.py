@@ -2907,72 +2907,164 @@ class SapEngine:
 
         return records
 
-    # 14. CÂN ĐỐI NGUYÊN VẬT LIỆU (NVL) & ĐỀ XUẤT RA ĐƠN MIGO 311 (MB52)
+# --------------------------------------------------------------------------
+    # 14. KIỂM TRA NVL POSTING CHANGE (/SCWM/POST) & RA ĐƠN MIGO 311 (KHO 1005)
     # --------------------------------------------------------------------------
     def check_nvl_migo_balance(
         self,
         materials: List[str],
-        plant: str = "3093"
+        plant: str = "3093",
+        batch: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Cân đối tồn kho Nguyên Vật Liệu (NVL) giữa Kho cấp 1005 và Line nhận 3001/2001.
-        Phát hiện thiếu hàng trên Line và đề xuất lập phiếu MIGO 311 cấp bù số lượng."""
+        """Kiểm tra tồn kho Nguyên Vật Liệu (NVL) tại Plant 3093 và DUY NHẤT SLoc 1005 qua Posting Change (/SCWM/POST).
+        
+        Kế thừa chuẩn xác từ công cụ 260810_RA_DON_NVL_V31_ZONE và ModuleFIFO:
+        - Quét danh sách tồn kho từ Posting Change (/SCWM/POST) với Owner 3093 (Kho NVL 1005).
+        - Trích xuất: Product, Batch, Available Qty (A.Qty AUoM), Source Bin, TST, Ngày giờ GR.
+        - Phân tích thứ tự FIFO (Ngày/Giờ GR cũ nhất được ưu tiên cấp phát bốc hàng trước).
+        - Đối chiếu trạng thái tồn (TST: FT khả dụng vs QT/QI chờ kiểm QC, BT khóa).
+        - Nếu /SCWM/POST không có bản ghi, đối chiếu qua MB52 (chỉ Plant 3093 và SLoc 1005).
+        """
         clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
         if not clean_mats:
             return []
 
-        # Tra cứu đồng thời Kho NVL (1005) và Line sản xuất (3001, 2001)
-        target_slocs = ["1005", "3001", "2001"]
+        # 1. Quét dữ liệu Posting Change (/SCWM/POST) với Owner = plant (3093)
+        post_records = []
         try:
-            mb52_recs = self.check_stock_mb52(clean_mats, plant=plant, slocs=target_slocs)
+            post_records = self.check_position_posting_change(clean_mats, batch=batch, plant=plant)
         except Exception as e:
-            print(f"[SAP NVL_MIGO ERROR] Không thể đọc MB52: {e}")
-            raise SapExecutionError(f"Lỗi truy vấn cân đối tồn NVL MB52: {e}") from e
+            print(f"[SAP POSTING CHANGE WARN] Không thể đọc /SCWM/POST: {e}")
 
-        wh_by_mat = {m: 0.0 for m in clean_mats}
-        line_by_mat = {m: 0.0 for m in clean_mats}
-        unit_by_mat = {m: "PC" for m in clean_mats}
+        # 2. Phân loại theo từng mã vật tư
+        records = []
+        mats_found = set()
 
-        for r in mb52_recs:
-            sloc = str(r.get("sloc", "")).strip().upper()
-            if sloc in ["9999", "QC", "BLOCK", "SCRAP"]:
-                continue
-            p_mat = str(r.get("product", "")).strip().upper()
-            qty = parse_sap_float(r.get("unrest", 0.0))
-            uom = r.get("unit", "PC")
+        if post_records:
+            def _fifo_sort_key(item):
+                d_raw = item.get("grDate", "")
+                t_raw = item.get("grTime", "")
+                parts = re.split(r"[./-]", d_raw)
+                if len(parts) == 3:
+                    if len(parts[2]) == 4:
+                        d_sort = f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
+                    else:
+                        d_sort = f"{parts[2].zfill(4)}{parts[1].zfill(2)}{parts[0].zfill(2)}"
+                else:
+                    d_sort = d_raw
+                return (d_sort, t_raw)
+
+            records_by_mat: Dict[str, List[Dict[str, Any]]] = {}
+            for r in post_records:
+                p_mat = str(r.get("product", "")).strip().upper()
+                matched_target = None
+                for m in clean_mats:
+                    if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
+                        matched_target = m
+                        break
+                target_key = matched_target or p_mat
+                mats_found.add(target_key)
+                records_by_mat.setdefault(target_key, []).append(r)
 
             for m in clean_mats:
-                if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
-                    if sloc == "1005":
-                        wh_by_mat[m] += qty
-                    elif sloc in ["3001", "2001"]:
-                        line_by_mat[m] += qty
-                    unit_by_mat[m] = uom
-                    break
+                m_rows = records_by_mat.get(m, [])
+                if not m_rows:
+                    continue
+                # Sort ascending: ngày/giờ nhập sớm nhất lên đầu (FIFO)
+                m_rows.sort(key=_fifo_sort_key)
 
-        records = []
-        for m in clean_mats:
-            wh_stk = wh_by_mat.get(m, 0.0)
-            line_stk = line_by_mat.get(m, 0.0)
-            tot_stk = wh_stk + line_stk
-            unit = unit_by_mat.get(m, "PC")
+                avail_rank = 1
+                for item in m_rows:
+                    qty_f = parse_sap_float(item.get("qty", 0.0))
+                    uom = item.get("unit", "PC")
+                    bin_code = item.get("bin", "")
+                    batch_no = item.get("batch", "")
+                    tst = str(item.get("cat", "")).strip().upper()
 
-            if line_stk <= 10.0 and wh_stk > 0:
-                rec_qty = min(wh_stk, max(50.0, 100.0 - line_stk))
-                advice = f"⚡ Line đói hàng ({format_qty_display(line_stk)} {unit})! Cần ra đơn MIGO 311 cấp {format_qty_display(rec_qty)} {unit} từ 1005 ➔ Line"
-            elif line_stk > 10.0:
-                advice = f"🟢 Line đang đủ hàng ({format_qty_display(line_stk)} {unit}), chưa cần cấp MIGO 311"
-            elif wh_stk == 0 and line_stk == 0:
-                advice = f"🔴 Hết hàng NVL toàn bộ (Kho 1005 = 0, Line = 0)"
-            else:
-                advice = f"🟡 Cần theo dõi tồn Line ({format_qty_display(line_stk)} {unit})"
+                    # Đánh giá theo quy tắc ModuleFIFO.bas
+                    is_bin_blocked = bin_code.upper() in ["APFL-BL01-01-01"] or "BLOCK" in bin_code.upper()
+                    is_qc = tst in ["QT", "QI", "QUALITY"]
+                    is_blocked_status = tst in ["BT", "BLOCK", "BLOCKED"]
 
-            records.append({
-                "product": m,
-                "whStock": format_qty_display(wh_stk),
-                "lineStock": format_qty_display(line_stk),
-                "totalStock": format_qty_display(tot_stk),
-                "unit": unit,
-                "migoAdvice": advice
-            })
+                    if is_bin_blocked:
+                        advice = f"⛔ Bin bị khóa hệ thống ({bin_code}) - Không bốc ra đơn"
+                        rank_lbl = "-"
+                    elif is_qc:
+                        advice = f"⚠️ Chờ kiểm định QC (TST {tst}) - Chưa thể ra đơn"
+                        rank_lbl = "-"
+                    elif is_blocked_status:
+                        advice = f"⛔ Lô bị khóa (TST {tst}) - Không được xuất"
+                        rank_lbl = "-"
+                    elif qty_f > 0:
+                        advice = f"✅ FIFO #{avail_rank} - Sẵn sàng ra đơn MIGO 311 ({format_qty_display(qty_f)} {uom})"
+                        rank_lbl = f"#{avail_rank}"
+                        avail_rank += 1
+                    else:
+                        advice = "⚪ Số lượng khả dụng bằng 0"
+                        rank_lbl = "-"
+
+                    records.append({
+                        "product": m,
+                        "plant": plant,
+                        "sloc": "1005",
+                        "bin": bin_code,
+                        "batch": batch_no,
+                        "qty": format_qty_display(qty_f),
+                        "unit": uom,
+                        "grDate": item.get("grDate", ""),
+                        "grTime": item.get("grTime", ""),
+                        "cat": tst or "FT",
+                        "fifoRank": rank_lbl,
+                        "migoAdvice": advice
+                    })
+
+        # 3. Với những mã chưa có dữ liệu trong /SCWM/POST, tra cứu MB52 DUY NHẤT SLoc 1005
+        missing_mats = [m for m in clean_mats if m not in mats_found]
+        if missing_mats:
+            try:
+                mb52_recs = self.check_stock_mb52(missing_mats, plant=plant, slocs=["1005"])
+            except Exception as e:
+                print(f"[SAP MB52 1005 WARN] Không thể đọc MB52: {e}")
+                mb52_recs = []
+
+            mb52_by_mat = {m: 0.0 for m in missing_mats}
+            unit_by_mat = {m: "PC" for m in missing_mats}
+            for r in mb52_recs:
+                sl = str(r.get("sloc", "")).strip().upper()
+                if sl != "1005":
+                    continue
+                p_mat = str(r.get("product", "")).strip().upper()
+                q = parse_sap_float(r.get("unrest", 0.0))
+                u = r.get("unit", "PC")
+                for m in missing_mats:
+                    if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
+                        mb52_by_mat[m] += q
+                        unit_by_mat[m] = u
+                        break
+
+            for m in missing_mats:
+                stk = mb52_by_mat.get(m, 0.0)
+                u = unit_by_mat.get(m, "PC")
+                if stk > 0:
+                    advice = f"⚠️ Có tồn MB52 Kho 1005 ({format_qty_display(stk)} {u}) nhưng chưa có Bin trong Posting Change"
+                    qty_str = format_qty_display(stk)
+                else:
+                    advice = "🔴 Hết hàng tại Kho 1005 (Plant 3093)"
+                    qty_str = "0"
+
+                records.append({
+                    "product": m,
+                    "plant": plant,
+                    "sloc": "1005",
+                    "bin": "Chưa có Bin" if stk > 0 else "-",
+                    "batch": "-",
+                    "qty": qty_str,
+                    "unit": u,
+                    "grDate": "-",
+                    "grTime": "-",
+                    "cat": "MB52" if stk > 0 else "-",
+                    "fifoRank": "-",
+                    "migoAdvice": advice
+                })
 
         return records

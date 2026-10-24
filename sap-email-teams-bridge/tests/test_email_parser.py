@@ -521,3 +521,14 @@ def test_parse_check_nvl_migo_natural_and_json():
     res_j = EmailCommandParser.parse(json_cmd)
     assert res_j["valid"] is True
     assert res_j["command"] == "CHECK_NVL_MIGO"
+
+    cmd3 = "check postingchange 32013765"
+    res3 = EmailCommandParser.parse(cmd3)
+    assert res3["valid"] is True
+    assert res3["command"] == "CHECK_NVL_MIGO"
+    assert "32013765" in res3["materials"]
+
+    json_cmd2 = {"command": "CHECK_POSTING_CHANGE", "materials": ["32013765"]}
+    res_j2 = EmailCommandParser.parse(json_cmd2)
+    assert res_j2["valid"] is True
+    assert res_j2["command"] == "CHECK_NVL_MIGO"

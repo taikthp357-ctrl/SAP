@@ -115,27 +115,48 @@ class TeamsDispatcher:
                     f"✅ Khả dụng xuất: {format_qty_display(tot_avail)}</span>"
                 )
 
-            elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]):
-                tot_wh = sum(parse_sap_float(r.get("whStock", 0.0)) for r in records)
-                tot_line = sum(parse_sap_float(r.get("lineStock", 0.0)) for r in records)
-                need_migo = sum(1 for r in records if "Cần ra đơn MIGO" in str(r.get("migoAdvice", "")))
+            elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]):
+                tot_avail = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
+                tot_all = sum(parse_sap_float(r.get("qty", 0.0)) for r in records)
+                bins = {r.get("bin") for r in records if r.get("bin") and r.get("bin") not in ["-", "Chưa có Bin"]}
+                batches = {r.get("batch") for r in records if r.get("batch") and r.get("batch") != "-"}
+                ready_count = sum(1 for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
+                qc_count = sum(1 for r in records if "QC" in str(r.get("migoAdvice", "")))
+                unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
+
                 badges.append(
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
-                    f"📦 Kho NVL 1005: {format_qty_display(tot_wh)}</span>"
+                    f"🏢 Plant 3093 - Kho NVL 1005</span>"
                 )
-                badges.append(
-                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
-                    f"🏭 Line Body: {format_qty_display(tot_line)}</span>"
-                )
-                if need_migo > 0:
+                if bins:
                     badges.append(
-                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
-                        f"⚡ {need_migo} Mã cần cấp MIGO 311</span>"
+                        f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                        f"📍 {len(bins)} Vị trí Bin</span>"
                     )
-                else:
+                if batches:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"🏷️ {len(batches)} Lô (Batch)</span>"
+                    )
+                if tot_all > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                        f"✅ Line đủ sản xuất</span>"
+                        f"📦 Khả dụng: {format_qty_display(tot_avail or tot_all)} {unit}</span>"
+                    )
+                if qc_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ {qc_count} Lô chờ QC</span>"
+                    )
+                if ready_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"⚡ Sẵn sàng ra đơn MIGO 311</span>"
+                    )
+                elif tot_all == 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"🔴 Hết hàng kho 1005</span>"
                     )
 
             elif any(k in cmd_upper for k in ["VITRI", "BIN", "POST"]):
@@ -435,8 +456,8 @@ class TeamsDispatcher:
             f"<code>@Bot kiểm tra PO 4500123456</code> hoặc <code>@Bot kiểm tra PO 4500123456 item 10</code></li>"
             f"<li>🏢 <strong>Điều độ Thành Phẩm FG & Đơn OB (VL06O + MB52):</strong><br>"
             f"<code>@Bot điền ob 32013765</code> hoặc <code>@Bot check ob fg 32013765</code></li>"
-            f"<li>🏭 <strong>Cân đối NVL & Đề xuất ra đơn MIGO 311:</strong><br>"
-            f"<code>@Bot check nvl 32013765</code> hoặc <code>@Bot ra đơn migo 32013765</code></li>"
+            f"<li>🏭 <strong>Kiểm tra Posting Change NVL Kho 1005 (Plant 3093) & Ra đơn MIGO 311:</strong><br>"
+            f"<code>@Bot check nvl 32013765</code> hoặc <code>@Bot check postingchange 32013765</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "
@@ -507,8 +528,8 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã tra lịch sử chuyển Bin-to-Bin cho sếp rồi ạ 👇"
             elif cmd_u in ["CHECK_FG_OB", "DIEN_OB"]:
                 greeting = "Sếp ơi, em đã kiểm tra điều độ tồn FG và đơn OB mở cho sếp rồi ạ 👇"
-            elif cmd_u in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]:
-                greeting = "Sếp ơi, em đã kiểm tra cân đối NVL và nhu cầu ra đơn MIGO 311 cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]:
+                greeting = "Sếp ơi, em đã kiểm tra Posting Change kho NVL 1005 (Plant 3093) cho sếp rồi ạ! 📋"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 
