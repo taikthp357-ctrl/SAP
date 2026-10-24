@@ -352,6 +352,11 @@ def run_bridge():
                         print(f"  -> Model:    {model_name} (Xưởng: {meta.get('shop', 'BODY')})")
                         print(f"  -> Plants:   {meta.get('plants', ['3093', '3001'])} | Top={meta.get('limit', 20)}")
                         print(f"  -> Mã quét:  {len(resolved_mats)} mã tìm thấy cho model {model_name}")
+                    elif cmd in ["CHECK_IB", "TIM_IB", "CHECK_PO", "TIM_GR_DOC"] and not raw_mats:
+                        resolved_mats = []
+                        print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
+                        print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
+                        print(f"  -> Tham số:  Inbound='{meta.get('inboundNo', '')}' | PO='{meta.get('poNo', '')}' | Ref='{meta.get('refNo', '')}' | Plant='{plant}'")
                     elif cmd != "PING":
                         resolved_mats, notes = resolver.resolve_list(raw_mats)
                         print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
@@ -396,7 +401,7 @@ def run_bridge():
                             summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["TON_KHO", "TONKHO"]:
-                            wh_slocs = cfg.get("warehouse_slocs", ["1005", "3093"])
+                            wh_slocs = config.get("warehouse_slocs", ["1005", "3093"])
                             records = sap.check_stock_mb52(resolved_mats, plant, slocs=wh_slocs)
                             headers = {
                                 "product": "Mã hàng", "plant": "Plant", "sloc": "Sloc",
@@ -485,6 +490,54 @@ def run_bridge():
                             }
                             target_label = f"Bin {bin_name}" if bin_name else f"Mã {', '.join(resolved_mats)}"
                             summary = f"Lịch sử chuyển Bin-to-Bin & Cancel WHT (/SCWM/MON) cho: {target_label}"
+
+                        elif cmd in ["TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"]:
+                            inbound_no = meta.get("inboundNo", "")
+                            ref_no = meta.get("refNo", "")
+                            mat_doc = meta.get("materialDocument", "")
+                            records = sap.check_gr_doc_mb51(inbound_no=inbound_no, ref_no=ref_no, mat_doc=mat_doc, materials=resolved_mats, plant=plant, days=days)
+                            headers = {
+                                "mblnr": "Số CT GR", "mjahr": "Năm", "item": "Item", "bwart": "Loại GD",
+                                "matnr": "Mã hàng", "qty": "SL", "unit": "ĐVT",
+                                "xblnr": "Inbound / Ref", "postDate": "Ngày HT", "sloc": "Kho", "batch": "Số lô", "user": "Người tạo"
+                            }
+                            target_lbl = inbound_no or ref_no or mat_doc or (', '.join(resolved_mats) if resolved_mats else 'Tất cả')
+                            summary = f"Chứng từ nhập kho GR (MB51) cho: {target_lbl}"
+
+                        elif cmd in ["CHECK_IB", "IB_DETAIL", "KIEMTRA_IB"]:
+                            inbound_no = meta.get("inboundNo", "") or (raw_mats[0] if raw_mats and raw_mats[0].startswith("18") else "")
+                            expected_qty = meta.get("expectedQty", 0.0)
+                            records = sap.check_inbound_detail_vl06i(inbound_no=inbound_no, materials=resolved_mats, plant=plant, expected_qty=expected_qty)
+                            headers = {
+                                "ibNo": "Số IB", "item": "Item", "product": "Mã hàng",
+                                "actualQty": "SL Inbound", "expectedQty": "SL Yêu cầu", "delta": "Chênh lệch", "qtyCheck": "Đối chiếu SL",
+                                "unit": "ĐVT", "sloc": "Kho", "status": "Trạng thái GR",
+                                "refPo": "PO tham chiếu", "poItem": "PO Item"
+                            }
+                            summary = f"Chi tiết đơn Inbound {inbound_no or ', '.join(resolved_mats)} (VL06I Item View)"
+
+                        elif cmd in ["TIM_IB", "FIND_IB"]:
+                            po_no = meta.get("poNo", "")
+                            ref_no = meta.get("refNo", "")
+                            records = sap.find_inbound_vl06i(po_no=po_no, ref_no=ref_no, materials=resolved_mats, plant=plant)
+                            headers = {
+                                "ibNo": "Số IB", "item": "Item", "product": "Mã hàng",
+                                "qty": "SL giao", "unit": "ĐVT", "sloc": "Kho",
+                                "status": "Trạng thái", "refPo": "Số PO", "refNo": "Vận đơn / Bill"
+                            }
+                            target_lbl = po_no or ref_no or (', '.join(resolved_mats) if resolved_mats else 'Tất cả')
+                            summary = f"Tìm kiếm Inbound theo tham chiếu: {target_lbl}"
+
+                        elif cmd in ["CHECK_PO", "PO_STATUS", "KIEMTRA_PO"]:
+                            po_no = meta.get("poNo", "") or (raw_mats[0] if raw_mats and raw_mats[0].startswith(("45", "55")) else "")
+                            po_item = meta.get("poItem", "")
+                            records = sap.check_po_me2n(po_no=po_no, materials=resolved_mats, plant=plant, po_item=po_item)
+                            headers = {
+                                "poNo": "Số PO", "item": "Item", "product": "Mã hàng",
+                                "orderQty": "SL Đặt", "deliveredQty": "Đã nhận", "openQty": "Còn nợ",
+                                "unit": "ĐVT", "plant": "Plant", "deleteInd": "Xóa/Khóa", "releaseStatus": "Duyệt"
+                            }
+                            summary = f"Tình trạng đơn đặt hàng PO {po_no or ', '.join(resolved_mats)} (ME2N)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

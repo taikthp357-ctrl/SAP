@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.15"
+VERSION = "v1.0.16"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
@@ -22,7 +22,7 @@ EXTERNAL_RUNTIME = Path(r"G:\AI-Manager\work\releases\ma_control_portable_build\
 LOCAL_RUNTIME = BASE_DIR / "runtime"
 
 EXCLUDE_SOURCE_DIRS = {".git", "__pycache__", ".pytest_cache", ".vscode", "runtime"}
-EXCLUDE_EXTS = {".pyc", ".zip", ".pdb"}
+EXCLUDE_EXTS = {".pyc", ".zip", ".pdb", ".db", ".sqlite", ".log"}
 
 # Các thư mục rác / test / tài liệu dev không sử dụng trong bridge để tối ưu dung lượng
 EXCLUDE_RUNTIME_DIRS = {
@@ -71,7 +71,7 @@ def create_patch_zip():
                 zf.write(fpath, arcname=fname)
                 count += 1
 
-        for folder in ["app", "tests"]:
+        for folder in ["app", "tests", "docs"]:
             folder_path = BASE_DIR / folder
             if folder_path.exists():
                 for root, _, files in os.walk(folder_path):

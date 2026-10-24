@@ -350,3 +350,139 @@ def test_parse_vitri_by_bin():
 
 
 
+
+
+def test_parse_tim_gr_doc_json():
+    """Kiểm tra parse lệnh TIM_GR_DOC từ JSON."""
+    json_cmd = {
+        "command": "TIM_GR_DOC",
+        "inboundNo": "1800123456",
+        "refNo": "BL123456",
+        "materialDocument": "5000123456",
+        "materials": ["BIW32013765AA"],
+        "days": 14,
+        "plant": "3093"
+    }
+    res = EmailCommandParser.parse(json_cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TIM_GR_DOC"
+    assert res["inboundNo"] == "1800123456"
+    assert res["refNo"] == "BL123456"
+    assert res["materialDocument"] == "5000123456"
+    assert res["materials"] == ["BIW32013765AA"]
+    assert res["days"] == 14
+    assert res["plant"] == "3093"
+
+
+def test_parse_tim_gr_doc_natural():
+    """Kiểm tra parse lệnh TIM_GR_DOC từ ngôn ngữ tự nhiên."""
+    cmd = "tìm chứng từ gr theo inbound 1800123456"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TIM_GR_DOC"
+    assert res["inboundNo"] == "1800123456"
+
+
+def test_parse_check_ib_json():
+    """Kiểm tra parse lệnh CHECK_IB từ JSON với expectedQty."""
+    json_cmd = {
+        "command": "CHECK_IB",
+        "inboundNo": "1800555666",
+        "expectedQty": 350.5,
+        "plant": "3093"
+    }
+    res = EmailCommandParser.parse(json_cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_IB"
+    assert res["inboundNo"] == "1800555666"
+    assert res["expectedQty"] == 350.5
+
+
+def test_parse_check_ib_natural():
+    """Kiểm tra parse lệnh CHECK_IB từ ngôn ngữ tự nhiên."""
+    cmd = "chi tiết inbound 1800555666 sl 500"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_IB"
+    assert res["inboundNo"] == "1800555666"
+    assert res["expectedQty"] == 500.0
+
+
+def test_parse_tim_ib_json():
+    """Kiểm tra parse lệnh TIM_IB từ JSON."""
+    json_cmd = {
+        "command": "TIM_IB",
+        "poNo": "4500123456",
+        "refNo": "BILL789"
+    }
+    res = EmailCommandParser.parse(json_cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TIM_IB"
+    assert res["poNo"] == "4500123456"
+    assert res["refNo"] == "BILL789"
+
+
+def test_parse_tim_ib_natural():
+    """Kiểm tra parse lệnh TIM_IB từ ngôn ngữ tự nhiên."""
+    cmd = "tìm inbound theo po 4500123456"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TIM_IB"
+    assert res["poNo"] == "4500123456"
+
+
+def test_parse_check_po_json():
+    """Kiểm tra parse lệnh CHECK_PO từ JSON."""
+    json_cmd = {
+        "command": "CHECK_PO",
+        "poNo": "4500888999",
+        "poItem": "20"
+    }
+    res = EmailCommandParser.parse(json_cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_PO"
+    assert res["poNo"] == "4500888999"
+    assert res["poItem"] == "20"
+
+
+def test_parse_check_po_natural():
+    """Kiểm tra parse lệnh CHECK_PO từ ngôn ngữ tự nhiên."""
+    cmd = "kiểm tra PO 4500888999 item 10"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_PO"
+    assert res["poNo"] == "4500888999"
+    assert res["poItem"] == "10"
+
+
+def test_parse_json_parity_ob_and_bin():
+    """Kiểm tra tính tương đương tham số JSON cho obNo và bin."""
+    json_cmd = {
+        "command": "CHECK_OB",
+        "obNo": "80012345",
+        "materials": ["BIW32013765AA"]
+    }
+    res = EmailCommandParser.parse(json_cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_OB"
+    assert res["obNo"] == "80012345"
+
+    json_bin = {
+        "command": "LICHSU_BIN",
+        "bin": "10-A-01",
+        "materials": ["BIW32013765AA"]
+    }
+    res_bin = EmailCommandParser.parse(json_bin)
+    assert res_bin is not None
+    assert res_bin["valid"] is True
+    assert res_bin["command"] == "LICHSU_BIN"
+    assert res_bin["bin"] == "10-A-01"

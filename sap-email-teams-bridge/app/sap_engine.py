@@ -1362,12 +1362,7 @@ class SapEngine:
                 print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs_set}: còn {len(records)} dòng.")
 
             def _mb52_sort_key(item):
-                qty_raw = item.get("unrest", "0").replace(".", "").replace(",", ".")
-                try:
-                    qty = float(qty_raw)
-                except Exception:
-                    qty = 0.0
-                return (qty, item.get("batch", ""))
+                return (parse_sap_float(item.get("unrest", 0.0)), item.get("batch", ""))
 
             records.sort(key=_mb52_sort_key, reverse=True)
             return records
@@ -1776,8 +1771,8 @@ class SapEngine:
             mb52_records = self.check_stock_mb52(clean_mats, plants=target_plants, max_rows=15000)
             print(f"[SAP LOW STOCK] MB52 trả về tổng cộng {len(mb52_records)} dòng dữ liệu từ các xưởng.")
         except Exception as e:
-            print(f"[SAP LOW STOCK WARN] Lỗi truy vấn MB52 đa xưởng: {e}")
-            mb52_records = []
+            print(f"[SAP LOW STOCK ERROR] Lỗi truy vấn MB52 đa xưởng: {e}")
+            raise SapExecutionError(f"Không thể truy vấn tồn kho MB52 đa xưởng {target_plants}: {e}") from e
 
         # 2. Xác định danh sách mã cần đánh giá
         if clean_mats:
@@ -2261,3 +2256,568 @@ class SapEngine:
         finally:
             self._reset_to_session_manager()
 
+
+    # 9. TRA CỨU CHỨNG TỪ NHẬP KHO GR (MB51 - Expansion A)
+    # --------------------------------------------------------------------------
+    def check_gr_doc_mb51(
+        self,
+        inbound_no: str = "",
+        ref_no: str = "",
+        mat_doc: str = "",
+        materials: Optional[List[str]] = None,
+        plant: str = "3093",
+        days: int = 30
+    ) -> List[Dict[str, str]]:
+        """Tra cứu chứng từ nhập kho GR qua MB51 theo Inbound Delivery (XBLNR), Bill/Ref (XBLNR),
+        Số chứng từ (MBLNR) hoặc Mã vật tư (MATNR). TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
+        try:
+            self._open_transaction("MB51")
+            self._wait_idle(10.0)
+
+            self._clear_all_selection_inputs()
+
+            mb51_explicit_clears = [
+                "wnd[0]/usr/ctxtMBLNR-LOW", "wnd[0]/usr/ctxtMBLNR-HIGH",
+                "wnd[0]/usr/ctxtBWART-LOW", "wnd[0]/usr/ctxtBWART-HIGH",
+                "wnd[0]/usr/ctxtLGORT-LOW", "wnd[0]/usr/ctxtLGORT-HIGH",
+                "wnd[0]/usr/ctxtCHARG-LOW", "wnd[0]/usr/ctxtCHARG-HIGH",
+                "wnd[0]/usr/ctxtLIFNR-LOW", "wnd[0]/usr/ctxtLIFNR-HIGH",
+                "wnd[0]/usr/ctxtKUNNR-LOW", "wnd[0]/usr/ctxtKUNNR-HIGH",
+                "wnd[0]/usr/ctxtSOBKZ-LOW", "wnd[0]/usr/ctxtSOBKZ-HIGH",
+                "wnd[0]/usr/ctxtAUFNR-LOW", "wnd[0]/usr/ctxtAUFNR-HIGH",
+                "wnd[0]/usr/ctxtEBELN-LOW", "wnd[0]/usr/ctxtEBELN-HIGH",
+                "wnd[0]/usr/ctxtKOSTL-LOW", "wnd[0]/usr/ctxtKOSTL-HIGH",
+                "wnd[0]/usr/ctxtXBLNR-LOW", "wnd[0]/usr/ctxtXBLNR-HIGH",
+                "wnd[0]/usr/ctxtMATNR-HIGH", "wnd[0]/usr/ctxtWERKS-HIGH"
+            ]
+            for f_id in mb51_explicit_clears:
+                ctl = self._find_by_id_safe(f_id)
+                if ctl is not None:
+                    try:
+                        ctl.text = ""
+                    except Exception:
+                        pass
+
+            print(f"[SAP MB51 GR_DOC] Nhập điều kiện: Inbound={inbound_no}, Ref={ref_no}, MatDoc={mat_doc}, Materials={materials}, Plant={plant}...")
+
+            # 1. Số chứng từ GR (MBLNR)
+            if mat_doc:
+                doc_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtMBLNR-LOW")
+                if doc_ctl is not None:
+                    try:
+                        doc_ctl.text = mat_doc.strip()
+                    except Exception:
+                        pass
+
+            # 2. Inbound Delivery hoặc External Ref được lưu trong trường XBLNR (Reference)
+            target_xblnr = inbound_no.strip() or ref_no.strip()
+            if target_xblnr:
+                xblnr_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtXBLNR-LOW")
+                if xblnr_ctl is not None:
+                    try:
+                        xblnr_ctl.text = target_xblnr
+                    except Exception:
+                        pass
+
+            # 3. Mã vật tư (nếu có)
+            clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+            if clean_mats:
+                multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
+                if self._find_by_id_safe(multi_btn_id) is not None:
+                    self._fill_multiple_selection(multi_btn_id, clean_mats)
+                else:
+                    mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
+                    if mat_single is not None:
+                        mat_single.text = clean_mats[0]
+
+            # 4. Plant
+            if plant:
+                p_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtWERKS-LOW")
+                if p_ctl is not None:
+                    try:
+                        p_ctl.text = plant
+                    except Exception:
+                        pass
+
+            # 5. Khoảng ngày hạch toán (Posting Date)
+            actual_days = max(days, 90) if (target_xblnr or mat_doc) and days == 7 else days
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=int(actual_days))
+            b_low = self._find_by_id_safe("wnd[0]/usr/ctxtBUDAT-LOW")
+            if b_low is not None:
+                b_low.text = start_date.strftime("%d.%m.%Y")
+            b_high = self._find_by_id_safe("wnd[0]/usr/ctxtBUDAT-HIGH")
+            if b_high is not None:
+                b_high.text = end_date.strftime("%d.%m.%Y")
+
+            print("[SAP MB51 GR_DOC] Đang bấm thực thi (F8)...")
+            exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+            if exec_btn is not None:
+                exec_btn.press()
+            else:
+                self.session.findById("wnd[0]").sendVKey(8)
+
+            self._wait_idle(25.0)
+            self._dismiss_popups()
+
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                raise SapExecutionError(f"Lỗi SAP MB51 ({status_type}): {status_txt}")
+
+            alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+            if alv_grid is None:
+                alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+            if alv_grid is None:
+                self._validate_grid_or_raise(alv_grid, "MB51", status_txt, status_type)
+                return []
+
+            col_map = {
+                "mblnr":    ["MBLNR", "MATERIAL DOCUMENT", "DOCUMENT", "NUMBER"],
+                "mjahr":    ["MJAHR", "MATERIAL DOC. YEAR", "YEAR"],
+                "item":     ["ZEILE", "ITEM"],
+                "bwart":    ["BWART", "MOVEMENT TYPE", "MVT"],
+                "matnr":    ["MATNR", "MATERIAL", "PRODUCT"],
+                "qty":      ["MENGE", "ERFMG", "QUANTITY"],
+                "unit":     ["MEINS", "ERFME", "UNIT"],
+                "xblnr":    ["XBLNR", "REFERENCE", "BILL OF LADING", "DELIVERY"],
+                "postDate": ["BUDAT", "POSTING DATE"],
+                "sloc":     ["LGORT", "STORAGE LOCATION", "SLOC"],
+                "batch":    ["CHARG", "BATCH"],
+                "user":     ["USNAM", "USER NAME", "USER"]
+            }
+            records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP MB51 GR_DOC] Đã trích xuất {len(records)} dòng chứng từ GR.")
+
+            for r in records:
+                r["qty"] = format_qty_display(parse_sap_float(r.get("qty")))
+
+            def _mb51_sort_key(item):
+                d_raw = item.get("postDate", "")
+                doc = item.get("mblnr", "")
+                parts = re.split(r"[./-]", d_raw)
+                if len(parts) == 3 and len(parts[2]) == 4:
+                    d_sort = f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
+                else:
+                    d_sort = d_raw
+                return (d_sort, doc)
+
+            records.sort(key=_mb51_sort_key, reverse=True)
+            return records
+        finally:
+            self._reset_to_session_manager()
+
+    # 10. KIỂM TRA CHI TIẾT ĐƠN INBOUND & ĐỐI CHIẾU SỐ LƯỢNG (VL06I - Expansion A)
+    # --------------------------------------------------------------------------
+    def check_inbound_detail_vl06i(
+        self,
+        inbound_no: str = "",
+        materials: Optional[List[str]] = None,
+        plant: str = "3093",
+        expected_qty: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """Tra cứu chi tiết từng Item của đơn Inbound qua VL06I Item View.
+        Hỗ trợ đối chiếu với số lượng yêu cầu (expectedQty) để phát hiện chênh lệch.
+        TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
+        try:
+            self._open_transaction("VL06I")
+            self._wait_idle(10.0)
+
+            btn7 = self._find_by_id_safe("wnd[0]/usr/btnBUTTON7")
+            if btn7 is not None:
+                btn7.press()
+                self._wait_idle(5.0)
+
+            self._clear_all_selection_inputs()
+
+            lfdat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-LOW")
+            if lfdat_ctl is not None:
+                try:
+                    lfdat_ctl.text = ""
+                except Exception:
+                    pass
+
+            wbstk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
+            if wbstk_ctl is not None:
+                try:
+                    wbstk_ctl.text = ""
+                except Exception:
+                    pass
+
+            clean_ib = inbound_no.strip()
+            if clean_ib:
+                ib_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_VBELN-LOW")
+                if ib_ctl is not None:
+                    try:
+                        ib_ctl.text = clean_ib
+                    except Exception:
+                        pass
+
+            clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+            if clean_mats:
+                if len(clean_mats) == 1:
+                    mat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
+                    if mat_ctl is not None:
+                        try:
+                            mat_ctl.text = clean_mats[0]
+                        except Exception:
+                            pass
+                else:
+                    multi_mat_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
+                    if self._find_by_id_safe(multi_mat_id) is not None:
+                        self._fill_multiple_selection(multi_mat_id, clean_mats)
+
+            if plant:
+                werks_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WERKS-LOW")
+                if werks_ctl is not None:
+                    try:
+                        werks_ctl.text = plant
+                    except Exception:
+                        pass
+
+            print(f"[SAP VL06I DETAIL] Bấm thực thi (F8) cho Inbound={clean_ib}, Materials={clean_mats}...")
+            exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+            if exec_btn is not None:
+                exec_btn.press()
+            else:
+                self.session.findById("wnd[0]").sendVKey(8)
+
+            self._wait_idle(25.0)
+            self._dismiss_popups()
+
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                raise SapExecutionError(f"Lỗi SAP VL06I ({status_type}): {status_txt}")
+
+            btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
+            if btn18 is not None:
+                try:
+                    btn18.press()
+                    self._wait_idle(10.0)
+                    self._dismiss_popups()
+                except Exception as e:
+                    print(f"[SAP VL06I DETAIL WARN] Không thể bấm btn[18]: {e}")
+
+            alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+            if alv_grid is None:
+                alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+            if alv_grid is None:
+                self._validate_grid_or_raise(alv_grid, "VL06I", status_txt, status_type)
+                return []
+
+            col_map = {
+                "ibNo":      ["VBELN", "DELIVERY", "INBOUND DELIVERY", "INBOUND"],
+                "item":      ["POSNR", "ITEM"],
+                "product":   ["MATNR", "MATERIAL", "PRODUCT"],
+                "actualQty": ["LFIMG", "DELIVERY QUANTITY", "ACTUAL DELIVERED QTY", "MENGE", "QUANTITY"],
+                "unit":      ["VRKME", "MEINS", "SALES UNIT", "BASE UNIT", "UNIT", "UOM"],
+                "plant":     ["WERKS", "PLANT"],
+                "sloc":      ["LGORT", "STORAGE LOCATION", "SLOC"],
+                "status":    ["WBSTK", "GM STATUS", "OVERALL GM STATUS", "GOODS MOVEMENT STATUS", "STATUS"],
+                "refPo":     ["VGBEL", "PURCHASE ORDER", "PO NUMBER", "REFERENCE DOCUMENT", "PO"],
+                "poItem":    ["VGPOS", "PO ITEM", "REFERENCE ITEM"],
+                "batch":     ["CHARG", "S_CHARG", "BATCH"],
+                "refNo":     ["LIFEX", "EXTERNAL IDENTIFICATION", "BILL OF LADING"]
+            }
+            raw_records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP VL06I DETAIL] Đã trích xuất {len(raw_records)} dòng chi tiết Inbound.")
+
+            records = []
+            for r in raw_records:
+                st = str(r.get("status", "")).strip().upper()
+                if not st or st in ("A", "a"):
+                    r["status"] = "⏳ Treo (Chưa GR)"
+                elif st in ("B", "b"):
+                    r["status"] = "🔄 GR 1 phần"
+                elif st in ("C", "c"):
+                    r["status"] = "✅ Đã hoàn tất GR"
+
+                act_f = parse_sap_float(r.get("actualQty", 0.0))
+                r["actualQty"] = format_qty_display(act_f)
+
+                if expected_qty > 0:
+                    delta = act_f - expected_qty
+                    r["expectedQty"] = format_qty_display(expected_qty)
+                    r["delta"] = format_qty_display(delta)
+                    if abs(delta) < 0.0001:
+                        r["qtyCheck"] = "✅ Khớp SL"
+                    elif delta > 0:
+                        r["qtyCheck"] = f"⚠️ Lệch +{format_qty_display(delta)}"
+                    else:
+                        r["qtyCheck"] = f"⚠️ Thiếu {format_qty_display(abs(delta))}"
+                else:
+                    r["expectedQty"] = "-"
+                    r["delta"] = "-"
+                    r["qtyCheck"] = "Chưa có SL yêu cầu"
+
+                records.append(r)
+
+            records.sort(key=lambda x: (str(x.get("ibNo", "")), str(x.get("item", ""))), reverse=False)
+            return records
+        finally:
+            self._reset_to_session_manager()
+
+    # 11. TÌM KIẾM ĐƠN INBOUND THEO THAM CHIẾU (VL06I - Expansion A)
+    # --------------------------------------------------------------------------
+    def find_inbound_vl06i(
+        self,
+        po_no: str = "",
+        ref_no: str = "",
+        materials: Optional[List[str]] = None,
+        plant: str = "3093"
+    ) -> List[Dict[str, str]]:
+        """Tìm kiếm đơn Inbound chưa biết số dựa theo PO/SA (VGBEL), Số vận đơn/Bill (LIFEX),
+        hoặc Mã vật tư (MATNR). TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
+        try:
+            self._open_transaction("VL06I")
+            self._wait_idle(10.0)
+
+            btn7 = self._find_by_id_safe("wnd[0]/usr/btnBUTTON7")
+            if btn7 is not None:
+                btn7.press()
+                self._wait_idle(5.0)
+
+            self._clear_all_selection_inputs()
+
+            lfdat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-LOW")
+            if lfdat_ctl is not None:
+                try:
+                    lfdat_ctl.text = ""
+                except Exception:
+                    pass
+
+            wbstk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
+            if wbstk_ctl is not None:
+                try:
+                    wbstk_ctl.text = ""
+                except Exception:
+                    pass
+
+            clean_po = po_no.strip()
+            if clean_po:
+                po_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_VGBEL-LOW")
+                if po_ctl is not None:
+                    try:
+                        po_ctl.text = clean_po
+                    except Exception:
+                        pass
+
+            clean_ref = ref_no.strip()
+            if clean_ref:
+                ref_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LIFEX-LOW")
+                if ref_ctl is not None:
+                    try:
+                        ref_ctl.text = clean_ref
+                    except Exception:
+                        pass
+
+            clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+            if clean_mats:
+                if len(clean_mats) == 1:
+                    mat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
+                    if mat_ctl is not None:
+                        try:
+                            mat_ctl.text = clean_mats[0]
+                        except Exception:
+                            pass
+                else:
+                    multi_mat_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
+                    if self._find_by_id_safe(multi_mat_id) is not None:
+                        self._fill_multiple_selection(multi_mat_id, clean_mats)
+
+            if plant:
+                werks_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WERKS-LOW")
+                if werks_ctl is not None:
+                    try:
+                        werks_ctl.text = plant
+                    except Exception:
+                        pass
+
+            print(f"[SAP VL06I FIND] Bấm thực thi (F8) cho PO={clean_po}, Ref={clean_ref}, Mats={clean_mats}...")
+            exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+            if exec_btn is not None:
+                exec_btn.press()
+            else:
+                self.session.findById("wnd[0]").sendVKey(8)
+
+            self._wait_idle(25.0)
+            self._dismiss_popups()
+
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                raise SapExecutionError(f"Lỗi SAP VL06I ({status_type}): {status_txt}")
+
+            btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
+            if btn18 is not None:
+                try:
+                    btn18.press()
+                    self._wait_idle(10.0)
+                    self._dismiss_popups()
+                except Exception as e:
+                    print(f"[SAP VL06I FIND WARN] Không thể bấm btn[18]: {e}")
+
+            alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+            if alv_grid is None:
+                alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+            if alv_grid is None:
+                self._validate_grid_or_raise(alv_grid, "VL06I", status_txt, status_type)
+                return []
+
+            col_map = {
+                "ibNo":      ["VBELN", "DELIVERY", "INBOUND DELIVERY", "INBOUND"],
+                "item":      ["POSNR", "ITEM"],
+                "product":   ["MATNR", "MATERIAL", "PRODUCT"],
+                "qty":       ["LFIMG", "DELIVERY QUANTITY", "ACTUAL DELIVERED QTY", "MENGE", "QUANTITY"],
+                "unit":      ["VRKME", "MEINS", "SALES UNIT", "BASE UNIT", "UNIT", "UOM"],
+                "plant":     ["WERKS", "PLANT"],
+                "sloc":      ["LGORT", "STORAGE LOCATION", "SLOC"],
+                "status":    ["WBSTK", "GM STATUS", "OVERALL GM STATUS", "GOODS MOVEMENT STATUS", "STATUS"],
+                "refPo":     ["VGBEL", "PURCHASE ORDER", "PO NUMBER", "REFERENCE DOCUMENT", "PO"],
+                "refNo":     ["LIFEX", "EXTERNAL IDENTIFICATION", "BILL OF LADING"]
+            }
+            records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP VL06I FIND] Đã tìm thấy {len(records)} dòng Inbound thỏa mãn.")
+
+            for r in records:
+                st = str(r.get("status", "")).strip().upper()
+                if not st or st in ("A", "a"):
+                    r["status"] = "⏳ Treo (Chưa GR)"
+                elif st in ("B", "b"):
+                    r["status"] = "🔄 GR 1 phần"
+                elif st in ("C", "c"):
+                    r["status"] = "✅ Đã hoàn tất GR"
+                r["qty"] = format_qty_display(parse_sap_float(r.get("qty")))
+
+            records.sort(key=lambda x: str(x.get("ibNo", "")), reverse=True)
+            return records
+        finally:
+            self._reset_to_session_manager()
+
+    # 12. KIỂM TRA TÌNH TRẠNG ĐƠN HÀNG PO/SA (ME2N - Expansion A)
+    # --------------------------------------------------------------------------
+    def check_po_me2n(
+        self,
+        po_no: str = "",
+        materials: Optional[List[str]] = None,
+        plant: str = "3093",
+        po_item: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Kiểm tra tình trạng đơn đặt hàng PO/SA (Số lượng đặt, Đã nhận, Còn nợ, Xóa/Khóa, Duyệt) qua ME2N.
+        TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
+        try:
+            self._open_transaction("ME2N")
+            self._wait_idle(10.0)
+
+            self._clear_all_selection_inputs()
+
+            listu_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtLISTU")
+            if listu_ctl is not None:
+                try:
+                    listu_ctl.text = "ALV"
+                except Exception:
+                    pass
+
+            selpa_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtSELPA-LOW")
+            if selpa_ctl is not None:
+                try:
+                    selpa_ctl.text = ""
+                except Exception:
+                    pass
+
+            clean_po = po_no.strip()
+            if clean_po:
+                po_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_EBELN-LOW")
+                if po_ctl is not None:
+                    try:
+                        po_ctl.text = clean_po
+                    except Exception:
+                        pass
+
+            clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+            if clean_mats:
+                if len(clean_mats) == 1:
+                    mat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_MATNR-LOW")
+                    if mat_ctl is not None:
+                        try:
+                            mat_ctl.text = clean_mats[0]
+                        except Exception:
+                            pass
+                else:
+                    multi_mat_id = "wnd[0]/usr/btn%_S_MATNR_%_APP_%-VALU_PUSH"
+                    if self._find_by_id_safe(multi_mat_id) is not None:
+                        self._fill_multiple_selection(multi_mat_id, clean_mats)
+
+            if plant:
+                werks_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_WERKS-LOW")
+                if werks_ctl is not None:
+                    try:
+                        werks_ctl.text = plant
+                    except Exception:
+                        pass
+
+            print(f"[SAP ME2N PO] Bấm thực thi (F8) cho PO={clean_po}, Mats={clean_mats}, Plant={plant}...")
+            exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
+            if exec_btn is not None:
+                exec_btn.press()
+            else:
+                self.session.findById("wnd[0]").sendVKey(8)
+
+            self._wait_idle(25.0)
+            self._dismiss_popups()
+
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                raise SapExecutionError(f"Lỗi SAP ME2N ({status_type}): {status_txt}")
+
+            alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+            if alv_grid is None:
+                alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+            if alv_grid is None:
+                self._validate_grid_or_raise(alv_grid, "ME2N", status_txt, status_type)
+                return []
+
+            col_map = {
+                "poNo":          ["EBELN", "PURCHASING DOCUMENT", "PO NUMBER", "DOCUMENT", "PO"],
+                "item":          ["EBELP", "ITEM"],
+                "product":       ["EMATN", "MATNR", "MATERIAL"],
+                "orderQty":      ["MENGE", "ORDER QUANTITY", "PO QUANTITY", "QUANTITY", "QTY"],
+                "deliveredQty":  ["MGLIEF", "DELIVERED QUANTITY", "ISSUED QTY", "QTY DELIVERED", "DELIVERED"],
+                "unit":          ["MEINS", "BPRME", "UNIT", "ORDER UNIT"],
+                "plant":         ["WERKS", "PLANT"],
+                "deleteInd":     ["LOEKZ", "DELETION INDICATOR", "DEL"],
+                "releaseStatus": ["FRGKE", "FRGGR", "RELEASE STATUS", "STATUS", "REL"]
+            }
+            raw_records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP ME2N PO] Đã trích xuất {len(raw_records)} dòng PO.")
+
+            records = []
+            clean_item = po_item.strip().lstrip("0")
+            for r in raw_records:
+                r_item_clean = str(r.get("item", "")).strip().lstrip("0")
+                if clean_item and r_item_clean and r_item_clean != clean_item:
+                    continue
+
+                ord_q = parse_sap_float(r.get("orderQty"))
+                del_q = parse_sap_float(r.get("deliveredQty"))
+                open_q = max(0.0, ord_q - del_q)
+
+                del_ind = str(r.get("deleteInd", "")).strip()
+                del_desc = "❌ Đã xóa/khóa" if del_ind in ("L", "X", "S") else "✅ Hoạt động"
+
+                rel_st = str(r.get("releaseStatus", "")).strip()
+                rel_desc = "✅ Đã duyệt" if rel_st in ("G", "X", "1") else ("⏳ Chờ duyệt" if rel_st else "N/A")
+
+                r["orderQty"] = format_qty_display(ord_q)
+                r["deliveredQty"] = format_qty_display(del_q)
+                r["openQty"] = format_qty_display(open_q)
+                r["deleteInd"] = del_desc
+                r["releaseStatus"] = rel_desc
+                records.append(r)
+
+            records.sort(key=lambda x: (str(x.get("poNo", "")), str(x.get("item", ""))), reverse=False)
+            return records
+        finally:
+            self._reset_to_session_manager()

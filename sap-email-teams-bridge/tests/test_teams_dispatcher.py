@@ -226,3 +226,60 @@ def test_teams_dispatcher_greeting_and_sloc_tooltip():
 
 
 
+
+
+def test_build_html_table_escapes_html_entities():
+    """Kiểm tra build_html_table escape an toàn các ký tự HTML đặc biệt để chống XSS/vỡ layout."""
+    records = [
+        {"product": "<script>alert('xss')</script>", "qty": "100 & 50 > 20", "desc": 'Mã "A"'}
+    ]
+    headers_map = {
+        "product": "Mã <tag>",
+        "qty": "Số lượng",
+        "desc": "Mô tả"
+    }
+    tbl_html = TeamsDispatcher.build_html_table(records, headers_map)
+    assert "<script>" not in tbl_html
+    assert "&lt;script&gt;" in tbl_html
+    assert "&amp;" in tbl_html
+    assert "&gt;" in tbl_html
+    assert "&lt;tag&gt;" in tbl_html
+
+
+def test_teams_dispatcher_greetings_and_badges_for_new_commands():
+    """Kiểm tra greeting và badges cho 4 lệnh mở rộng: TIM_GR_DOC, CHECK_IB, TIM_IB, CHECK_PO."""
+    # 1. CHECK_IB
+    ib_recs = [
+        {"ibNo": "1800123456", "item": "10", "product": "BIW32013765AA", "actualQty": "100", "expectedQty": "100", "delta": "0", "qtyCheck": "✅ Khớp SL"}
+    ]
+    meta_ib = {"command": "CHECK_IB", "messageId": "M1"}
+    pl_ib, _ = TeamsDispatcher.prepare_safe_payload("REQ-IB", meta_ib, "SUCCEEDED", "IB detail", ib_recs, {"ibNo": "IB"})
+    assert "chi tiết đơn Inbound" in pl_ib["greeting"]
+    assert "Khớp SL" in pl_ib["table_html"]
+
+    # 2. CHECK_PO
+    po_recs = [
+        {"poNo": "4500123456", "item": "10", "orderQty": "100", "deliveredQty": "50", "openQty": "50", "deleteInd": "✅ Hoạt động", "releaseStatus": "✅ Đã duyệt"}
+    ]
+    meta_po = {"command": "CHECK_PO", "messageId": "M2"}
+    pl_po, _ = TeamsDispatcher.prepare_safe_payload("REQ-PO", meta_po, "SUCCEEDED", "PO detail", po_recs, {"poNo": "PO"})
+    assert "tình trạng đơn PO" in pl_po["greeting"]
+    assert "Item còn nợ hàng" in pl_po["table_html"]
+
+    # 3. TIM_GR_DOC
+    gr_recs = [
+        {"mblnr": "5000123456", "qty": "100", "xblnr": "1800123456"}
+    ]
+    meta_gr = {"command": "TIM_GR_DOC", "messageId": "M3"}
+    pl_gr, _ = TeamsDispatcher.prepare_safe_payload("REQ-GR", meta_gr, "SUCCEEDED", "GR doc", gr_recs, {"mblnr": "CT"})
+    assert "chứng từ nhập kho GR" in pl_gr["greeting"]
+    assert "Chứng từ GR" in pl_gr["table_html"]
+
+    # 4. TIM_IB
+    find_recs = [
+        {"ibNo": "1800999888", "qty": "200"}
+    ]
+    meta_find = {"command": "TIM_IB", "messageId": "M4"}
+    pl_find, _ = TeamsDispatcher.prepare_safe_payload("REQ-FIND", meta_find, "SUCCEEDED", "Find IB", find_recs, {"ibNo": "IB"})
+    assert "tìm kiếm đơn Inbound theo tham chiếu" in pl_find["greeting"]
+    assert "Tìm thấy 1 Inbound" in pl_find["table_html"]

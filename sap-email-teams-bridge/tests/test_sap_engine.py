@@ -719,3 +719,125 @@ def test_check_low_stock_matches_flexible_material_codes():
     # Phải nhận diện được 80 pcs từ BIW71004366, không bị tính là 0
     assert res[0]["total_stock"] == "80"
     assert "Khả dụng" in res[0]["status"]
+
+
+def test_check_low_stock_propagates_sap_execution_error():
+    """Kiểm tra check_low_stock KHÔNG NUỐT LỖI (no swallow) khi MB52 gặp sự cố."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_stock_mb52 = MagicMock(side_effect=Exception("SAP Timeout or Connection Drop"))
+
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine.check_low_stock(["BIW32013765AA"], plants=["3093", "3001"], limit=10, model_name="LIMO")
+
+    assert "Không thể truy vấn tồn kho MB52 đa xưởng" in str(exc_info.value)
+    assert "SAP Timeout or Connection Drop" in str(exc_info.value)
+
+
+def test_check_gr_doc_mb51_mock():
+    """Kiểm tra check_gr_doc_mb51 trích xuất đúng chứng từ GR từ ALV Grid."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {
+            "mblnr": "5000123456", "mjahr": "2026", "item": "1", "bwart": "101",
+            "matnr": "BIW32013765AA", "qty": "100.000", "unit": "PC",
+            "xblnr": "1800123456", "postDate": "24.10.2026", "sloc": "1005",
+            "batch": "B2610", "user": "USER01"
+        }
+    ])
+    engine._reset_to_session_manager = MagicMock()
+
+    records = engine.check_gr_doc_mb51(inbound_no="1800123456", days=30)
+    assert len(records) == 1
+    assert records[0]["mblnr"] == "5000123456"
+    assert records[0]["xblnr"] == "1800123456"
+    assert records[0]["qty"] == "100"
+
+
+def test_check_inbound_detail_vl06i_mock():
+    """Kiểm tra check_inbound_detail_vl06i và đối chiếu expectedQty."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {
+            "ibNo": "1800123456", "item": "10", "product": "BIW32013765AA",
+            "actualQty": "200.000", "unit": "PC", "plant": "3093", "sloc": "1005",
+            "status": "A", "refPo": "4500123456", "poItem": "10", "refNo": "BL999"
+        }
+    ])
+    engine._reset_to_session_manager = MagicMock()
+
+    # 1. Trường hợp khớp số lượng
+    records_match = engine.check_inbound_detail_vl06i(inbound_no="1800123456", expected_qty=200.0)
+    assert len(records_match) == 1
+    assert records_match[0]["actualQty"] == "200"
+    assert records_match[0]["expectedQty"] == "200"
+    assert records_match[0]["delta"] == "0"
+    assert "Khớp SL" in records_match[0]["qtyCheck"]
+
+    # 2. Trường hợp lệch số lượng (thực tế 200, yêu cầu 150 -> Lệch +50)
+    records_diff = engine.check_inbound_detail_vl06i(inbound_no="1800123456", expected_qty=150.0)
+    assert records_diff[0]["delta"] == "50"
+    assert "Lệch +50" in records_diff[0]["qtyCheck"]
+
+
+def test_find_inbound_vl06i_mock():
+    """Kiểm tra find_inbound_vl06i tìm kiếm theo PO / Ref."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {
+            "ibNo": "1800888999", "item": "10", "product": "BIW32013765AA",
+            "qty": "500", "unit": "PC", "plant": "3093", "sloc": "1005",
+            "status": "C", "refPo": "4500123456", "refNo": "BL123"
+        }
+    ])
+    engine._reset_to_session_manager = MagicMock()
+
+    records = engine.find_inbound_vl06i(po_no="4500123456")
+    assert len(records) == 1
+    assert records[0]["ibNo"] == "1800888999"
+    assert records[0]["refPo"] == "4500123456"
+    assert "Đã hoàn tất GR" in records[0]["status"]
+
+
+def test_check_po_me2n_mock():
+    """Kiểm tra check_po_me2n tính toán openQty và format status."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {
+            "poNo": "4500123456", "item": "10", "product": "BIW32013765AA",
+            "orderQty": "1,000", "deliveredQty": "600", "unit": "PC",
+            "plant": "3093", "deleteInd": "", "releaseStatus": "G"
+        }
+    ])
+    engine._reset_to_session_manager = MagicMock()
+
+    records = engine.check_po_me2n(po_no="4500123456")
+    assert len(records) == 1
+    assert records[0]["orderQty"] == "1,000"
+    assert records[0]["deliveredQty"] == "600"
+    assert records[0]["openQty"] == "400"
+    assert "Hoạt động" in records[0]["deleteInd"]
+    assert "Đã duyệt" in records[0]["releaseStatus"]

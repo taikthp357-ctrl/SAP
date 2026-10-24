@@ -33,6 +33,21 @@ class SmartCommandParser:
             (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|wht|scwm/mon|/scwm/mon)\b", 18),
             (r"\b(?:ls\s*bin|vet\s*bin|di\s*chuyen\s*bin|lich\s*su\s*dich\s*chuyen)\b", 14),
         ],
+        "TIM_GR_DOC": [
+            (r"\b(?:tim\s*gr|chung\s*tu\s*gr|gr\s*doc|mb51\s*gr|lich\s*su\s*gr|so\s*gr|tra\s*gr|chung\s*tu\s*nhap)\b", 22),
+            (r"\b(?:tra\s*cuu\s*gr|tim\s*chung\s*tu|xem\s*gr|chung\s*tu\s*mb51)\b", 18),
+        ],
+        "CHECK_IB": [
+            (r"\b(?:chi\s*tiet\s*ib|chi\s*tiet\s*inbound|ib\s*detail|check\s*inbound\s*detail|doi\s*chieu\s*ib|so\s*khop\s*ib|kiem\s*tra\s*inbound)\b", 22),
+            (r"\b(?:check\s*ib\s*18\d{6,8}|inbound\s*18\d{6,8}|ib\s*18\d{6,8})\b", 22),
+        ],
+        "TIM_IB": [
+            (r"\b(?:tim\s*ib|tim\s*inbound|find\s*ib|find\s*inbound|inbound\s*theo\s*po|inbound\s*theo\s*bill)\b", 22),
+        ],
+        "CHECK_PO": [
+            (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 20),
+            (r"\b(?:po\s*45\d{8}|po\s*55\d{8}|me2n\s*po)\b", 22),
+        ],
         "VITRI": [
             (r"\b(?:vi\s*tri|vitri|vtri|bin|posting|scwm/post|scwm)\b", 10),
             (r"\b(?:ngay\s*gr|gio\s*gr|check\s*gr|kiem\s*tra\s*gr)\b", 10),
@@ -111,14 +126,19 @@ class SmartCommandParser:
         return text.strip()
 
     @classmethod
-    def parse(cls, raw_body: str, html_body: str = "", subject: str = "", default_plant: str = "3093") -> Optional[Dict[str, Any]]:
+    def parse(cls, raw_body: Any, html_body: str = "", subject: str = "", default_plant: str = "3093") -> Optional[Dict[str, Any]]:
         """Phân tích nội dung email và trả về từ điển lệnh."""
-        cleaned = cls.clean_v3_email(raw_body, html_body)
-        if not cleaned and not subject:
-            return None
+        json_obj = None
+        if isinstance(raw_body, dict):
+            import json
+            json_obj = raw_body
+            cleaned = json.dumps(raw_body, ensure_ascii=False)
+        else:
+            cleaned = cls.clean_v3_email(raw_body, html_body)
+            if not cleaned and not subject:
+                return None
 
         # 1. Hỗ trợ bóc tách JSON trực tiếp từ email (cả dạng thuần JSON lẫn có marker)
-        json_obj = None
         marker_m = re.search(r"SAP_REQUEST_BEGIN\s*(\{.*?\})\s*SAP_REQUEST_END", cleaned, re.DOTALL | re.IGNORECASE)
         if marker_m:
             try:
@@ -147,6 +167,10 @@ class SmartCommandParser:
             "IB_TREO", "IB", "INBOUND", "VL06I",
             "STO", "ME2N", "MB5T", "DIEUCHUYEN",
             "TON_THAP", "CHECK_OB", "LICHSU_BIN",
+            "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR",
+            "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
+            "TIM_IB", "FIND_IB",
+            "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
             "HELP"
         }
 
@@ -254,11 +278,33 @@ class SmartCommandParser:
                     "note": note
                 }
 
-            if mats or cmd in ("CHECK_OB", "LICHSU_BIN"):
+            if mats or cmd in (
+                "CHECK_OB", "LICHSU_BIN",
+                "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR",
+                "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
+                "TIM_IB", "FIND_IB",
+                "CHECK_PO", "PO_STATUS", "KIEMTRA_PO"
+            ):
+                canonical_cmd = cmd
+                if cmd in ("TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"):
+                    canonical_cmd = "TIM_GR_DOC"
+                elif cmd in ("CHECK_IB", "IB_DETAIL", "KIEMTRA_IB"):
+                    canonical_cmd = "CHECK_IB"
+                elif cmd in ("TIM_IB", "FIND_IB"):
+                    canonical_cmd = "TIM_IB"
+                elif cmd in ("CHECK_PO", "PO_STATUS", "KIEMTRA_PO"):
+                    canonical_cmd = "CHECK_PO"
+
+                expected_q = 0.0
+                try:
+                    expected_q = float(json_obj.get("expectedQty", 0.0) or 0.0)
+                except Exception:
+                    expected_q = 0.0
+
                 return {
                     "valid": True,
-                    "command": cmd or "VITRI",
-                    "intentReason": f"JSON Payload ({cmd or 'VITRI'})",
+                    "command": canonical_cmd or "VITRI",
+                    "intentReason": f"JSON Payload ({canonical_cmd or 'VITRI'})",
                     "materials": mats,
                     "plant": plant,
                     "batch": batch,
@@ -269,7 +315,19 @@ class SmartCommandParser:
                     "senderName": sender_name,
                     "rawText": raw_text,
                     "dryRun": dry_run,
-                    "note": note
+                    "note": note,
+                    "obNo": str(json_obj.get("obNo", "")).strip(),
+                    "bin": str(json_obj.get("bin", "")).strip(),
+                    "model": str(json_obj.get("model", "")).strip(),
+                    "shop": str(json_obj.get("shop", "")).strip(),
+                    "plants": json_obj.get("plants", []),
+                    "limit": int(json_obj.get("limit", 20)),
+                    "inboundNo": str(json_obj.get("inboundNo", "") or json_obj.get("inbound", "")).strip(),
+                    "poNo": str(json_obj.get("poNo", "") or json_obj.get("po", "")).strip(),
+                    "poItem": str(json_obj.get("poItem", "") or json_obj.get("item", "")).strip(),
+                    "expectedQty": expected_q,
+                    "refNo": str(json_obj.get("refNo", "") or json_obj.get("ref", "") or json_obj.get("bill", "")).strip(),
+                    "materialDocument": str(json_obj.get("materialDocument", "") or json_obj.get("docNo", "")).strip(),
                 }
 
             if raw_text:
@@ -358,6 +416,39 @@ class SmartCommandParser:
             if bin_cand not in cls.STOP_WORDS:
                 bin_val = bin_cand
 
+        inbound_no = ""
+        ib_m = re.search(r"\b(?:inbound|ib)\s*[:=]?\s*([0-9]{8,10})\b|\b(18\d{8})\b", command_text, re.I)
+        if ib_m:
+            inbound_no = (ib_m.group(1) or ib_m.group(2)).strip()
+
+        po_no = ""
+        po_m = re.search(r"\b(?:po|sa|ebeln|don\s*hang)\s*[:=]?\s*([0-9]{10})\b|\b((?:45|55)\d{8})\b", command_text, re.I)
+        if po_m:
+            po_no = (po_m.group(1) or po_m.group(2)).strip()
+
+        po_item = ""
+        po_item_m = re.search(r"\b(?:item|po\s*item|line)\s*[:=]?\s*(\d{1,5})\b", norm_text)
+        if po_item_m:
+            po_item = po_item_m.group(1).strip()
+
+        expected_qty = 0.0
+        eqty_m = re.search(r"\b(?:sl\s*yeu\s*cau|sl\s*dat|sl|so\s*luong|expected\s*qty|qty)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\b", norm_text)
+        if eqty_m:
+            try:
+                expected_qty = float(eqty_m.group(1).replace(",", "."))
+            except Exception:
+                expected_qty = 0.0
+
+        ref_no = ""
+        ref_m = re.search(r"\b(?:bill|van\s*don|ref|so\s*bill|tham\s*chieu|lifex)\s*[:=]?\s*([a-z0-9_-]{3,25})\b", norm_text)
+        if ref_m:
+            ref_no = ref_m.group(1).strip().upper()
+
+        mat_doc = ""
+        doc_m = re.search(r"\b(?:ct|chung\s*tu|mblnr|mat\s*doc)\s*[:=]?\s*(\d{10})\b", norm_text)
+        if doc_m:
+            mat_doc = doc_m.group(1).strip()
+
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         plant = default_plant
         plant_m = re.search(r"\b(?:plant|nha\s*may|werks)\s*[:=]?\s*(\d{4})\b", norm_text)
@@ -390,6 +481,14 @@ class SmartCommandParser:
             work_str = re.sub(r"\b(?:PLANT|WERKS|NHA\s*MAY|NHÀ\s*MÁY)\s*[:=]?\s*" + re.escape(plant), " ", work_str, flags=re.I)
         if days_m:
             work_str = re.sub(r"\b\d{1,3}\s*(?:NGAY|NGÀY|DAYS|DAY|HOM|HÔM)\b", " ", work_str, flags=re.I)
+        if inbound_no:
+            work_str = work_str.replace(inbound_no, " ")
+        if po_no:
+            work_str = work_str.replace(po_no, " ")
+        if mat_doc:
+            work_str = work_str.replace(mat_doc, " ")
+        if ob_no:
+            work_str = work_str.replace(ob_no, " ")
 
         tokens = re.findall(r"\b[A-Z0-9._-]{5,18}\b", work_str)
         materials = []
@@ -427,6 +526,10 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_OB" and ob_no)
                 or (best_intent == "LICHSU_BIN" and bin_val)
                 or (best_intent == "VITRI" and bin_val)
+                or (best_intent == "CHECK_IB" and inbound_no)
+                or (best_intent == "TIM_IB" and (po_no or ref_no))
+                or (best_intent == "CHECK_PO" and po_no)
+                or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
             )
         ) or (best_score == 0 and bool(bin_val))
 
@@ -461,7 +564,13 @@ class SmartCommandParser:
             "plants": plants_list,
             "limit": limit_val,
             "obNo": ob_no,
-            "bin": bin_val
+            "bin": bin_val,
+            "inboundNo": inbound_no,
+            "poNo": po_no,
+            "poItem": po_item,
+            "expectedQty": expected_qty,
+            "refNo": ref_no,
+            "materialDocument": mat_doc
         })
         return meta
 

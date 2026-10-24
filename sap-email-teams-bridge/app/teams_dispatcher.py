@@ -7,6 +7,7 @@ Tối ưu hóa dung lượng (Payload Budgeting):
 - Cơ chế cắt giảm động (Dynamic Truncation) đảm bảo payload JSON luôn < 26 KB (không bao giờ dính lỗi HTTP 413).
 """
 
+import html
 import json
 import urllib.request
 import urllib.error
@@ -49,28 +50,30 @@ class TeamsDispatcher:
             "padding:5px 8px;border:1px solid #d0d7de;text-align:left;font-size:12px;"
         )
 
-        html = ["<table style='border-collapse:collapse;width:100%;font-family:Segoe UI,sans-serif;'>"]
-        html.append("<thead><tr>")
+        tbl = ["<table style='border-collapse:collapse;width:100%;font-family:Segoe UI,sans-serif;'>"]
+        tbl.append("<thead><tr>")
         for label in headers_map.values():
-            html.append(f"<th style='{th_style}'>{label}</th>")
-        html.append("</tr></thead><tbody>")
+            tbl.append(f"<th style='{th_style}'>{html.escape(str(label))}</th>")
+        tbl.append("</tr></thead><tbody>")
 
         for idx, row in enumerate(records):
             bg_color = "#f6f8fa" if idx % 2 == 1 else "#ffffff"
-            html.append(f"<tr style='background-color:{bg_color};'>")
+            tbl.append(f"<tr style='background-color:{bg_color};'>")
             for key in headers_map.keys():
                 val = row.get(key, "")
                 desc = SLOC_MASTER.get(str(val).strip().upper(), "") if key == "sloc" else ""
+                esc_val = html.escape(str(val))
                 if desc:
-                    html.append(f"<td style='{td_style}' title='{desc}'>{val}</td>")
+                    esc_desc = html.escape(str(desc))
+                    tbl.append(f"<td style='{td_style}' title='{esc_desc}'>{esc_val}</td>")
                 else:
-                    html.append(f"<td style='{td_style}'>{val}</td>")
-            html.append("</tr>")
-        html.append("</tbody></table>")
+                    tbl.append(f"<td style='{td_style}'>{esc_val}</td>")
+            tbl.append("</tr>")
+        tbl.append("</tbody></table>")
 
         # Nếu số dòng thực tế nhiều hơn số dòng hiển thị, thêm thanh thông báo
         if total > displayed:
-            html.append(
+            tbl.append(
                 f"<div style='margin-top:6px;padding:6px 10px;background:#eef4fa;"
                 f"border-left:4px solid #005a9e;font-size:12px;color:#24292f;font-family:Segoe UI,sans-serif;'>"
                 f"📊 <strong>Đang hiển thị {displayed} / {total} dòng gần nhất</strong> "
@@ -78,7 +81,7 @@ class TeamsDispatcher:
                 f"</div>"
             )
 
-        return "".join(html)
+        return "".join(tbl)
 
     @classmethod
     def build_kpi_badges(cls, records: List[Dict[str, Any]], command: str) -> str:
@@ -251,6 +254,57 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
                         f"⚠️ {can_count} Đã hủy (Cancel)</span>"
                     )
+
+            elif any(k in cmd_upper for k in ["CHECK_IB", "IB_DETAIL", "KIEMTRA_IB"]):
+                ib_set = {r.get("ibNo") for r in records if r.get("ibNo")}
+                match_count = sum(1 for r in records if "Khớp" in str(r.get("qtyCheck", "")))
+                diff_count = sum(1 for r in records if "Lệch" in str(r.get("qtyCheck", "")) or "Thiếu" in str(r.get("qtyCheck", "")))
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🚚 IB: {', '.join(ib_set) if ib_set else len(records)} ({len(records)} Item)</span>"
+                )
+                if match_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ {match_count} Khớp SL</span>"
+                    )
+                if diff_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚠️ {diff_count} Lệch/Thiếu SL</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["CHECK_PO", "PO_STATUS", "KIEMTRA_PO"]):
+                po_set = {r.get("poNo") for r in records if r.get("poNo")}
+                open_items = sum(1 for r in records if parse_sap_float(r.get("openQty", 0.0)) > 0)
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📋 PO: {', '.join(po_set) if po_set else len(records)} ({len(records)} Item)</span>"
+                )
+                if open_items > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⏳ {open_items} Item còn nợ hàng</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Đã giao đủ</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"]):
+                gr_docs = {r.get("mblnr") for r in records if r.get("mblnr")}
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📑 {len(gr_docs)} Chứng từ GR ({len(records)} dòng)</span>"
+                )
+
+            elif any(k in cmd_upper for k in ["TIM_IB", "FIND_IB"]):
+                ib_set = {r.get("ibNo") for r in records if r.get("ibNo")}
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🔍 Tìm thấy {len(ib_set)} Inbound Delivery</span>"
+                )
         except Exception:
             return ""
 
@@ -289,6 +343,14 @@ class TeamsDispatcher:
             f"<code>@Bot check ob có không mã 32013765</code> hoặc <code>@Bot check ob 80012345</code></li>"
             f"<li>🔄 <strong>Xem Lịch sử chuyển Bin-to-Bin & Cancel WHT (/SCWM/MON):</strong><br>"
             f"<code>@Bot lịch sử bin 32013765</code> hoặc <code>@Bot xem lịch sử bin 10-A-01</code></li>"
+            f"<li>📑 <strong>Tra cứu Chứng từ nhập kho GR (MB51):</strong><br>"
+            f"<code>@Bot tìm chứng từ gr theo inbound 1800123456</code> hoặc <code>@Bot chứng từ gr 5000123456</code></li>"
+            f"<li>🚚 <strong>Kiểm tra Chi tiết Inbound & Đối chiếu SL (VL06I):</strong><br>"
+            f"<code>@Bot chi tiết inbound 1800123456 sl 500</code> hoặc <code>@Bot kiểm tra inbound 1800123456</code></li>"
+            f"<li>🔍 <strong>Tìm kiếm đơn Inbound theo PO / Vận đơn (VL06I):</strong><br>"
+            f"<code>@Bot tìm inbound theo PO 4500123456</code> hoặc <code>@Bot tìm inbound bill BL123456</code></li>"
+            f"<li>📋 <strong>Kiểm tra Tình trạng đơn hàng PO/SA (ME2N):</strong><br>"
+            f"<code>@Bot kiểm tra PO 4500123456</code> hoặc <code>@Bot kiểm tra PO 4500123456 item 10</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "
@@ -345,6 +407,18 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã tra danh sách đơn điều chuyển STO cho sếp rồi ạ 👇"
             elif cmd_u in ["LICHSU", "MB51"]:
                 greeting = "Sếp ơi, em đã tra lịch sử giao dịch cho sếp rồi ạ 👇"
+            elif cmd_u in ["TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"]:
+                greeting = "Sếp ơi, em đã tra chứng từ nhập kho GR (MB51) cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_IB", "IB_DETAIL", "KIEMTRA_IB"]:
+                greeting = "Sếp ơi, em đã kiểm tra chi tiết đơn Inbound (VL06I) cho sếp rồi ạ 👇"
+            elif cmd_u in ["TIM_IB", "FIND_IB"]:
+                greeting = "Sếp ơi, em đã tìm kiếm đơn Inbound theo tham chiếu cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_PO", "PO_STATUS", "KIEMTRA_PO"]:
+                greeting = "Sếp ơi, em đã kiểm tra tình trạng đơn PO (ME2N) cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_OB", "VL06O"]:
+                greeting = "Sếp ơi, em đã kiểm tra đơn Outbound (OB) cho sếp rồi ạ 👇"
+            elif cmd_u in ["LICHSU_BIN", "MON", "WHT"]:
+                greeting = "Sếp ơi, em đã tra lịch sử chuyển Bin-to-Bin cho sếp rồi ạ 👇"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 
