@@ -418,16 +418,18 @@ def test_check_open_ob_vl06o_mock():
             mock_controls[id_str] = MagicMock()
         return mock_controls[id_str]
     engine._find_by_id_safe = MagicMock(side_effect=mock_find)
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._clear_multiple_selection = MagicMock()
+    engine._fill_multiple_selection = MagicMock()
     engine._dismiss_popups = MagicMock(return_value="")
     engine._get_status = MagicMock(return_value=("", "S"))
-    engine._resolve_grid_columns = MagicMock(return_value={"product": "MATNR"})
+    engine._ensure_item_grid_vl06o = MagicMock(return_value=MagicMock())
 
     mock_records = [
-        {"obNo": "80012345", "product": "BIW001", "qty": "50,000", "unit": "PC", "sloc": "3093", "batch": "2610A"},
-        {"obNo": "80012346", "product": "BIW001", "qty": "20,000", "unit": "PC", "sloc": "", "batch": ""},
-        {"obNo": "80012347", "product": "OTHER_MAT", "qty": "10,000", "unit": "PC", "sloc": "", "batch": ""}
+        {"obNo": "80012345", "product": "BIW001", "qty": "50,000", "unit": "PC", "sloc": "3093", "batch": "2610A", "gmStatus": "A"},
+        {"obNo": "80012346", "product": "BIW001", "qty": "20,000", "unit": "PC", "sloc": "", "batch": "", "gmStatus": ""},
+        {"obNo": "80012347", "product": "OTHER_MAT", "qty": "10,000", "unit": "PC", "sloc": "", "batch": "", "gmStatus": "A"}
     ]
-    engine._find_largest_grid = MagicMock(return_value=MagicMock())
     engine._extract_alv_grid = MagicMock(return_value=mock_records)
 
     res = engine.check_open_ob_vl06o(materials=["BIW001"])
@@ -435,8 +437,57 @@ def test_check_open_ob_vl06o_mock():
     assert len(res) == 2
     assert res[0]["obNo"] == "80012346"  # Sắp xếp số OB giảm dần
     assert res[1]["obNo"] == "80012345"
-    # Kiểm tra Shipping Point IF_VSTEL-LOW được điền 3093 chuẩn RC65
-    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-LOW"].text == "3093"
+    # Kiểm tra Multiple Selection cho Shipping Point (3093 & 3001)
+    engine._fill_multiple_selection.assert_any_call("wnd[0]/usr/btn%_IF_VSTEL_%_APP_%-VALU_PUSH", ["3093", "3001"])
+
+
+def test_extract_alv_grid_preserves_open_ob_without_batch_or_sloc():
+    """Kiểm tra _extract_alv_grid giữ lại dòng đơn OB mở (chưa có Batch và SLoc) và loại bỏ dòng tổng cộng."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.max_alv_rows = 100
+    engine._resolve_grid_columns = MagicMock(return_value={
+        "obNo": "VBELN", "product": "MATNR", "qty": "LFIMG", "batch": "CHARG", "sloc": "LGORT"
+    })
+
+    # Giả lập ALV Grid chứa 3 dòng:
+    # Dòng 0: Đơn OB mở hợp lệ (chưa gán batch, chưa có sloc)
+    # Dòng 1: Dòng tổng cộng (*)
+    # Dòng 2: Đơn OB đã có batch
+    mock_data = [
+        {"VBELN": "80099001", "MATNR": "BIW73110009AA", "LFIMG": "100.0", "CHARG": "", "LGORT": ""},
+        {"VBELN": "", "MATNR": "*", "LFIMG": "150.0", "CHARG": "", "LGORT": ""},
+        {"VBELN": "80099002", "MATNR": "BIW73110009AA", "LFIMG": "50.0", "CHARG": "LOT01", "LGORT": "3093"},
+    ]
+
+    mock_grid = MagicMock()
+    mock_grid.RowCount = 3
+    mock_grid.GetCellValue.side_effect = lambda r, col: mock_data[r].get(col, "")
+
+    col_map = {
+        "obNo": ["VBELN"], "product": ["MATNR"], "qty": ["LFIMG"], "batch": ["CHARG"], "sloc": ["LGORT"]
+    }
+    extracted = engine._extract_alv_grid(mock_grid, col_map)
+
+    # Dòng tổng cộng (*) phải bị loại bỏ, 2 dòng OB (kể cả dòng chưa có batch/sloc) phải được giữ lại
+    assert len(extracted) == 2
+    assert extracted[0]["obNo"] == "80099001"
+    assert extracted[0]["product"] == "BIW73110009AA"
+    assert extracted[0]["batch"] == ""
+    assert extracted[1]["obNo"] == "80099002"
+    assert extracted[1]["batch"] == "LOT01"
+
+
+def test_matches_material_variations():
+    """Kiểm tra helper _matches_material khớp linh hoạt mã vật tư VinFast."""
+    # Khớp chính xác
+    assert SapEngine._matches_material("BIW73110009AA", ["BIW73110009AA"]) is True
+    # Khớp bỏ số 0 đầu
+    assert SapEngine._matches_material("000000BIW73110009AA", ["BIW73110009AA"]) is True
+    # Khớp mã rút gọn không có BIW
+    assert SapEngine._matches_material("BIW73110009AA", ["73110009AA"]) is True
+    assert SapEngine._matches_material("BIW73110009AA", ["73110009"]) is True
+    # Khác mã hoàn toàn
+    assert SapEngine._matches_material("BIW73110009AA", ["BIW75113803AB"]) is False
 
 
 def test_check_bin_history_mon_mock():
@@ -472,6 +523,9 @@ def test_check_open_ob_vl06o_no_data_returns_empty_list():
     engine._get_status = MagicMock(return_value=("No outbound deliveries selected", "S"))
     engine._find_largest_grid = MagicMock(return_value=None)
     engine._clear_all_selection_inputs = MagicMock()
+    engine._clear_multiple_selection = MagicMock()
+    engine._fill_multiple_selection = MagicMock()
+    engine._ensure_item_grid_vl06o = MagicMock(return_value=None)
 
     res = engine.check_open_ob_vl06o(materials=["BIW32011350AB"])
     assert res == []
