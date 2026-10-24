@@ -337,23 +337,15 @@ def test_check_stock_mb52_slocs_filtering():
 
 
 def test_check_low_stock_multi_plant():
-    """Kiểm tra tổng hợp tồn thấp qua nhiều plant (vd: 3093 và 3001 cho BODY)."""
+    """Kiểm tra tổng hợp tồn thấp qua cả 2 plant trong 1 lần gọi MB52 duy nhất (3093 và 3001 cho BODY)."""
     engine = SapEngine.__new__(SapEngine)
 
-    def mock_mb52(mats, plant="3093", slocs=None, batch=""):
-        if plant == "3093":
-            return [
-                {"product": "BIW001", "unrest": "10", "unit": "PC"},
-                {"product": "BIW002", "unrest": "0", "unit": "PC"}
-            ]
-        elif plant == "3001":
-            return [
-                {"product": "BIW001", "unrest": "5", "unit": "PC"},
-                {"product": "BIW002", "unrest": "0", "unit": "PC"}
-            ]
-        return []
-
-    engine.check_stock_mb52 = MagicMock(side_effect=mock_mb52)
+    mock_mb52_records = [
+        {"product": "BIW001", "plant": "3093", "unrest": "10", "unit": "PC"},
+        {"product": "BIW001", "plant": "3001", "unrest": "5", "unit": "PC"},
+        {"product": "BIW002", "plant": "3093", "unrest": "0", "unit": "PC"}
+    ]
+    engine.check_stock_mb52 = MagicMock(return_value=mock_mb52_records)
 
     res = engine.check_low_stock(["BIW001", "BIW002"], plants=["3093", "3001"], limit=10, model_name="LIMO")
     assert len(res) == 2
@@ -368,6 +360,51 @@ def test_check_low_stock_multi_plant():
     assert res[1]["stock_3001"] == "5"
     assert res[1]["total_stock"] == "15"
     assert "Tồn thấp" in res[1]["status"]
+
+
+def test_check_low_stock_empty_mats_derives_from_mb52():
+    """Kiểm tra khi không truyền danh sách mã, check_low_stock tự trích xuất mã từ MB52 và sắp xếp tồn thấp nhất."""
+    engine = SapEngine.__new__(SapEngine)
+
+    mock_mb52_records = [
+        {"product": "BIW003", "plant": "3093", "unrest": "100", "unit": "PC"},
+        {"product": "BIW001", "plant": "3093", "unrest": "10", "unit": "PC"},
+        {"product": "BIW001", "plant": "3001", "unrest": "5", "unit": "PC"},
+        {"product": "BIW002", "plant": "3093", "unrest": "0", "unit": "PC"}
+    ]
+    engine.check_stock_mb52 = MagicMock(return_value=mock_mb52_records)
+
+    res = engine.check_low_stock([], plants=["3093", "3001"], limit=2, model_name="LIMO")
+    assert len(res) == 2
+    # BIW002 (tồn 0) đứng đầu, BIW001 (tồn 15) đứng nhì
+    assert res[0]["product"] == "BIW002"
+    assert res[0]["total_stock"] == "0"
+    assert res[1]["product"] == "BIW001"
+    assert res[1]["total_stock"] == "15"
+
+
+def test_check_stock_mb52_multi_plant_selection():
+    """Kiểm tra check_stock_mb52 kích hoạt multi-selection cho cả 2 xưởng (3093 và 3001)."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._fill_multiple_selection = MagicMock()
+    engine._clear_multiple_selection = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock(return_value="")
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {"product": "BIW001", "plant": "3093", "sloc": "3093", "unrest": "50", "unit": "PC"},
+        {"product": "BIW001", "plant": "3001", "sloc": "3001", "unrest": "20", "unit": "PC"}
+    ])
+
+    recs = engine.check_stock_mb52(["BIW001"], plants=["3093", "3001"])
+    assert len(recs) == 2
+    # Phải gọi _fill_multiple_selection với nút WERKS và danh sách 2 plant
+    engine._fill_multiple_selection.assert_any_call("wnd[0]/usr/btn%_WERKS_%_APP_%-VALU_PUSH", ["3093", "3001"])
+    # Phải gọi _fill_multiple_selection với nút MATNR và danh sách mã hàng
+    engine._fill_multiple_selection.assert_any_call("wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH", ["BIW001"])
 
 
 def test_check_open_ob_vl06o_mock():

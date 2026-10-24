@@ -23,6 +23,34 @@ SAP_LOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 SAP_CONNECTION_NAME = ""
 
 
+def _copy_to_clipboard_safely(text: str) -> bool:
+    """Sao chép chuỗi vào Clipboard Windows một cách an toàn."""
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        win32clipboard.CloseClipboard()
+        return True
+    except Exception as e:
+        print(f"[CLIPBOARD WARN] Không thể ghi clipboard: {e}")
+        return False
+
+
+def _get_clipboard_safely() -> Optional[str]:
+    """Đọc dữ liệu văn bản hiện tại trên Clipboard Windows để sao lưu."""
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        data = None
+        if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+            data = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+        win32clipboard.CloseClipboard()
+        return data
+    except Exception:
+        return None
+
+
 class SapExecutionError(RuntimeError):
     """Lỗi phát sinh trong quá trình thực thi nghiệp vụ trên SAP GUI."""
     pass
@@ -386,8 +414,38 @@ class SapEngine:
 
         return resolved
 
+    def _clear_multiple_selection(self, push_button_id: str):
+        """Mở popup Multiple Selection và xóa sạch lựa chọn bằng btn[16], sau đó bấm F8 (btn[8]) để lưu và đóng popup."""
+        push_btn = self._find_by_id_safe(push_button_id)
+        if push_btn is None:
+            return
+        try:
+            push_btn.press()
+            self._wait_idle(2.0)
+            btn16 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[16]")
+            if btn16 is not None:
+                try:
+                    btn16.press()
+                    self._wait_idle(1.0)
+                except Exception:
+                    pass
+            btn8 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[8]")
+            if btn8 is not None:
+                btn8.press()
+            else:
+                wnd1 = self._find_by_id_safe("wnd[1]")
+                if wnd1 is not None:
+                    wnd1.sendVKey(8)
+            self._wait_idle(2.0)
+        except Exception as e:
+            print(f"[SAP WARN] Lỗi xóa multiple selection ({push_button_id}): {e}")
+
     def _fill_multiple_selection(self, push_button_id: str, values: List[str]):
-        """Điền danh sách nhiều giá trị vào Multiple Selection mà KHÔNG đụng Clipboard."""
+        """Điền danh sách nhiều giá trị vào Multiple Selection.
+        
+        - Nếu <= 5 giá trị: điền trực tiếp vào các ô mà không cần clipboard.
+        - Nếu > 5 giá trị: sao chép và bấm nút btn[24] (Upload from Clipboard / Shift+F12) chuẩn của SAP GUI (như Module1.bas V2Select), sau đó khôi phục ngay clipboard cho người dùng.
+        """
         clean_vals = [v.strip().upper() for v in values if v.strip()]
         if not clean_vals:
             return
@@ -396,38 +454,44 @@ class SapEngine:
         if push_btn is None:
             return
         push_btn.press()
-        self._wait_idle(5.0)
+        self._wait_idle(3.0)
 
         # Xóa các lựa chọn cũ nếu có nút btn[16] (Delete whole selection)
         btn16 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[16]")
         if btn16 is not None:
             try:
                 btn16.press()
-                self._wait_idle(2.0)
+                self._wait_idle(1.5)
             except Exception:
                 pass
 
-        tbl_id = "wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE"
-        tbl = self._find_by_id_safe(tbl_id)
+        used_clipboard = False
+        btn24 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[24]")
+        if len(clean_vals) > 5 and btn24 is not None:
+            try:
+                prev_clip = _get_clipboard_safely()
+                clip_text = "\r\n".join(clean_vals)
+                if _copy_to_clipboard_safely(clip_text):
+                    btn24.press()
+                    self._wait_idle(2.0)
+                    used_clipboard = True
+                    if prev_clip is not None:
+                        _copy_to_clipboard_safely(prev_clip)
+            except Exception as clip_err:
+                print(f"[SAP WARN] Lỗi paste clipboard vào Multiple Selection: {clip_err}")
 
-        for idx, val in enumerate(clean_vals):
-            page_row = idx % 7
-            if idx > 0 and page_row == 0 and tbl is not None:
-                try:
-                    tbl.verticalScrollbar.position = idx
-                    page_row = 0
-                except Exception:
-                    pass
-
-            cell_id = f"{tbl_id}/ctxtRSCSEL_255-SLOW_I[1,{page_row}]"
-            cell = self._find_by_id_safe(cell_id)
-            if cell is not None:
-                try:
-                    cell.text = val
-                except Exception:
-                    alt_cell = self._find_by_id_safe(cell_id.replace("ctxtRSCSEL_255", "txtRSCSEL_255"))
-                    if alt_cell is not None:
-                        alt_cell.text = val
+        if not used_clipboard:
+            tbl_id = "wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE"
+            for idx, val in enumerate(clean_vals[:8]):
+                cell_id = f"{tbl_id}/ctxtRSCSEL_255-SLOW_I[1,{idx}]"
+                cell = self._find_by_id_safe(cell_id)
+                if cell is not None:
+                    try:
+                        cell.text = val
+                    except Exception:
+                        alt_cell = self._find_by_id_safe(cell_id.replace("ctxtRSCSEL_255", "txtRSCSEL_255"))
+                        if alt_cell is not None:
+                            alt_cell.text = val
 
         # Bấm Execute (F8 / btn[8]) trên popup
         btn8 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[8]")
@@ -438,7 +502,7 @@ class SapEngine:
             if wnd1 is not None:
                 wnd1.sendVKey(8)
 
-        self._wait_idle(5.0)
+        self._wait_idle(3.0)
 
     def _validate_grid_or_raise(self, alv_grid, tcode_name: str, status_txt: str, status_type: str):
         """Phân biệt chính xác giữa việc không có dữ liệu thực sự và lỗi không mở được bảng kết quả SAP."""
@@ -745,65 +809,118 @@ class SapEngine:
     # --------------------------------------------------------------------------
     def check_stock_mb52(
         self,
-        materials: List[str],
+        materials: Optional[List[str]] = None,
         plant: str = "3093",
+        plants: Optional[List[str]] = None,
         slocs: Optional[List[str]] = None
     ) -> List[Dict[str, str]]:
-        """Tra cứu tồn kho tổng hợp MB52 kèm Vị trí Bin (LGPBE) theo modMB52.bas của BBBG.
-        Hỗ trợ lọc theo danh sách kho (slocs, ví dụ ['1005', '3093'])."""
-        if not materials:
-            return []
-
+        """Tra cứu tồn kho tổng hợp MB52 kèm Vị trí Bin (LGPBE) theo modMB52.bas của BBBG và Module1.bas của Stock_FG_MA_BODY.
+        
+        Hỗ trợ truy vấn nhiều Plant cùng lúc (plants, ví dụ ['3093', '3001']) và lọc theo danh sách kho (slocs, ví dụ ['1005', '3093']).
+        """
         self._open_transaction("MB52")
         self._wait_idle(10.0)
 
         # Xóa sạch toàn bộ bộ lọc cũ còn lưu trong SAP GUI
         self._clear_all_selection_inputs()
 
-        print(f"[SAP MB52] Đang nhập điều kiện tìm kiếm: Materials={materials}, Plant={plant}...")
-        clean_mats = [m.strip().upper() for m in materials if m.strip()]
+        target_plants = [p.strip().upper() for p in (plants or []) if p.strip()]
+        if not target_plants and plant:
+            target_plants = [plant.strip().upper()]
+        if not target_plants:
+            target_plants = ["3093"]
 
-        multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
-        if self._find_by_id_safe(multi_btn_id) is not None:
-            self._fill_multiple_selection(multi_btn_id, clean_mats)
-        else:
-            mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
-            if mat_single is not None and clean_mats:
-                mat_single.text = clean_mats[0]
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        print(f"[SAP MB52] Đang nhập điều kiện tìm kiếm: Materials={clean_mats}, Plants={target_plants}, SLocs={slocs}...")
 
-        if plant:
-            for plant_field_id in ["wnd[0]/usr/ctxtWERKS-LOW", "wnd[0]/usr/ctxtRM07M-WERKS"]:
-                p_ctl = self._find_by_id_safe(plant_field_id)
+        # 1. Nhập Plants (hỗ trợ cả 2 xưởng trong 1 lần chạy)
+        multi_plant_btn = "wnd[0]/usr/btn%_WERKS_%_APP_%-VALU_PUSH"
+        if len(target_plants) > 1:
+            if self._find_by_id_safe(multi_plant_btn) is not None:
+                self._fill_multiple_selection(multi_plant_btn, target_plants)
+            for p_id in ["wnd[0]/usr/ctxtWERKS-LOW", "wnd[0]/usr/ctxtWERKS-HIGH", "wnd[0]/usr/ctxtRM07M-WERKS"]:
+                p_ctl = self._find_by_id_safe(p_id)
                 if p_ctl is not None:
                     try:
-                        p_ctl.text = plant
+                        p_ctl.text = ""
+                    except Exception:
+                        pass
+        else:
+            if self._find_by_id_safe(multi_plant_btn) is not None:
+                self._clear_multiple_selection(multi_plant_btn)
+            for p_id in ["wnd[0]/usr/ctxtWERKS-LOW", "wnd[0]/usr/ctxtRM07M-WERKS"]:
+                p_ctl = self._find_by_id_safe(p_id)
+                if p_ctl is not None:
+                    try:
+                        p_ctl.text = target_plants[0]
                     except Exception:
                         pass
                     break
 
-        # Tùy chọn bỏ dòng tồn bằng 0 và định dạng dạng phẳng nếu có
-        nozero_chk = self._find_by_id_safe("wnd[0]/usr/chkNOZERO")
-        if nozero_chk is not None:
-            try:
-                nozero_chk.selected = True
-            except Exception:
-                pass
+        # 2. Nhập Materials
+        multi_mat_btn = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
+        if clean_mats:
+            if self._find_by_id_safe(multi_mat_btn) is not None:
+                self._fill_multiple_selection(multi_mat_btn, clean_mats)
+            else:
+                mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
+                if mat_single is not None:
+                    mat_single.text = clean_mats[0]
+        else:
+            if self._find_by_id_safe(multi_mat_btn) is not None:
+                self._clear_multiple_selection(multi_mat_btn)
+            for m_id in ["wnd[0]/usr/ctxtMATNR-LOW", "wnd[0]/usr/ctxtMATNR-HIGH"]:
+                m_ctl = self._find_by_id_safe(m_id)
+                if m_ctl is not None:
+                    try:
+                        m_ctl.text = ""
+                    except Exception:
+                        pass
 
-        flat_rad = self._find_by_id_safe("wnd[0]/usr/radPA_FLT")
-        if flat_rad is not None:
-            try:
-                flat_rad.select()
-            except Exception:
-                pass
+        # 3. Xử lý SLoc
+        multi_sloc_btn = "wnd[0]/usr/btn%_LGORT_%_APP_%-VALU_PUSH"
+        if slocs:
+            clean_slocs = [s.strip().upper() for s in slocs if s.strip()]
+            if self._find_by_id_safe(multi_sloc_btn) is not None:
+                self._fill_multiple_selection(multi_sloc_btn, clean_slocs)
+            else:
+                sloc_single = self._find_by_id_safe("wnd[0]/usr/ctxtLGORT-LOW")
+                if sloc_single is not None and clean_slocs:
+                    sloc_single.text = clean_slocs[0]
+        else:
+            if self._find_by_id_safe(multi_sloc_btn) is not None:
+                self._clear_multiple_selection(multi_sloc_btn)
+            for s_id in ["wnd[0]/usr/ctxtLGORT-LOW", "wnd[0]/usr/ctxtLGORT-HIGH"]:
+                s_ctl = self._find_by_id_safe(s_id)
+                if s_ctl is not None:
+                    try:
+                        s_ctl.text = ""
+                    except Exception:
+                        pass
 
-        # Điền Layout nếu có ô Layout /KHOMA như modMB52.bas
-        layout_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtRM07M-VARIANT")
-        if layout_ctl is not None:
-            try:
-                layout_ctl.text = "/KHOMA"
-            except Exception:
-                pass
+        # 4. Xóa Batch trên màn hình lọc để không bỏ sót lô
+        multi_charg_btn = "wnd[0]/usr/btn%_CHARG_%_APP_%-VALU_PUSH"
+        if self._find_by_id_safe(multi_charg_btn) is not None:
+            self._clear_multiple_selection(multi_charg_btn)
+        for c_id in ["wnd[0]/usr/ctxtCHARG-LOW", "wnd[0]/usr/ctxtCHARG-HIGH"]:
+            c_ctl = self._find_by_id_safe(c_id)
+            if c_ctl is not None:
+                try:
+                    c_ctl.text = ""
+                except Exception:
+                    pass
 
+        # 5. Điền Layout /KHOMA chuẩn theo Module1.bas dòng 1103 của Stock_FG_MA_BODY
+        for layout_id in ["wnd[0]/usr/ctxtP_VARI", "wnd[0]/usr/ctxtRM07M-VARIANT"]:
+            layout_ctl = self._find_by_id_safe(layout_id)
+            if layout_ctl is not None:
+                try:
+                    layout_ctl.text = "/KHOMA"
+                    break
+                except Exception:
+                    pass
+
+        # 6. Bấm thực thi (F8)
         print("[SAP MB52] Đang bấm thực thi (F8)...")
         exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
         if exec_btn is not None:
@@ -841,9 +958,9 @@ class SapEngine:
         print(f"[SAP MB52] Đã trích xuất {len(records)} dòng dữ liệu tồn kho.")
 
         if slocs:
-            clean_slocs = {s.strip().upper() for s in slocs if s.strip()}
-            records = [r for r in records if str(r.get("sloc", "")).strip().upper() in clean_slocs]
-            print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs}: còn {len(records)} dòng.")
+            clean_slocs_set = {s.strip().upper() for s in slocs if s.strip()}
+            records = [r for r in records if str(r.get("sloc", "")).strip().upper() in clean_slocs_set]
+            print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs_set}: còn {len(records)} dòng.")
 
         # SẮP XẾP: Ưu tiên dòng có Tồn khả dụng lớn nhất và Batch mới nhất lên đầu
         def _mb52_sort_key(item):
@@ -1229,36 +1346,53 @@ class SapEngine:
         limit: int = 20,
         model_name: str = ""
     ) -> List[Dict[str, str]]:
-        """Tra cứu và tổng hợp danh sách mã tồn thấp từ MB52 qua các Plant được chỉ định.
+        """Tra cứu và tổng hợp danh sách mã tồn thấp từ MB52 qua cả 2 xưởng (hoặc các Plant chỉ định) trong MỘT LẦN CHẠY MB52 duy nhất.
         
-        - BODY: Plant 3093 & 3001
-        - XMĐ:  Plant 3093, 2001 & 3001
+        - BODY: Plant 3093 (Kho FG) & 3001 (Line Body)
+        - XMĐ:  Plant 3093 (Kho FG), 2001 (Xưởng XMĐ) & 3001 (Line Body)
+        Tự xử lý gom dữ liệu và sắp xếp tăng dần theo tổng tồn (mã tồn thấp nhất / hết hàng lên đầu).
         """
-        if not materials:
-            return []
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        target_plants = [p.strip().upper() for p in (plants or []) if p.strip()]
+        if not target_plants:
+            target_plants = ["3093", "3001"]
 
-        clean_mats = [m.strip().upper() for m in materials if m.strip()]
-        target_plants = [p.strip().upper() for p in plants if p.strip()] or ["3093"]
+        print(f"[SAP LOW STOCK] Quét MB52 cả 2 xưởng {target_plants} cho {len(clean_mats)} mã (Model={model_name}, Top={limit})...")
 
-        stock_by_mat = {m: {p: 0.0 for p in target_plants} for m in clean_mats}
-        unit_by_mat = {m: "PC" for m in clean_mats}
+        # 1. Gọi MB52 DUY NHẤT 1 LẦN cho cả 2 xưởng (Plant 3093 và 3001)
+        try:
+            mb52_records = self.check_stock_mb52(clean_mats, plants=target_plants)
+            print(f"[SAP LOW STOCK] MB52 trả về tổng cộng {len(mb52_records)} dòng dữ liệu từ các xưởng.")
+        except Exception as e:
+            print(f"[SAP LOW STOCK WARN] Lỗi truy vấn MB52 đa xưởng: {e}")
+            mb52_records = []
 
-        print(f"[SAP LOW STOCK] Quét tồn {len(clean_mats)} mã qua các Plant {target_plants} (Giới hạn {limit})...")
-        for p in target_plants:
-            try:
-                p_recs = self.check_stock_mb52(clean_mats, plant=p)
-                for r in p_recs:
-                    mat = r.get("product", "").strip().upper()
-                    if mat in stock_by_mat:
-                        stock_by_mat[mat][p] += parse_sap_float(r.get("unrest", "0"))
-                        if r.get("unit"):
-                            unit_by_mat[mat] = r.get("unit")
-            except Exception as e:
-                print(f"[SAP LOW STOCK WARN] Lỗi truy vấn tồn tại Plant {p}: {e}")
+        # 2. Xác định danh sách mã cần đánh giá
+        if clean_mats:
+            mats_to_evaluate = list(clean_mats)
+        else:
+            mats_to_evaluate = sorted(list(set(r.get("product", "").strip().upper() for r in mb52_records if r.get("product"))))
 
+        stock_by_mat = {m: {p: 0.0 for p in target_plants} for m in mats_to_evaluate}
+        unit_by_mat = {m: "PC" for m in mats_to_evaluate}
+
+        # 3. Gom tồn kho theo Mã hàng và theo từng Plant
+        for r in mb52_records:
+            mat = r.get("product", "").strip().upper()
+            p = r.get("plant", "").strip().upper()
+            if mat not in stock_by_mat:
+                stock_by_mat[mat] = {pl: 0.0 for pl in target_plants}
+                if mat not in mats_to_evaluate:
+                    mats_to_evaluate.append(mat)
+            if p in stock_by_mat[mat]:
+                stock_by_mat[mat][p] += parse_sap_float(r.get("unrest", "0"))
+            if r.get("unit"):
+                unit_by_mat[mat] = r.get("unit")
+
+        # 4. Tự xử lý tổng hợp và phân loại cảnh báo
         output_records = []
-        for mat in clean_mats:
-            p_stocks = stock_by_mat[mat]
+        for mat in mats_to_evaluate:
+            p_stocks = stock_by_mat.get(mat, {p: 0.0 for p in target_plants})
             total_s = sum(p_stocks.values())
             row = {
                 "product": mat,
@@ -1267,7 +1401,7 @@ class SapEngine:
                 "total_stock": format_qty_display(total_s)
             }
             for p in target_plants:
-                row[f"stock_{p}"] = format_qty_display(p_stocks[p])
+                row[f"stock_{p}"] = format_qty_display(p_stocks.get(p, 0.0))
 
             if total_s == 0:
                 row["status"] = "🔴 Hết hàng (0)"
@@ -1279,8 +1413,8 @@ class SapEngine:
             row["_raw_total"] = total_s
             output_records.append(row)
 
-        # Sắp xếp tăng dần theo tổng tồn (mã tồn thấp nhất lên đầu)
-        output_records.sort(key=lambda x: x["_raw_total"])
+        # 5. Tự xử lý sắp xếp: TĂNG DẦN THEO TỔNG TỒN (mã tồn thấp nhất / hết hàng lên đầu)
+        output_records.sort(key=lambda x: (x["_raw_total"], x["product"]))
         for r in output_records:
             r.pop("_raw_total", None)
 
