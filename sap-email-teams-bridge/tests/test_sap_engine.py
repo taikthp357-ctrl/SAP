@@ -841,3 +841,41 @@ def test_check_po_me2n_mock():
     assert records[0]["openQty"] == "400"
     assert "Hoạt động" in records[0]["deleteInd"]
     assert "Đã duyệt" in records[0]["releaseStatus"]
+
+
+def test_check_fg_ob_status_mock():
+    """Kiểm tra check_fg_ob_status tính toán tồn FG, OB mở và khả dụng xuất mới."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.check_stock_mb52 = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "3093", "unrest": "200", "unit": "PC"},
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "9999", "unrest": "5", "unit": "PC"}  # Phải bị loại
+    ])
+    engine.check_open_ob_vl06o = MagicMock(return_value=[
+        {"obNo": "80012345", "product": "BIW32013765AA", "qty": "50", "unit": "PC"}
+    ])
+
+    records = engine.check_fg_ob_status(["BIW32013765AA"], plant="3093")
+    assert len(records) == 1
+    assert records[0]["fgStock"] == "200"
+    assert records[0]["openObQty"] == "50"
+    assert records[0]["availableQty"] == "150"
+    assert "80012345" in records[0]["openObList"]
+    assert "Đủ tồn điền OB" in records[0]["workAdvice"]
+
+
+def test_check_nvl_migo_balance_mock():
+    """Kiểm tra check_nvl_migo_balance phát hiện Line đói hàng và đề xuất MIGO 311."""
+    engine = SapEngine.__new__(SapEngine)
+    # Line 3001 chỉ còn 5 PC (<=10) -> Đói hàng; Kho 1005 có 500 PC
+    engine.check_stock_mb52 = MagicMock(return_value=[
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "1005", "unrest": "500", "unit": "PC"},
+        {"product": "BIW32013765AA", "plant": "3093", "sloc": "3001", "unrest": "5", "unit": "PC"}
+    ])
+
+    records = engine.check_nvl_migo_balance(["BIW32013765AA"], plant="3093")
+    assert len(records) == 1
+    assert records[0]["whStock"] == "500"
+    assert records[0]["lineStock"] == "5"
+    assert records[0]["totalStock"] == "505"
+    assert "Line đói hàng" in records[0]["migoAdvice"]
+    assert "MIGO 311" in records[0]["migoAdvice"]

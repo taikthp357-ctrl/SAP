@@ -97,7 +97,48 @@ class TeamsDispatcher:
         )
 
         try:
-            if any(k in cmd_upper for k in ["VITRI", "BIN", "POST"]):
+            if any(k in cmd_upper for k in ["CHECK_FG_OB", "DIEN_OB"]):
+                tot_fg = sum(parse_sap_float(r.get("fgStock", 0.0)) for r in records)
+                tot_ob = sum(parse_sap_float(r.get("openObQty", 0.0)) for r in records)
+                tot_avail = sum(parse_sap_float(r.get("availableQty", 0.0)) for r in records)
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🏢 Tồn FG 3093: {format_qty_display(tot_fg)}</span>"
+                )
+                if tot_ob > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"🚚 OB chờ điền: {format_qty_display(tot_ob)}</span>"
+                    )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"✅ Khả dụng xuất: {format_qty_display(tot_avail)}</span>"
+                )
+
+            elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]):
+                tot_wh = sum(parse_sap_float(r.get("whStock", 0.0)) for r in records)
+                tot_line = sum(parse_sap_float(r.get("lineStock", 0.0)) for r in records)
+                need_migo = sum(1 for r in records if "Cần ra đơn MIGO" in str(r.get("migoAdvice", "")))
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📦 Kho NVL 1005: {format_qty_display(tot_wh)}</span>"
+                )
+                badges.append(
+                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                    f"🏭 Line Body: {format_qty_display(tot_line)}</span>"
+                )
+                if need_migo > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚡ {need_migo} Mã cần cấp MIGO 311</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Line đủ sản xuất</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["VITRI", "BIN", "POST"]):
                 bins = {r.get("bin") for r in records if r.get("bin")}
                 batches = {r.get("batch") for r in records if r.get("batch")}
                 total_qty = 0.0
@@ -305,6 +346,47 @@ class TeamsDispatcher:
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
                     f"🔍 Tìm thấy {len(ib_set)} Inbound Delivery</span>"
                 )
+
+            elif any(k in cmd_upper for k in ["CHECK_FG_OB", "DIEN_OB"]):
+                tot_fg = sum(parse_sap_float(r.get("fgStock", 0.0)) for r in records)
+                tot_ob = sum(parse_sap_float(r.get("openObQty", 0.0)) for r in records)
+                tot_avail = sum(parse_sap_float(r.get("availableQty", 0.0)) for r in records)
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🏢 Tồn FG 3093: {format_qty_display(tot_fg)}</span>"
+                )
+                if tot_ob > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"🚚 OB chờ điền: {format_qty_display(tot_ob)}</span>"
+                    )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"✅ Khả dụng xuất: {format_qty_display(tot_avail)}</span>"
+                )
+
+            elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]):
+                tot_wh = sum(parse_sap_float(r.get("whStock", 0.0)) for r in records)
+                tot_line = sum(parse_sap_float(r.get("lineStock", 0.0)) for r in records)
+                need_migo = sum(1 for r in records if "Cần ra đơn MIGO" in str(r.get("migoAdvice", "")))
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📦 Kho NVL 1005: {format_qty_display(tot_wh)}</span>"
+                )
+                badges.append(
+                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                    f"🏭 Line Body: {format_qty_display(tot_line)}</span>"
+                )
+                if need_migo > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚡ {need_migo} Mã cần cấp MIGO 311</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Line đủ hàng</span>"
+                    )
         except Exception:
             return ""
 
@@ -351,6 +433,10 @@ class TeamsDispatcher:
             f"<code>@Bot tìm inbound theo PO 4500123456</code> hoặc <code>@Bot tìm inbound bill BL123456</code></li>"
             f"<li>📋 <strong>Kiểm tra Tình trạng đơn hàng PO/SA (ME2N):</strong><br>"
             f"<code>@Bot kiểm tra PO 4500123456</code> hoặc <code>@Bot kiểm tra PO 4500123456 item 10</code></li>"
+            f"<li>🏢 <strong>Điều độ Thành Phẩm FG & Đơn OB (VL06O + MB52):</strong><br>"
+            f"<code>@Bot điền ob 32013765</code> hoặc <code>@Bot check ob fg 32013765</code></li>"
+            f"<li>🏭 <strong>Cân đối NVL & Đề xuất ra đơn MIGO 311:</strong><br>"
+            f"<code>@Bot check nvl 32013765</code> hoặc <code>@Bot ra đơn migo 32013765</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "
@@ -419,6 +505,10 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã kiểm tra đơn Outbound (OB) cho sếp rồi ạ 👇"
             elif cmd_u in ["LICHSU_BIN", "MON", "WHT"]:
                 greeting = "Sếp ơi, em đã tra lịch sử chuyển Bin-to-Bin cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_FG_OB", "DIEN_OB"]:
+                greeting = "Sếp ơi, em đã kiểm tra điều độ tồn FG và đơn OB mở cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"]:
+                greeting = "Sếp ơi, em đã kiểm tra cân đối NVL và nhu cầu ra đơn MIGO 311 cho sếp rồi ạ 👇"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 

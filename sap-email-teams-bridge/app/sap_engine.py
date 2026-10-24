@@ -2821,3 +2821,158 @@ class SapEngine:
             return records
         finally:
             self._reset_to_session_manager()
+
+
+    # 13. ĐIỀU ĐỘ THÀNH PHẨM (FG) & ĐIỀN ĐƠN OB (VL06O + MB52)
+    # --------------------------------------------------------------------------
+    def check_fg_ob_status(
+        self,
+        materials: List[str],
+        plant: str = "3093"
+    ) -> List[Dict[str, Any]]:
+        """Kiểm tra tồn kho Thành phẩm (FG 3093) đối chiếu với các đơn OB đang mở (VL06O).
+        Đưa ra đánh giá công việc cụ thể: Đủ hàng điền OB, thiếu hàng, hoặc khả dụng xuất mới."""
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        if not clean_mats:
+            return []
+
+        # 1. Tra cứu tồn kho FG tại Plant 3093, SLoc 3093 (loại bỏ QC 9999)
+        try:
+            mb52_recs = self.check_stock_mb52(clean_mats, plant=plant, slocs=[plant, "3093"])
+        except Exception as e:
+            print(f"[SAP FG_OB WARN] Không thể đọc MB52: {e}")
+            mb52_recs = []
+
+        stock_by_mat = {m: 0.0 for m in clean_mats}
+        unit_by_mat = {m: "PC" for m in clean_mats}
+        for r in mb52_recs:
+            sloc = str(r.get("sloc", "")).strip().upper()
+            if sloc in ["9999", "QC", "BLOCK", "SCRAP"]:
+                continue
+            p_mat = str(r.get("product", "")).strip().upper()
+            for m in clean_mats:
+                if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
+                    stock_by_mat[m] += parse_sap_float(r.get("unrest", 0.0))
+                    if r.get("unit"):
+                        unit_by_mat[m] = r.get("unit")
+                    break
+
+        # 2. Tra cứu các đơn OB đang mở qua VL06O
+        try:
+            ob_recs = self.check_open_ob_vl06o(clean_mats, plant=plant)
+        except Exception as e:
+            print(f"[SAP FG_OB WARN] Không thể đọc VL06O: {e}")
+            ob_recs = []
+
+        obs_by_mat = {m: [] for m in clean_mats}
+        ob_qty_by_mat = {m: 0.0 for m in clean_mats}
+        for r in ob_recs:
+            p_mat = str(r.get("product", "")).strip().upper()
+            ob_no = str(r.get("obNo", "")).strip()
+            qty = parse_sap_float(r.get("qty", 0.0))
+            for m in clean_mats:
+                if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
+                    if ob_no and ob_no not in obs_by_mat[m]:
+                        obs_by_mat[m].append(ob_no)
+                    ob_qty_by_mat[m] += qty
+                    break
+
+        # 3. Tổng hợp nhận định công việc điều độ
+        records = []
+        for m in clean_mats:
+            fg_stk = stock_by_mat.get(m, 0.0)
+            ob_cnt = len(obs_by_mat.get(m, []))
+            ob_qty = ob_qty_by_mat.get(m, 0.0)
+            unit = unit_by_mat.get(m, "PC")
+            avail = max(0.0, fg_stk - ob_qty)
+
+            if ob_qty > fg_stk:
+                advice = f"🔴 Thiếu tồn điền OB! Cần {format_qty_display(ob_qty)} {unit}, kho chỉ có {format_qty_display(fg_stk)} {unit}"
+            elif ob_cnt > 0:
+                advice = f"🟢 Đủ tồn điền OB. Khả dụng xuất mới còn: {format_qty_display(avail)} {unit}"
+            elif fg_stk > 0:
+                advice = f"🟢 Không có OB chờ. Sẵn sàng tạo đơn mới: {format_qty_display(fg_stk)} {unit}"
+            else:
+                advice = f"🔴 Hết hàng FG tại kho {plant} (0 {unit})"
+
+            records.append({
+                "product": m,
+                "fgStock": format_qty_display(fg_stk),
+                "openObList": ", ".join(obs_by_mat.get(m, [])) if obs_by_mat.get(m) else "Không có",
+                "openObQty": format_qty_display(ob_qty),
+                "availableQty": format_qty_display(avail),
+                "unit": unit,
+                "workAdvice": advice
+            })
+
+        return records
+
+    # 14. CÂN ĐỐI NGUYÊN VẬT LIỆU (NVL) & ĐỀ XUẤT RA ĐƠN MIGO 311 (MB52)
+    # --------------------------------------------------------------------------
+    def check_nvl_migo_balance(
+        self,
+        materials: List[str],
+        plant: str = "3093"
+    ) -> List[Dict[str, Any]]:
+        """Cân đối tồn kho Nguyên Vật Liệu (NVL) giữa Kho cấp 1005 và Line nhận 3001/2001.
+        Phát hiện thiếu hàng trên Line và đề xuất lập phiếu MIGO 311 cấp bù số lượng."""
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        if not clean_mats:
+            return []
+
+        # Tra cứu đồng thời Kho NVL (1005) và Line sản xuất (3001, 2001)
+        target_slocs = ["1005", "3001", "2001"]
+        try:
+            mb52_recs = self.check_stock_mb52(clean_mats, plant=plant, slocs=target_slocs)
+        except Exception as e:
+            print(f"[SAP NVL_MIGO ERROR] Không thể đọc MB52: {e}")
+            raise SapExecutionError(f"Lỗi truy vấn cân đối tồn NVL MB52: {e}") from e
+
+        wh_by_mat = {m: 0.0 for m in clean_mats}
+        line_by_mat = {m: 0.0 for m in clean_mats}
+        unit_by_mat = {m: "PC" for m in clean_mats}
+
+        for r in mb52_recs:
+            sloc = str(r.get("sloc", "")).strip().upper()
+            if sloc in ["9999", "QC", "BLOCK", "SCRAP"]:
+                continue
+            p_mat = str(r.get("product", "")).strip().upper()
+            qty = parse_sap_float(r.get("unrest", 0.0))
+            uom = r.get("unit", "PC")
+
+            for m in clean_mats:
+                if m in p_mat or p_mat in m or m.lstrip("0") in p_mat.lstrip("0"):
+                    if sloc == "1005":
+                        wh_by_mat[m] += qty
+                    elif sloc in ["3001", "2001"]:
+                        line_by_mat[m] += qty
+                    unit_by_mat[m] = uom
+                    break
+
+        records = []
+        for m in clean_mats:
+            wh_stk = wh_by_mat.get(m, 0.0)
+            line_stk = line_by_mat.get(m, 0.0)
+            tot_stk = wh_stk + line_stk
+            unit = unit_by_mat.get(m, "PC")
+
+            if line_stk <= 10.0 and wh_stk > 0:
+                rec_qty = min(wh_stk, max(50.0, 100.0 - line_stk))
+                advice = f"⚡ Line đói hàng ({format_qty_display(line_stk)} {unit})! Cần ra đơn MIGO 311 cấp {format_qty_display(rec_qty)} {unit} từ 1005 ➔ Line"
+            elif line_stk > 10.0:
+                advice = f"🟢 Line đang đủ hàng ({format_qty_display(line_stk)} {unit}), chưa cần cấp MIGO 311"
+            elif wh_stk == 0 and line_stk == 0:
+                advice = f"🔴 Hết hàng NVL toàn bộ (Kho 1005 = 0, Line = 0)"
+            else:
+                advice = f"🟡 Cần theo dõi tồn Line ({format_qty_display(line_stk)} {unit})"
+
+            records.append({
+                "product": m,
+                "whStock": format_qty_display(wh_stk),
+                "lineStock": format_qty_display(line_stk),
+                "totalStock": format_qty_display(tot_stk),
+                "unit": unit,
+                "migoAdvice": advice
+            })
+
+        return records

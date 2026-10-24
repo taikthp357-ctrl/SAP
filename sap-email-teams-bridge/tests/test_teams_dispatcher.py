@@ -283,3 +283,25 @@ def test_teams_dispatcher_greetings_and_badges_for_new_commands():
     pl_find, _ = TeamsDispatcher.prepare_safe_payload("REQ-FIND", meta_find, "SUCCEEDED", "Find IB", find_recs, {"ibNo": "IB"})
     assert "tìm kiếm đơn Inbound theo tham chiếu" in pl_find["greeting"]
     assert "Tìm thấy 1 Inbound" in pl_find["table_html"]
+
+
+def test_teams_dispatcher_fg_and_nvl_migo_badges():
+    """Kiểm tra badges và greeting cho CHECK_FG_OB và CHECK_NVL_MIGO."""
+    # FG OB
+    fg_recs = [
+        {"product": "BIW32013765AA", "fgStock": "200", "openObQty": "50", "availableQty": "150", "openObList": "80012345", "unit": "PC", "workAdvice": "Đủ tồn"}
+    ]
+    meta_fg = {"command": "CHECK_FG_OB", "messageId": "M-FG"}
+    pl_fg, _ = TeamsDispatcher.prepare_safe_payload("REQ-FG", meta_fg, "SUCCEEDED", "Summary FG", fg_recs, {"product": "Mã"})
+    assert "tồn FG và đơn OB mở" in pl_fg["greeting"]
+    assert "Tồn FG 3093" in pl_fg["table_html"]
+
+    # NVL MIGO
+    nvl_recs = [
+        {"product": "BIW32013765AA", "whStock": "500", "lineStock": "5", "totalStock": "505", "unit": "PC", "migoAdvice": "Cần ra đơn MIGO"}
+    ]
+    meta_nvl = {"command": "CHECK_NVL_MIGO", "messageId": "M-NVL"}
+    pl_nvl, _ = TeamsDispatcher.prepare_safe_payload("REQ-NVL", meta_nvl, "SUCCEEDED", "Summary NVL", nvl_recs, {"product": "Mã"})
+    assert "cân đối NVL và nhu cầu ra đơn MIGO 311" in pl_nvl["greeting"]
+    assert "Kho NVL 1005" in pl_nvl["table_html"]
+    assert "Mã cần cấp MIGO 311" in pl_nvl["table_html"]

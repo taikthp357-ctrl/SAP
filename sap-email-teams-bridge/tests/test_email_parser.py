@@ -486,3 +486,38 @@ def test_parse_json_parity_ob_and_bin():
     assert res_bin["valid"] is True
     assert res_bin["command"] == "LICHSU_BIN"
     assert res_bin["bin"] == "10-A-01"
+
+
+def test_parse_check_fg_ob_natural_and_json():
+    """Kiểm tra parse lệnh CHECK_FG_OB (Điền OB thành phẩm)."""
+    cmd = "điền ob BIW32013765AA"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_FG_OB"
+    assert "BIW32013765AA" in res["materials"]
+
+    json_cmd = {"command": "CHECK_FG_OB", "materials": ["BIW32013765AA"]}
+    res_j = EmailCommandParser.parse(json_cmd)
+    assert res_j["valid"] is True
+    assert res_j["command"] == "CHECK_FG_OB"
+
+
+def test_parse_check_nvl_migo_natural_and_json():
+    """Kiểm tra parse lệnh CHECK_NVL_MIGO (Ra đơn MIGO 311 NVL)."""
+    cmd = "ra đơn migo 32013765"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_NVL_MIGO"
+    assert "32013765" in res["materials"]
+
+    cmd2 = "check nvl 32013765"
+    res2 = EmailCommandParser.parse(cmd2)
+    assert res2["valid"] is True
+    assert res2["command"] == "CHECK_NVL_MIGO"
+
+    json_cmd = {"command": "MIGO_311", "materials": ["32013765"]}
+    res_j = EmailCommandParser.parse(json_cmd)
+    assert res_j["valid"] is True
+    assert res_j["command"] == "CHECK_NVL_MIGO"

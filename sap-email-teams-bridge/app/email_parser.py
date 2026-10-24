@@ -44,6 +44,12 @@ class SmartCommandParser:
         "TIM_IB": [
             (r"\b(?:tim\s*ib|tim\s*inbound|find\s*ib|find\s*inbound|inbound\s*theo\s*po|inbound\s*theo\s*bill)\b", 22),
         ],
+        "CHECK_FG_OB": [
+            (r"\b(?:dien\s*ob|di\s*en\s*ob|check\s*ob\s*fg|kha\s*dung\s*ob|ob\s*fg|ton\s*ob)\b", 24),
+        ],
+        "CHECK_NVL_MIGO": [
+            (r"\b(?:ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo)\b", 24),
+        ],
         "CHECK_PO": [
             (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 20),
             (r"\b(?:po\s*45\d{8}|po\s*55\d{8}|me2n\s*po)\b", 22),
@@ -171,6 +177,8 @@ class SmartCommandParser:
             "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
             "TIM_IB", "FIND_IB",
             "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
+            "CHECK_FG_OB", "DIEN_OB",
+            "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL",
             "HELP"
         }
 
@@ -294,6 +302,10 @@ class SmartCommandParser:
                     canonical_cmd = "TIM_IB"
                 elif cmd in ("CHECK_PO", "PO_STATUS", "KIEMTRA_PO"):
                     canonical_cmd = "CHECK_PO"
+                elif cmd in ("CHECK_FG_OB", "DIEN_OB"):
+                    canonical_cmd = "CHECK_FG_OB"
+                elif cmd in ("CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL"):
+                    canonical_cmd = "CHECK_NVL_MIGO"
 
                 expected_q = 0.0
                 try:
