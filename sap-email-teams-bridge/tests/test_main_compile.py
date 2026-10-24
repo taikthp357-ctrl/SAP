@@ -17,3 +17,7 @@ def test_main_syntax_and_compile():
     content = main_py.read_text(encoding="utf-8")
     parsed_ast = ast.parse(content, filename=str(main_py))
     assert parsed_ast is not None
+
+    bridge_py = root / "sap_email_teams_bridge.py"
+    if bridge_py.exists():
+        assert py_compile.compile(str(bridge_py), doraise=True) is not None

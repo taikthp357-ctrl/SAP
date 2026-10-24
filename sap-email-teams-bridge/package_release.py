@@ -57,6 +57,7 @@ def create_patch_zip():
     count = 0
     patch_includes = [
         "main.py",
+        "sap_email_teams_bridge.py",
         "config.json",
         "README.md",
         "START_BRIDGE.cmd",

@@ -144,6 +144,7 @@ def run_bridge():
     try:
         outlook_app = win32com.client.Dispatch("Outlook.Application")
         outlook_ns = outlook_app.GetNamespace("MAPI")
+        outlook = outlook_ns
         inbox = outlook_ns.GetDefaultFolder(6)  # 6 = olFolderInbox
     except Exception as e:
         raise RuntimeError(
@@ -225,6 +226,12 @@ def run_bridge():
 
     while True:
         try:
+            # Ép Outlook Classic gọi lệnh đồng bộ ngầm (Sync Send/Receive) với Server tức thì
+            try:
+                outlook.SendAndReceive(False)
+            except Exception:
+                pass
+
             # 1. Giữ phiên SAP không bị timeout khi nhàn rỗi
             sap.keep_alive()
 
