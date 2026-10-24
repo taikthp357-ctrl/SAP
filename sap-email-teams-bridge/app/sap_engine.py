@@ -14,7 +14,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 import win32com.client
 
 from app.number_utils import parse_sap_float, format_qty_display
@@ -46,6 +46,7 @@ class SapEngine:
         self.strict_session_safety = strict_session_safety
         self.session = None
         self.last_activity = time.time()
+        self.last_popup_message = ""
         self.ensure_session()
 
     def _connect_sap(self):
@@ -207,20 +208,39 @@ class SapEngine:
 
     def _dismiss_popups(self) -> str:
         """Kiểm tra và đóng cửa sổ popup wnd[1] nếu có như modSAPCore.ClosePopups."""
-        msg_text = ""
+        all_msgs = []
         try:
             count = 0
             while count < 10:
                 wnd1 = self._find_by_id_safe("wnd[1]")
                 if wnd1 is None:
                     break
-                msg_text = getattr(wnd1, "Text", "")
+                t = str(getattr(wnd1, "Text", "")).strip()
+                b_txt = ""
+                try:
+                    usr1 = self._find_by_id_safe("wnd[1]/usr")
+                    if usr1 is not None:
+                        children = getattr(usr1, "Children", None)
+                        if children is not None:
+                            for idx in range(children.Count):
+                                c = children.ElementAt(idx)
+                                val = str(getattr(c, "Text", "")).strip()
+                                if val:
+                                    b_txt += f" {val}"
+                except Exception:
+                    pass
+                full_m = f"{t} {b_txt}".strip()
+                if full_m:
+                    all_msgs.append(full_m)
                 wnd1.sendVKey(0)
                 count += 1
                 self._wait_idle(3.0)
         except Exception:
             pass
-        return msg_text
+        joined = " | ".join(all_msgs)
+        if joined:
+            self.last_popup_message = joined
+        return joined
 
     def _find_largest_grid(self, max_wait_sec: float = 10.0):
         """Dò tìm ALV Grid lớn nhất trên màn hình SAP một cách đệ quy y hệt modSAPCore.FindLargestGrid."""
@@ -426,25 +446,29 @@ class SapEngine:
             return
 
         is_selection_screen = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]") is not None
-        lower_txt = (status_txt or "").lower()
+        combined_txt = f"{status_txt} {getattr(self, 'last_popup_message', '')}".strip()
+        lower_txt = combined_txt.lower()
 
         empty_phrases = [
             "no data", "not found", "không tìm thấy", "keine daten",
             "chưa có", "không có dữ liệu", "no document", "no item",
-            "no suitable", "no records", "không có chứng từ"
+            "no suitable", "no records", "không có chứng từ",
+            "deliveries selected", "outbound deliveries", "giao hàng",
+            "không có giao hàng", "no deliveries", "no open", "không có đơn",
+            "list contains no data", "danh sách không chứa", "no stock",
+            "không có tồn", "keine lieferungen", "ausgewählt", "selected",
+            "zero records", "0 records", "không tìm thấy bản ghi"
         ]
 
+        if any(p in lower_txt for p in empty_phrases):
+            print(f"[SAP {tcode_name}] Xác nhận không có dữ liệu: '{combined_txt}'")
+            return
+
         if is_selection_screen:
-            if any(p in lower_txt for p in empty_phrases):
-                print(f"[SAP {tcode_name}] Xác nhận không có dữ liệu: '{status_txt}'")
-                return
             raise SapExecutionError(
                 f"Không thể mở bảng kết quả SAP {tcode_name} (màn hình nhập liệu không phản hồi hoặc bị chặn). "
                 f"Trạng thái: '{status_txt or 'Chưa rõ'}'"
             )
-
-        if any(p in lower_txt for p in empty_phrases):
-            return
 
         raise SapExecutionError(
             f"Không tìm thấy bảng kết quả ALV Grid trong SAP {tcode_name}. "
@@ -507,6 +531,7 @@ class SapEngine:
         """Mở Transaction trên SAP GUI an toàn tuyệt đối qua ô lệnh okcd hoặc StartTransaction."""
         self.ensure_session()
         self.last_activity = time.time()
+        self.last_popup_message = ""
 
         clean_code = tcode.strip().replace("/n", "").replace("/N", "")
         if not clean_code.startswith("/") and "/" in tcode:
@@ -534,6 +559,41 @@ class SapEngine:
             self._dismiss_popups()
         except Exception as st_err:
             print(f"[SAP ERROR] Không thể mở giao dịch {tcode}: {st_err}")
+
+    def _clear_all_selection_inputs(self, exclude_ids: Optional[Set[str]] = None):
+        """Quét và xóa sạch tất cả các ô nhập liệu (text/ctext) trên wnd[0]/usr để chống dính bộ lọc cũ từ các phiên làm việc trước."""
+        exclude = {x.strip().upper() for x in (exclude_ids or set())}
+        try:
+            usr = self._find_by_id_safe("wnd[0]/usr")
+            if usr is None:
+                return
+
+            def _walk(obj, depth=0):
+                if obj is None or depth > 8:
+                    return
+                try:
+                    obj_type = getattr(obj, "Type", "")
+                    obj_id = str(getattr(obj, "Id", "")).strip().upper()
+                    if obj_type in ("GuiTextField", "GuiCTextField"):
+                        if obj_id not in exclude:
+                            changeable = getattr(obj, "Changeable", False)
+                            readonly = getattr(obj, "ReadOnly", False)
+                            if changeable and not readonly:
+                                try:
+                                    if getattr(obj, "Text", ""):
+                                        obj.Text = ""
+                                except Exception:
+                                    pass
+                    children = getattr(obj, "Children", None)
+                    if children is not None:
+                        for i in range(children.Count):
+                            _walk(children.ElementAt(i), depth + 1)
+                except Exception:
+                    pass
+
+            _walk(usr, 0)
+        except Exception as e:
+            print(f"[SAP CLEAR WARN] Lỗi quét dọn màn hình: {e}")
 
     # --------------------------------------------------------------------------
     # 1. KIỂM TRA VỊ TRÍ BIN & NGÀY GIỜ GR QUA POSTING CHANGE (/SCWM/POST)
@@ -615,14 +675,13 @@ class SapEngine:
             else:
                 print("[SAP POST WARN] Không tìm thấy trường nhập mã vật tư trên /SCWM/POST!")
 
-        # 5. Điền số lô (Batch) nếu có
-        if batch:
-            batch_ctl = self._find_by_id_safe(ID_BATCH_LOW)
-            if batch_ctl is not None:
-                try:
-                    batch_ctl.text = batch.strip()
-                except Exception:
-                    pass
+        # 5. Điền hoặc xóa số lô (Batch)
+        batch_ctl = self._find_by_id_safe(ID_BATCH_LOW)
+        if batch_ctl is not None:
+            try:
+                batch_ctl.text = batch.strip() if batch else ""
+            except Exception:
+                pass
 
         # 6. Bấm thực thi tìm kiếm (Execute)
         print("[SAP POST] Bấm thực thi tìm kiếm (Execute)...")
@@ -698,17 +757,18 @@ class SapEngine:
         self._open_transaction("MB52")
         self._wait_idle(10.0)
 
+        # Xóa sạch toàn bộ bộ lọc cũ còn lưu trong SAP GUI
+        self._clear_all_selection_inputs()
+
         print(f"[SAP MB52] Đang nhập điều kiện tìm kiếm: Materials={materials}, Plant={plant}...")
         clean_mats = [m.strip().upper() for m in materials if m.strip()]
 
-        mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
-        if len(clean_mats) == 1 and mat_single is not None:
-            mat_single.text = clean_mats[0]
+        multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
+        if self._find_by_id_safe(multi_btn_id) is not None:
+            self._fill_multiple_selection(multi_btn_id, clean_mats)
         else:
-            multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
-            if self._find_by_id_safe(multi_btn_id) is not None:
-                self._fill_multiple_selection(multi_btn_id, clean_mats)
-            elif mat_single is not None and clean_mats:
+            mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
+            if mat_single is not None and clean_mats:
                 mat_single.text = clean_mats[0]
 
         if plant:
@@ -808,17 +868,48 @@ class SapEngine:
         self._open_transaction("MB51")
         self._wait_idle(10.0)
 
+        # Xóa sạch toàn bộ bộ lọc cũ còn lưu trong SAP GUI (MBLNR, BWART, LGORT, CHARG...)
+        self._clear_all_selection_inputs()
+
+        # Đảm bảo xóa chắc chắn các trường Header / Item của MB51
+        mb51_explicit_clears = [
+            "wnd[0]/usr/ctxtMBLNR-LOW", "wnd[0]/usr/ctxtMBLNR-HIGH",
+            "wnd[0]/usr/ctxtBWART-LOW", "wnd[0]/usr/ctxtBWART-HIGH",
+            "wnd[0]/usr/ctxtLGORT-LOW", "wnd[0]/usr/ctxtLGORT-HIGH",
+            "wnd[0]/usr/ctxtCHARG-LOW", "wnd[0]/usr/ctxtCHARG-HIGH",
+            "wnd[0]/usr/ctxtLIFNR-LOW", "wnd[0]/usr/ctxtLIFNR-HIGH",
+            "wnd[0]/usr/ctxtKUNNR-LOW", "wnd[0]/usr/ctxtKUNNR-HIGH",
+            "wnd[0]/usr/ctxtSOBKZ-LOW", "wnd[0]/usr/ctxtSOBKZ-HIGH",
+            "wnd[0]/usr/ctxtAUFNR-LOW", "wnd[0]/usr/ctxtAUFNR-HIGH",
+            "wnd[0]/usr/ctxtEBELN-LOW", "wnd[0]/usr/ctxtEBELN-HIGH",
+            "wnd[0]/usr/ctxtKOSTL-LOW", "wnd[0]/usr/ctxtKOSTL-HIGH",
+            "wnd[0]/usr/ctxtKDAUF-LOW", "wnd[0]/usr/ctxtKDAUF-HIGH",
+            "wnd[0]/usr/txtKDPOS-LOW",  "wnd[0]/usr/txtKDPOS-HIGH",
+            "wnd[0]/usr/ctxtPS_PSP_PNR-LOW", "wnd[0]/usr/ctxtPS_PSP_PNR-HIGH",
+            "wnd[0]/usr/ctxtRSNUM-LOW", "wnd[0]/usr/ctxtRSNUM-HIGH",
+            "wnd[0]/usr/ctxtUSNAM-LOW", "wnd[0]/usr/ctxtUSNAM-HIGH",
+            "wnd[0]/usr/ctxtVGART-LOW", "wnd[0]/usr/ctxtVGART-HIGH",
+            "wnd[0]/usr/ctxtXBLNR-LOW", "wnd[0]/usr/ctxtXBLNR-HIGH",
+            "wnd[0]/usr/ctxtMATNR-HIGH", "wnd[0]/usr/ctxtWERKS-HIGH"
+        ]
+        for f_id in mb51_explicit_clears:
+            ctl = self._find_by_id_safe(f_id)
+            if ctl is not None:
+                try:
+                    if getattr(ctl, "Text", ""):
+                        ctl.text = ""
+                except Exception:
+                    pass
+
         print(f"[SAP MB51] Đang nhập điều kiện: Materials={materials}, Days={days}, Plant={plant}...")
         clean_mats = [m.strip().upper() for m in materials if m.strip()]
 
-        mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
-        if len(clean_mats) == 1 and mat_single is not None:
-            mat_single.text = clean_mats[0]
+        multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
+        if self._find_by_id_safe(multi_btn_id) is not None:
+            self._fill_multiple_selection(multi_btn_id, clean_mats)
         else:
-            multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
-            if self._find_by_id_safe(multi_btn_id) is not None:
-                self._fill_multiple_selection(multi_btn_id, clean_mats)
-            elif mat_single is not None and clean_mats:
+            mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
+            if mat_single is not None and clean_mats:
                 mat_single.text = clean_mats[0]
 
         if plant:
@@ -907,6 +998,9 @@ class SapEngine:
         if btn7 is not None:
             btn7.press()
             self._wait_idle(5.0)
+
+        # Xóa sạch các trường lọc cũ trên màn hình chọn
+        self._clear_all_selection_inputs()
 
         # 2. Xóa trường ngày giao để lấy trọn vẹn không bị lọc ngày
         lfdat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-LOW")
@@ -1015,6 +1109,9 @@ class SapEngine:
 
         self._open_transaction("ME2N")
         self._wait_idle(10.0)
+
+        # Xóa sạch các bộ lọc cũ trên màn hình chọn ME2N
+        self._clear_all_selection_inputs()
 
         print(f"[SAP ME2N] Đang tra cứu STO cho Materials={materials}, Plant={plant}...")
         clean_mats = [m.strip().upper() for m in materials if m.strip()]
@@ -1205,34 +1302,51 @@ class SapEngine:
 
         print(f"[SAP VL06O] Tra cứu OB mở: OB='{ob_no}', Materials={materials}, Plant={plant}...")
 
-        # 1. Bấm nút danh sách đơn Outbound (BUTTON1 hoặc BUTTON7)
-        for btn_id in ["wnd[0]/usr/btnBUTTON1", "wnd[0]/usr/btnBUTTON7"]:
-            b = self._find_by_id_safe(btn_id)
-            if b is not None:
-                b.press()
-                self._wait_idle(5.0)
-                break
+        # 1. Điều hướng vào màn hình chọn List Outbound Deliveries (nút btnBUTTON6)
+        date_low_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
+        if date_low_ctl is None:
+            btn6 = self._find_by_id_safe("wnd[0]/usr/btnBUTTON6")
+            if btn6 is not None:
+                btn6.press()
+                self._wait_idle(10.0)
+            else:
+                for b_id in ["wnd[0]/usr/btnBUTTON6", "wnd[0]/usr/btnBUTTON1"]:
+                    b = self._find_by_id_safe(b_id)
+                    if b is not None:
+                        b.press()
+                        self._wait_idle(10.0)
+                        break
 
-        # 2. Xóa trường ngày để không bị giới hạn ngày giao
-        for d_id in ["wnd[0]/usr/ctxtIT_WADAT-LOW", "wnd[0]/usr/ctxtIT_LFDAT-LOW"]:
-            ctl = self._find_by_id_safe(d_id)
-            if ctl is not None:
-                try:
-                    ctl.text = ""
-                except Exception:
-                    pass
+        # 2. Xóa sạch các trường lọc cũ còn đọng lại trên màn hình chọn
+        self._clear_all_selection_inputs()
 
-        # 3. Goods Movement Status = "A" (Chưa Goods Issue)
-        for gm_id in ["wnd[0]/usr/ctxtIT_WBSTK-LOW", "wnd[0]/usr/ctxtIT_WBSTA-LOW"]:
-            gm_ctl = self._find_by_id_safe(gm_id)
-            if gm_ctl is not None:
-                try:
-                    gm_ctl.text = "A"
-                except Exception:
-                    pass
-                break
+        # 3. Điền Planned GI Date (Bắt buộc trong VL06O để không bị lỗi bắt buộc nhập)
+        from_date = (datetime.now() - timedelta(days=60)).strftime("%d.%m.%Y")
+        to_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+        d_from = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
+        if d_from is not None:
+            try:
+                d_from.text = from_date
+            except Exception:
+                pass
+        d_to = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-HIGH")
+        if d_to is not None:
+            try:
+                d_to.text = to_date
+            except Exception:
+                pass
 
-        # 4. Điền số OB nếu có
+        # 4. Goods Movement Status = "A" (Chưa Goods Issue / Đang mở)
+        gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
+        if gm_ctl is None:
+            gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTA-LOW")
+        if gm_ctl is not None:
+            try:
+                gm_ctl.text = "A"
+            except Exception:
+                pass
+
+        # 5. Điền số OB nếu có
         if ob_no:
             for ob_f_id in ["wnd[0]/usr/ctxtIT_VBELN-LOW", "wnd[0]/usr/ctxtS_VBELN-LOW"]:
                 ctl = self._find_by_id_safe(ob_f_id)
@@ -1243,20 +1357,18 @@ class SapEngine:
                         pass
                     break
 
-        # 5. Điền mã vật tư nếu có
-        if materials:
-            clean_mats = [m.strip().upper() for m in materials if m.strip()]
-            mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
-            if len(clean_mats) == 1 and mat_single is not None:
-                mat_single.text = clean_mats[0]
-            elif clean_mats:
-                multi_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
-                if self._find_by_id_safe(multi_id) is not None:
-                    self._fill_multiple_selection(multi_id, clean_mats)
-                elif mat_single is not None:
+        # 6. Điền mã vật tư nếu có
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        if clean_mats:
+            multi_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
+            if self._find_by_id_safe(multi_id) is not None:
+                self._fill_multiple_selection(multi_id, clean_mats)
+            else:
+                mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
+                if mat_single is not None:
                     mat_single.text = clean_mats[0]
 
-        # 6. Điền Plant & Ship-to nếu có
+        # 7. Điền Plant & Ship-to nếu có
         if plant:
             p_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WERKS-LOW")
             if p_ctl is not None:
@@ -1266,14 +1378,16 @@ class SapEngine:
                     pass
 
         if ship_to:
-            sh_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNNR-LOW")
+            sh_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNWE-LOW")
+            if sh_ctl is None:
+                sh_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_KUNNR-LOW")
             if sh_ctl is not None:
                 try:
                     sh_ctl.text = ship_to
                 except Exception:
                     pass
 
-        # 7. Thực thi F8
+        # 8. Thực thi F8
         print("[SAP VL06O] Đang bấm thực thi (F8)...")
         exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
         if exec_btn is not None:
@@ -1282,13 +1396,33 @@ class SapEngine:
             self.session.findById("wnd[0]").sendVKey(8)
 
         self._wait_idle(25.0)
-        self._dismiss_popups()
+        popup_msg = self._dismiss_popups()
 
         status_txt, status_type = self._get_status()
+        comb = f"{status_txt} {popup_msg}".lower()
+        if any(k in comb for k in ["no data", "not found", "không tìm thấy", "no deliver", "giao hàng", "selected", "chưa có"]):
+            print(f"[SAP VL06O] Xác nhận không có đơn Outbound nào: '{status_txt or popup_msg}'")
+            return []
+
         if status_type in ("E", "A"):
             raise SapExecutionError(f"Lỗi SAP VL06O ({status_type}): {status_txt}")
 
-        alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+        # 9. Bấm btn[18] (Item View) để xem danh sách chi tiết Item
+        btn18 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[18]")
+        if btn18 is not None:
+            try:
+                print("[SAP VL06O] Bấm btn[18] (Item View) để xem chi tiết mã hàng...")
+                btn18.press()
+                self._wait_idle(15.0)
+                self._dismiss_popups()
+            except Exception as e:
+                print(f"[SAP VL06O WARN] Không thể bấm btn[18]: {e}")
+
+        # 10. Tìm ALV Grid kết quả
+        alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+        if alv_grid is None:
+            alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
         if alv_grid is None:
             self._validate_grid_or_raise(alv_grid, "VL06O", status_txt, status_type)
             return []

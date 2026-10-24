@@ -6,7 +6,7 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
 1. **Thiết kế bảo mật & an toàn (Zero Inbound Port Architecture):**
    - **0 Open Port:** Không mở cổng mạng lắng nghe (không socket server), chỉ gửi Outbound HTTPS POST duy nhất tới Power Automate Webhook.
    - **0 PowerShell:** Điều khiển SAP GUI và Outlook hoàn toàn qua Windows COM Object trong RAM, không gọi bất kỳ tiến trình PowerShell hay subprocess nhạy cảm nào.
-   - **Kiểm soát phiên SAP:** Tự động dò tìm session rỗi tại Main Menu / bot T-Code, tránh can thiệp nhầm vào phiên làm việc thực tế của người dùng.
+   - **Kiểm soát phiên SAP & Tự động quét sạch bộ lọc cũ (Clean Selection Screen):** Tự động xóa sạch toàn bộ các ID/ô lọc còn sót lại từ phiên trước (MBLNR, BWART, SLoc, Batch...) trước khi chạy MB51, MB52, VL06O, tránh bị lọc sai khiến kết quả trả về rỗng.
 2. **Cơ chế Keep-Alive & Auto-Reconnect:**
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
@@ -14,10 +14,10 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
    - **/SCWM/POST:** Vị trí lưu kho (Bin), Số lượng khả dụng, Số Lô, Ngày GR, Giờ GR, Trạng thái kho EWM.
    - **MB52 (Tồn kho):** Tồn kho tổng hợp hoặc lọc riêng Kho 1005 & 3093 (Tồn, Lô, ĐVT).
    - **MB52 (Tồn thấp đa Plant):** Cảnh báo Top N mã tồn thấp theo Dòng xe (BODY: Plant 3093 & 3001; XMĐ: Plant 3093, 2001 & 3001).
-   - **MB51:** Lịch sử xuất - nhập - chuyển kho trong N ngày gần nhất (Posting Date, Movement Type).
+   - **MB51:** Lịch sử xuất - nhập - chuyển kho trong N ngày gần nhất (Tự động xóa trắng Material Document & Movement Type cũ).
    - **VL06I:** Danh sách đơn Inbound (IB) treo chưa Goods Receipt (GM = A).
    - **ME2N:** Danh sách đơn điều chuyển kho (STO) theo mã hàng (SL đặt, đã xuất, còn nợ).
-   - **VL06O:** Danh sách đơn Outbound (OB) đang mở chưa xuất hàng.
+   - **VL06O:** Danh sách đơn Outbound (OB) đang mở chưa xuất hàng (Chuẩn BUTTON6 & Item View btn[18]).
    - **/SCWM/MON:** Lịch sử xuất nhập & di chuyển Bin-to-Bin (Warehouse Tasks: Confirmed & Cancelled).
 
 ## Cấu trúc thư mục

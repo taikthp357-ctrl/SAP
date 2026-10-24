@@ -414,6 +414,50 @@ def test_check_bin_history_mon_mock():
     assert "Đã hủy" in res[0]["status"]
 
 
+def test_check_open_ob_vl06o_no_data_returns_empty_list():
+    """Kiểm tra khi VL06O không tìm thấy đơn OB nào thì trả về danh sách rỗng, không crash."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.max_alv_rows = 300
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock(return_value="")
+    engine._get_status = MagicMock(return_value=("No outbound deliveries selected", "S"))
+    engine._find_largest_grid = MagicMock(return_value=None)
+    engine._clear_all_selection_inputs = MagicMock()
+
+    res = engine.check_open_ob_vl06o(materials=["BIW32011350AB"])
+    assert res == []
+
+
+def test_clear_all_selection_inputs():
+    """Kiểm tra xóa toàn bộ các ô nhập liệu còn đọng trên màn hình chọn."""
+    engine = SapEngine.__new__(SapEngine)
+    mock_field1 = MagicMock()
+    mock_field1.Type = "GuiTextField"
+    mock_field1.Id = "wnd[0]/usr/ctxtMBLNR-LOW"
+    mock_field1.Changeable = True
+    mock_field1.ReadOnly = False
+    mock_field1.Text = "4904180921"
+
+    mock_field2 = MagicMock()
+    mock_field2.Type = "GuiCTextField"
+    mock_field2.Id = "wnd[0]/usr/ctxtBWART-LOW"
+    mock_field2.Changeable = True
+    mock_field2.ReadOnly = False
+    mock_field2.Text = "311"
+
+    usr_mock = MagicMock()
+    usr_mock.Children.Count = 2
+    usr_mock.Children.ElementAt.side_effect = lambda idx: [mock_field1, mock_field2][idx]
+    engine._find_by_id_safe = MagicMock(return_value=usr_mock)
+
+    engine._clear_all_selection_inputs()
+    assert mock_field1.Text == ""
+    assert mock_field2.Text == ""
+
+
+
 
 
 
