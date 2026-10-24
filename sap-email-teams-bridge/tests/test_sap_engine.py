@@ -477,8 +477,9 @@ def test_check_open_ob_vl06o_mock():
     assert len(res) == 2
     assert res[0]["obNo"] == "80012346"  # Sắp xếp số OB giảm dần
     assert res[1]["obNo"] == "80012345"
-    # Kiểm tra Multiple Selection cho Shipping Point (3093 & 3001)
-    engine._fill_multiple_selection.assert_any_call("wnd[0]/usr/btn%_IF_VSTEL_%_APP_%-VALU_PUSH", ["3093", "3001"])
+    # Kiểm tra Shipping Point được điền thẳng 3093 theo chuẩn RC65 (không dùng popup)
+    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-LOW"].text == "3093"
+    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-HIGH"].text == ""
 
 
 def test_extract_alv_grid_preserves_open_ob_without_batch_or_sloc():
@@ -607,6 +608,7 @@ def test_read_sap_exported_file_openxml(tmp_path):
     ws.append(["Material", "Material Description", "Plant", "SLoc", "Batch", "Unrestr.", "Blocked", "Transit/Transf.", "Base Unit"])
     ws.append(["BIW32011220HA", "LEFT_FRONT_LONGI...", "3001", "3003", "PROD_BAT01", 155, 0, 0, "EA"])
     ws.append(["", "", "3001", "600G", "HUYVIN3252", 1, 0, 0, "EA"])
+    ws.append(["*", "", "", "", "", 156, 0, 0, "EA"])  # Dòng subtotal có dấu sao (*) của SAP ALV
     ws.append(["", "", "3093", "3000", "261024-256", 175, 0, 0, "EA"])
     ws.append(["BIW32011230HA", "LEFT_FRONT_LONGI...", "3001", "", "", 0, 0, 200, "EA"])
     ws.append(["", "", "3001", "3003", "PROD_BAT02", 213, 0, 0, "EA"])
@@ -673,3 +675,47 @@ def test_reset_to_session_manager():
 
 
 
+
+
+def test_check_low_stock_excludes_qc_sloc_9999():
+    """Kiểm tra check_low_stock LOẠI TRỪ TRIỆT ĐỂ SLoc 9999 của bộ phận QC/Phế phẩm (theo 261008_Stock_FG_MA_BODY)."""
+    engine = SapEngine.__new__(SapEngine)
+
+    # Giả lập: BIW71011001AA có 2 pcs tại kho 9999 của QC, 0 pcs tại kho thực tế
+    mock_mb52_records = [
+        {"product": "BIW71011001AA", "plant": "3093", "sloc": "9999", "unrest": "2", "unit": "PC"},
+        {"product": "BIW71004366AA", "plant": "3093", "sloc": "3093", "unrest": "100", "unit": "PC"},
+        {"product": "BIW71004366AA", "plant": "3001", "sloc": "1003", "unrest": "50", "unit": "PC"},
+    ]
+    engine.check_stock_mb52 = MagicMock(return_value=mock_mb52_records)
+
+    res = engine.check_low_stock(["BIW71011001AA", "BIW71004366AA"], plants=["3093", "3001"], limit=10, model_name="VF7")
+    assert len(res) == 2
+    # BIW71011001AA phải báo HẾT HÀNG (0), KHÔNG được cộng 2 pcs của QC 9999
+    assert res[0]["product"] == "BIW71011001AA"
+    assert res[0]["total_stock"] == "0"
+    assert "Hết hàng" in res[0]["status"]
+
+    # BIW71004366AA có tổng 150 pcs tại kho hợp lệ
+    assert res[1]["product"] == "BIW71004366AA"
+    assert res[1]["total_stock"] == "150"
+    assert "Khả dụng" in res[1]["status"]
+
+
+def test_check_low_stock_matches_flexible_material_codes():
+    """Kiểm tra khớp linh hoạt mã hàng (ví dụ MB52 trả về mã không có suffix AA hoặc bỏ số 0 đầu)."""
+    engine = SapEngine.__new__(SapEngine)
+
+    # Trong MB52 trả về mã gốc 'BIW71004366' (thiếu suffix AA)
+    mock_mb52_records = [
+        {"product": "BIW71004366", "plant": "3093", "sloc": "3093", "unrest": "80", "unit": "PC"},
+    ]
+    engine.check_stock_mb52 = MagicMock(return_value=mock_mb52_records)
+
+    # Yêu cầu đánh giá theo danh mục Master là 'BIW71004366AA'
+    res = engine.check_low_stock(["BIW71004366AA"], plants=["3093", "3001"], limit=5, model_name="VF7")
+    assert len(res) == 1
+    assert res[0]["product"] == "BIW71004366AA"
+    # Phải nhận diện được 80 pcs từ BIW71004366, không bị tính là 0
+    assert res[0]["total_stock"] == "80"
+    assert "Khả dụng" in res[0]["status"]

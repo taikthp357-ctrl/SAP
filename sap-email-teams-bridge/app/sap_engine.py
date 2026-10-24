@@ -468,6 +468,7 @@ class SapEngine:
             except Exception:
                 pass
 
+        prev_clip = None
         used_clipboard = False
         btn24 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[24]")
         if len(clean_vals) > 5 and btn24 is not None:
@@ -477,9 +478,15 @@ class SapEngine:
                 if _copy_to_clipboard_safely(clip_text):
                     btn24.press()
                     self._wait_idle(2.0)
-                    used_clipboard = True
-                    if prev_clip is not None:
-                        _copy_to_clipboard_safely(prev_clip)
+                    cell0 = self._find_by_id_safe("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]")
+                    if cell0 is not None and cell0.text.strip().upper() == clean_vals[0]:
+                        used_clipboard = True
+                        print(f"[SAP MULTI-SELECT] Đã paste thành công {len(clean_vals)} giá trị từ clipboard vào Multiple Selection.")
+                    else:
+                        print("[SAP MULTI-SELECT WARN] Paste clipboard chưa thấy ăn dòng đầu, thử lại...")
+                        btn24.press()
+                        self._wait_idle(2.0)
+                        used_clipboard = True
             except Exception as clip_err:
                 print(f"[SAP WARN] Lỗi paste clipboard vào Multiple Selection: {clip_err}")
 
@@ -506,6 +513,13 @@ class SapEngine:
                 wnd1.sendVKey(8)
 
         self._wait_idle(3.0)
+
+        # Khôi phục clipboard sau khi cửa sổ popup đã đóng và SAP đã nhận dữ liệu
+        if prev_clip is not None:
+            try:
+                _copy_to_clipboard_safely(prev_clip)
+            except Exception:
+                pass
 
     def _validate_grid_or_raise(self, alv_grid, tcode_name: str, status_txt: str, status_type: str):
         """Phân biệt chính xác giữa việc không có dữ liệu thực sự và lỗi không mở được bảng kết quả SAP."""
@@ -897,21 +911,22 @@ class SapEngine:
                 else:
                     item[out_key] = ""
 
-            p_val = item.get("product", "")
-            if p_val:
-                last_product = p_val
+            curr_p = str(item.get("product", "")).strip()
+            # Bỏ qua dòng tổng kết / subtotal (ví dụ '*', 'Total', 'Tổng', 'Σ') TRƯỚC KHI cập nhật last_product
+            if curr_p == "*" or curr_p.lower().startswith("total") or curr_p.lower().startswith("tổng") or curr_p.startswith("Σ"):
+                continue
+
+            # Chỉ kế thừa / cập nhật last_product khi là mã hàng thực sự hợp lệ
+            if curr_p:
+                last_product = curr_p
             elif last_product:
                 item["product"] = last_product
 
-            pl_val = item.get("plant", "")
-            if pl_val:
+            pl_val = str(item.get("plant", "")).strip()
+            if pl_val and pl_val != "*" and not pl_val.lower().startswith("total") and not pl_val.lower().startswith("tổng"):
                 last_plant = pl_val
             elif last_plant:
                 item["plant"] = last_plant
-
-            curr_p = str(item.get("product", "")).strip()
-            if curr_p == "*" or curr_p.lower().startswith("total") or curr_p.lower().startswith("tổng"):
-                continue
 
             has_data = bool(
                 item.get("obNo") or item.get("docNo") or item.get("stoNo") or
@@ -1773,18 +1788,49 @@ class SapEngine:
         stock_by_mat = {m: {p: 0.0 for p in target_plants} for m in mats_to_evaluate}
         unit_by_mat = {m: "PC" for m in mats_to_evaluate}
 
-        # 3. Gom tồn kho theo Mã hàng và theo từng Plant
+        # Tạo helper mapping để map linh hoạt mã trả về từ MB52 (có/không BIW, có/không suffix AA...) về key chuẩn trong mats_to_evaluate
+        def _find_eval_mat(prod_code: str) -> Optional[str]:
+            p_clean = prod_code.strip().upper()
+            if not p_clean:
+                return None
+            if p_clean in stock_by_mat:
+                return p_clean
+            p_unpadded = p_clean.lstrip("0")
+            p_core = re.sub(r"^[A-Z]+", "", p_unpadded)
+            p_core = re.sub(r"[A-Z]+$", "", p_core)
+
+            for target_m in mats_to_evaluate:
+                t_clean = target_m.strip().upper()
+                if p_clean == t_clean or p_unpadded == t_clean.lstrip("0"):
+                    return target_m
+                t_core = re.sub(r"^[A-Z]+", "", t_clean.lstrip("0"))
+                t_core = re.sub(r"[A-Z]+$", "", t_core)
+                if len(p_core) >= 6 and len(t_core) >= 6 and (p_core == t_core or p_core in t_core or t_core in p_core):
+                    return target_m
+            return None
+
+        # 3. Gom tồn kho theo Mã hàng và theo từng Plant (TUYỆT ĐỐI BỎ QUA SLoc 9999 của QC)
         for r in mb52_records:
-            mat = r.get("product", "").strip().upper()
+            mat_raw = r.get("product", "").strip().upper()
             p = r.get("plant", "").strip().upper()
-            if mat not in stock_by_mat:
-                stock_by_mat[mat] = {pl: 0.0 for pl in target_plants}
-                if mat not in mats_to_evaluate:
-                    mats_to_evaluate.append(mat)
-            if p in stock_by_mat[mat]:
-                stock_by_mat[mat][p] += parse_sap_float(r.get("unrest", "0"))
+            sloc = r.get("sloc", "").strip().upper()
+
+            # LOẠI BỎ TRIỆT ĐỂ SLOC 9999 (QC / Phế phẩm / Blocked) THEO 261008_Stock_FG_MA_BODY
+            if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE"]:
+                continue
+
+            matched_mat = _find_eval_mat(mat_raw)
+            if not matched_mat:
+                matched_mat = mat_raw
+                stock_by_mat[matched_mat] = {pl: 0.0 for pl in target_plants}
+                if matched_mat not in mats_to_evaluate:
+                    mats_to_evaluate.append(matched_mat)
+
+            if p in stock_by_mat[matched_mat]:
+                stock_by_mat[matched_mat][p] += parse_sap_float(r.get("unrest", "0"))
+
             if r.get("unit"):
-                unit_by_mat[mat] = r.get("unit")
+                unit_by_mat[matched_mat] = r.get("unit")
 
         # 4. Tự xử lý tổng hợp và phân loại cảnh báo
         output_records = []
@@ -1926,13 +1972,10 @@ class SapEngine:
             clean_ob = str(ob_no or "").strip()
             user_plant = str(plant or "3093").strip().upper()
 
-            # Xác định danh sách Shipping Points: bao quát cả Kho FG 3093 và Line Body 3001
-            if user_plant == "3001":
-                target_shipping_points = ["3001", "3093"]
-            else:
-                target_shipping_points = ["3093", "3001"]
+            # Chuẩn RC65 (ModuleSAP.bas dòng 2572-2584): Shipping Point = "3093" trực tiếp
+            target_vstel = "3098" if user_plant == "3098" else "3093"
 
-            print(f"[SAP VL06O] Tra cứu OB mở theo chuẩn RC65: OB='{clean_ob}', Materials={clean_mats}, ShippingPoints={target_shipping_points}, ShipTo='{ship_to}'...")
+            print(f"[SAP VL06O] Tra cứu OB mở theo chuẩn RC65: OB='{clean_ob}', Materials={clean_mats}, ShippingPoint='{target_vstel}', ShipTo='{ship_to}'...")
 
             # 1. Điều hướng vào màn hình chọn List Outbound Deliveries (nút btnBUTTON6)
             date_low_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
@@ -1956,22 +1999,20 @@ class SapEngine:
                 "wnd[0]/usr/btn%_IT_VBELN_%_APP_%-VALU_PUSH",
                 "wnd[0]/usr/btn%_IT_KUNWE_%_APP_%-VALU_PUSH",
                 "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH",
-                "wnd[0]/usr/btn%_IT_WADAT_%_APP_%-VALU_PUSH"
+                "wnd[0]/usr/btn%_IT_WADAT_%_APP_%-VALU_PUSH",
+                "wnd[0]/usr/btn%_IF_VSTEL_%_APP_%-VALU_PUSH"
             ]:
                 if self._find_by_id_safe(btn_id) is not None:
                     self._clear_multiple_selection(btn_id)
 
-            # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Shipping Point / Receiving Pt. (BẮT BUỘC trong VL06O)
-            multi_vstel_id = "wnd[0]/usr/btn%_IF_VSTEL_%_APP_%-VALU_PUSH"
-            if self._find_by_id_safe(multi_vstel_id) is not None:
-                self._fill_multiple_selection(multi_vstel_id, target_shipping_points)
-            else:
-                vstel_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-LOW")
-                if vstel_ctl is not None:
-                    try:
-                        vstel_ctl.text = target_shipping_points[0]
-                    except Exception as e:
-                        print(f"[SAP VL06O WARN] Không thể điền Shipping Point: {e}")
+            # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Điền Shipping Point = 3093 trực tiếp vào ctxtIF_VSTEL-LOW (không dùng popup)
+            vstel_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-LOW")
+            if vstel_ctl is not None:
+                try:
+                    vstel_ctl.text = target_vstel
+                except Exception as e:
+                    print(f"[SAP VL06O WARN] Không thể điền Shipping Point: {e}")
+
             vstel_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-HIGH")
             if vstel_hi is not None:
                 try:
