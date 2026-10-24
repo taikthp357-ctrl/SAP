@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
     "outlook_folder_name": "SAP_BOT",
     "poll_interval_seconds": 10,
     "default_plant": "3093",
-    "max_alv_rows": 500,
+    "max_alv_rows": 15000,
     "keep_alive_idle_seconds": 900,
     "sap_number_format": "AUTO",
     "strict_session_safety": True,

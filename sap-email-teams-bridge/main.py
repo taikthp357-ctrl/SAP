@@ -122,7 +122,7 @@ def run_bridge():
     folder_name = config.get("outlook_folder_name", "SAP_BOT")
     poll_sec = config.get("poll_interval_seconds", 8)
     def_plant = config.get("default_plant", "3093")
-    max_rows = config.get("max_alv_rows", 300)
+    max_rows = config.get("max_alv_rows", 15000)
     keep_alive_idle = config.get("keep_alive_idle_seconds", 900)
 
     print("==================================================================")

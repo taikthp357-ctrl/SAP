@@ -107,6 +107,46 @@ def test_resolve_real_scwm_post_headers():
     assert resolved["grTime"] == "C8"
 
 
+def test_resolve_mb52_unrestr_caption():
+    """Kiểm tra phân giải chính xác tiêu đề Unrestr. trên MB52 SAP GUI theo đúng ảnh chụp thực tế."""
+    engine = SapEngine.__new__(SapEngine)
+    alv_mock = MagicMock()
+    alv_mock.ColumnOrder = FakeColumnCollection(["C_MAT", "C_PLANT", "C_SLOC", "C_BATCH", "C_UNREST", "C_TRANS", "C_UNIT"])
+
+    titles = {
+        "C_MAT": "Material",
+        "C_PLANT": "Plant",
+        "C_SLOC": "SLoc",
+        "C_BATCH": "Batch",
+        "C_UNREST": "Unrestr.",
+        "C_TRANS": "Transit/Transf.",
+        "C_UNIT": "Base Unit"
+    }
+    alv_mock.GetDisplayedColumnTitle.side_effect = lambda c: titles.get(c, "")
+    alv_mock.GetColumnTitles.return_value = []
+    alv_mock.GetColumnTooltip.return_value = ""
+    alv_mock.GetColumnTitle.side_effect = lambda c: titles.get(c, "")
+    alv_mock.ColumnTitle.side_effect = lambda c: titles.get(c, "")
+
+    col_map = {
+        "product": ["MATNR", "MATERIAL", "PRODUCT"],
+        "plant":   ["WERKS", "PLANT"],
+        "sloc":    ["LGORT", "STORAGE LOCATION", "SLOC"],
+        "batch":   ["CHARG", "BATCH"],
+        "unrest":  ["LABST", "UNRESTR", "UNRESTR.", "UNRESTRICTED", "UNRESTRICTED STOCK"],
+        "transit": ["TRAME", "STOCK IN TRANSIT", "TRANSIT/TRANSF."],
+        "unit":    ["MEINS", "BASE UNIT", "UNIT"]
+    }
+    resolved = engine._resolve_grid_columns(alv_mock, col_map)
+    assert resolved["product"] == "C_MAT"
+    assert resolved["plant"] == "C_PLANT"
+    assert resolved["sloc"] == "C_SLOC"
+    assert resolved["batch"] == "C_BATCH"
+    assert resolved["unrest"] == "C_UNREST"
+    assert resolved["transit"] == "C_TRANS"
+    assert resolved["unit"] == "C_UNIT"
+
+
 def test_extract_alv_grid_with_forward_fill():
     """Kiểm tra trích xuất dòng và forward-fill khi SAP ALV gộp ô Material."""
     engine = SapEngine.__new__(SapEngine)

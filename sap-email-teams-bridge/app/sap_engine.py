@@ -61,7 +61,7 @@ class SapEngine:
 
     def __init__(
         self,
-        max_alv_rows: int = 300,
+        max_alv_rows: int = 15000,
         keep_alive_idle_seconds: int = 900,
         connection_index: int = 0,
         session_index: int = 0,
@@ -539,8 +539,13 @@ class SapEngine:
             f"Trạng thái: '{status_txt or 'Lỗi hiển thị giao diện SAP'}'"
         )
 
-    def _extract_alv_grid(self, alv_obj, column_mapping: Dict[str, List[str]]) -> List[Dict[str, str]]:
-        """Trích xuất ALV Grid kèm cơ chế cuộn dòng, forward-fill mã hàng và lọc bỏ dòng tổng cộng (Summary rows)."""
+    def _extract_alv_grid(
+        self,
+        alv_obj,
+        column_mapping: Dict[str, List[str]],
+        max_rows: Optional[int] = None
+    ) -> List[Dict[str, str]]:
+        """Trích xuất ALV Grid kèm cơ chế forward-fill mã hàng và lọc bỏ dòng tổng cộng (Summary rows)."""
         try:
             row_count = int(alv_obj.RowCount)
         except Exception:
@@ -551,23 +556,23 @@ class SapEngine:
 
         resolved_cols = self._resolve_grid_columns(alv_obj, column_mapping)
         records = []
-        limit = min(row_count, self.max_alv_rows)
+        effective_max = max_rows if max_rows is not None else self.max_alv_rows
+        limit = min(row_count, effective_max)
         last_product = ""
 
         for r in range(limit):
-            if r % 25 == 0:
-                try:
-                    alv_obj.firstVisibleRow = r
-                except Exception:
-                    pass
-
             item = {}
             for out_key, sap_col in resolved_cols.items():
                 try:
                     val = alv_obj.GetCellValue(r, sap_col)
                     item[out_key] = str(val).strip()
                 except Exception:
-                    item[out_key] = ""
+                    try:
+                        alv_obj.firstVisibleRow = r
+                        val = alv_obj.GetCellValue(r, sap_col)
+                        item[out_key] = str(val).strip()
+                    except Exception:
+                        item[out_key] = ""
 
             # Forward-fill Product nếu ô bị gộp hiển thị trống
             curr_prod = item.get("product", "")
@@ -585,13 +590,14 @@ class SapEngine:
             # 2. Dòng dữ liệu hợp lệ trong SAP ALV:
             # Phải có ít nhất một trường định danh chứng từ hoặc vị trí:
             # (obNo, docNo, stoNo, ibNo, wtNo, item, batch, bin, sloc, refNo, mvtType)
-            # HOẶC có cả mã hàng (product) và số lượng (qty) hợp lệ
+            # HOẶC có mã hàng (product) kèm số lượng (qty, unrest, transit) hợp lệ
             has_identifying_data = bool(
                 item.get("obNo") or item.get("docNo") or item.get("stoNo") or
                 item.get("ibNo") or item.get("wtNo") or item.get("item") or
                 item.get("batch") or item.get("bin") or item.get("sloc") or
                 item.get("refNo") or item.get("mvtType") or
-                (item.get("product") and item.get("qty"))
+                item.get("unrest") or item.get("transit") or
+                (item.get("product") and (item.get("qty") or item.get("unrest") or item.get("transit")))
             )
             if not has_identifying_data:
                 continue
@@ -821,7 +827,8 @@ class SapEngine:
         materials: Optional[List[str]] = None,
         plant: str = "3093",
         plants: Optional[List[str]] = None,
-        slocs: Optional[List[str]] = None
+        slocs: Optional[List[str]] = None,
+        max_rows: Optional[int] = 15000
     ) -> List[Dict[str, str]]:
         """Tra cứu tồn kho tổng hợp MB52 kèm Vị trí Bin (LGPBE) theo modMB52.bas của BBBG và Module1.bas của Stock_FG_MA_BODY.
         
@@ -847,7 +854,8 @@ class SapEngine:
         if len(target_plants) > 1:
             if self._find_by_id_safe(multi_plant_btn) is not None:
                 self._fill_multiple_selection(multi_plant_btn, target_plants)
-            for p_id in ["wnd[0]/usr/ctxtWERKS-LOW", "wnd[0]/usr/ctxtWERKS-HIGH", "wnd[0]/usr/ctxtRM07M-WERKS"]:
+            # Giữ nguyên giá trị đại diện trên ctxtWERKS-LOW theo đúng chuẩn Multiple Selection của SAP (như Stock_FG_MA_BODY)
+            for p_id in ["wnd[0]/usr/ctxtWERKS-HIGH"]:
                 p_ctl = self._find_by_id_safe(p_id)
                 if p_ctl is not None:
                     try:
@@ -953,17 +961,22 @@ class SapEngine:
             return []
 
         col_map = {
-            "product": ["MATNR", "MATERIAL"],
+            "product": ["MATNR", "MATERIAL", "PRODUCT"],
             "plant":   ["WERKS", "PLANT"],
-            "sloc":    ["LGORT", "SLOC", "STORAGE LOCATION"],
+            "sloc":    ["LGORT", "STORAGE LOCATION", "STORAGE LOC", "STOR LOC", "SLOC"],
             "batch":   ["CHARG", "BATCH"],
             "bin":     ["LGPBE", "BIN", "STORAGE BIN"],
-            "unrest":  ["LABST", "UNRESTRICTED", "UNRESTRICTED USE"],
+            "unrest":  [
+                "LABST", "UNRESTR", "UNRESTR.", "UNRESTRICTED",
+                "UNRESTRICTED STOCK", "UNRESTRICTED USE", "UNRESTRICTED USE STOCK",
+                "KHA DUNG", "KHẢ DỤNG", "KHO DUNG", "CLABS", "KALAB"
+            ],
+            "transit": ["TRAME", "STOCK IN TRANSIT", "TRANSIT/TRANSF.", "TRANSIT"],
             "qual":    ["INSME", "QUALITY INSPECTION", "IN QUALITY INSP."],
             "blocked": ["SPEME", "BLOCKED"],
-            "unit":    ["MEINS", "BASE UNIT OF MEASURE", "UNIT"]
+            "unit":    ["MEINS", "BASE UNIT OF MEASURE", "BASE UNIT", "UNIT"]
         }
-        records = self._extract_alv_grid(alv_grid, col_map)
+        records = self._extract_alv_grid(alv_grid, col_map, max_rows=max_rows)
         print(f"[SAP MB52] Đã trích xuất {len(records)} dòng dữ liệu tồn kho.")
 
         if slocs:
@@ -1368,9 +1381,9 @@ class SapEngine:
 
         print(f"[SAP LOW STOCK] Quét MB52 cả 2 xưởng {target_plants} cho {len(clean_mats)} mã (Model={model_name}, Top={limit})...")
 
-        # 1. Gọi MB52 DUY NHẤT 1 LẦN cho cả 2 xưởng (Plant 3093 và 3001)
+        # 1. Gọi MB52 DUY NHẤT 1 LẦN cho cả 2 xưởng (Plant 3093 và 3001) với giới hạn trích xuất tối đa toàn bộ dữ liệu (15,000 dòng)
         try:
-            mb52_records = self.check_stock_mb52(clean_mats, plants=target_plants)
+            mb52_records = self.check_stock_mb52(clean_mats, plants=target_plants, max_rows=15000)
             print(f"[SAP LOW STOCK] MB52 trả về tổng cộng {len(mb52_records)} dòng dữ liệu từ các xưởng.")
         except Exception as e:
             print(f"[SAP LOW STOCK WARN] Lỗi truy vấn MB52 đa xưởng: {e}")
