@@ -385,6 +385,181 @@ class MigoAttachmentRunner:
         except Exception as e:
             return "HEADTEXT_EXCEPTION", str(e)
 
+    @staticmethod
+    def check_existing_sap_attachments(titles: List[str], ticket_no: str) -> Tuple[Optional[str], Optional[str]]:
+        """Kiểm tra danh sách tiêu đề file đính kèm đã có trên SAP MIGO (từ popup Attachment list).
+        
+        Đối chiếu với số phiếu đã cho:
+        - Tìm file BBBG đã có (VD: '3874 BB', 'BBBG 3874', 'in 3874 BBBG')
+        - Tìm file VAT đã có (VD: 'VAT 3874', '3874 VAT', 'in 3874 VAT')
+        Trả về: (sap_bbbg_title, sap_vat_title)
+        """
+        if not titles:
+            return None, None
+
+        search_nums, search_compact = extract_search_tokens(ticket_no)
+        bbbg_found = None
+        vat_found = None
+
+        for title in titles:
+            norm = normalize_text(title)
+            title_nums, title_compact = extract_search_tokens(title)
+
+            # Kiểm tra xem title trên SAP có chứa số phiếu của chứng từ này không
+            is_ticket_match = False
+            if search_nums and title_nums:
+                if set(search_nums).intersection(set(title_nums)):
+                    is_ticket_match = True
+            elif search_compact and (search_compact in title_compact or title_compact in search_compact):
+                is_ticket_match = True
+            elif not search_nums:
+                is_ticket_match = True
+
+            if is_ticket_match:
+                if not bbbg_found and BBBG_REGEX.search(norm):
+                    bbbg_found = title
+                if not vat_found and VAT_REGEX.search(norm):
+                    vat_found = title
+
+        return bbbg_found, vat_found
+
+    def read_sap_attachment_titles(self, session) -> List[str]:
+        """Kiểm tra và đọc danh sách tiêu đề các file đính kèm đã có sẵn trên SAP MIGO qua nút OK_REF_ATTA / Attachment list."""
+        titles: List[str] = []
+        if session is None:
+            return titles
+
+        try:
+            # 1. Tìm nút OK_REF_ATTA (Display Attachment) trên màn hình MIGO
+            button = None
+            for cand_id in [
+                "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
+                "wnd[0]/usr/btnOK_REF_ATTA"
+            ]:
+                try:
+                    button = session.findById(cand_id)
+                    if button:
+                        break
+                except Exception:
+                    pass
+
+            if button is None:
+                try:
+                    button = session.findById("wnd[0]").findByName("OK_REF_ATTA", "GuiButton")
+                except Exception:
+                    pass
+
+            has_opened = False
+
+            # Nếu tìm thấy nút OK_REF_ATTA và nút đang sáng (Enabled)
+            if button is not None:
+                enabled = getattr(button, "Enabled", True)
+                if enabled is False or str(enabled).upper() == "FALSE":
+                    # Nút bị mờ / disabled -> SAP chưa có đính kèm nào trên chứng từ này
+                    return []
+                try:
+                    button.Press()
+                    has_opened = True
+                except Exception:
+                    pass
+
+            # Fallback nếu không bấm được nút OK_REF_ATTA: thử mở qua GOS shell %GOS_VIEW_ATTA
+            if not has_opened:
+                for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
+                    try:
+                        shell = session.findById(shell_id)
+                        if shell:
+                            try:
+                                shell.PressContextButton("%GOS_TOOLBOX")
+                                shell.SelectContextMenuItem("%GOS_VIEW_ATTA")
+                                has_opened = True
+                                break
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+            if not has_opened:
+                return []
+
+            time.sleep(0.5)
+
+            # 2. Đọc popup Attachment list (wnd[1])
+            popup = None
+            try:
+                popup = session.findById("wnd[1]")
+            except Exception:
+                pass
+
+            if popup is not None:
+                grid = None
+                for cand_grid_id in [
+                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont/shell",
+                    "wnd[1]/usr/cntlCONTAINER/shellcont/shell",
+                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont",
+                    "wnd[1]/usr/shell"
+                ]:
+                    try:
+                        g = session.findById(cand_grid_id)
+                        if g:
+                            grid = g
+                            break
+                    except Exception:
+                        pass
+
+                if grid is None:
+                    def find_grid(obj, depth=0):
+                        if depth > 10 or obj is None:
+                            return None
+                        try:
+                            c_type = str(getattr(obj, "Type", ""))
+                            c_sub = str(getattr(obj, "SubType", ""))
+                            if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
+                                return obj
+                            children = getattr(obj, "Children", None)
+                            if children:
+                                for idx in range(children.Count):
+                                    res = find_grid(children.Item(idx), depth + 1)
+                                    if res:
+                                        return res
+                        except Exception:
+                            pass
+                        return None
+                    grid = find_grid(popup)
+
+                if grid:
+                    try:
+                        row_count = int(getattr(grid, "RowCount", 0))
+                        for r in range(row_count):
+                            title_val = ""
+                            for col_name in ["BITM_DESCR", "OBJDES", "TITLE", "DESCRIPT", "FILENAME"]:
+                                try:
+                                    val = grid.GetCellValue(r, col_name)
+                                    if val and str(val).strip():
+                                        title_val = str(val).strip()
+                                        break
+                                except Exception:
+                                    continue
+                            if title_val:
+                                titles.append(title_val)
+                    except Exception as e:
+                        print(f"[SAP ATT LIST WARN] Lỗi đọc grid: {e}")
+
+                # 3. Đóng popup wnd[1]
+                try:
+                    popup.Close()
+                except Exception:
+                    try:
+                        session.findById("wnd[1]").SendVKey(12)
+                    except Exception:
+                        pass
+
+                time.sleep(0.3)
+        except Exception as ex:
+            print(f"[SAP ATT LIST ERROR] {ex}")
+
+        return titles
+
     def attach_file_to_current_migo(self, session, file_path: Path) -> Tuple[bool, str]:
         """Đính kèm 1 file vật lý vào chứng từ MIGO đang mở trên SAP qua GOS (%GOS_TOOLBOX)."""
         abs_path = file_path.resolve()
@@ -781,13 +956,21 @@ class MigoAttachmentRunner:
                     overall_status = nav_msg
                     total_missing += 1
                 else:
+                    # 0. KIỂM TRA ĐÍNH KÈM ĐÃ CÓ SẴN TRÊN SAP MIGO (Display Attachment / OK_REF_ATTA)
+                    sap_titles = self.read_sap_attachment_titles(session)
+                    sap_bbbg, sap_vat = self.check_existing_sap_attachments(sap_titles, ticket_no)
+
                     # 1. Điền số phiếu vào Header Text nếu được yêu cầu
                     if fill_headtext and ticket_no:
                         headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
 
                     # 2. Đính kèm file BBBG
                     b_ok = False
-                    if bbbg_path:
+                    if sap_bbbg:
+                        b_ok = True
+                        bbbg_res = format_status_label(ticket_no, True)
+                        print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
+                    elif bbbg_path:
                         b_ok, b_msg = self.attach_file_to_current_migo(session, bbbg_path)
                         bbbg_res = format_status_label(ticket_no, b_ok) if b_ok else f"Lỗi: {b_msg}"
                     else:
@@ -795,7 +978,11 @@ class MigoAttachmentRunner:
 
                     # 3. Đính kèm file VAT
                     v_ok = False
-                    if vat_path:
+                    if sap_vat:
+                        v_ok = True
+                        vat_res = format_status_label(ticket_no, True)
+                        print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
+                    elif vat_path:
                         v_ok, v_msg = self.attach_file_to_current_migo(session, vat_path)
                         vat_res = format_status_label(ticket_no, v_ok) if v_ok else f"Lỗi: {v_msg}"
                     else:

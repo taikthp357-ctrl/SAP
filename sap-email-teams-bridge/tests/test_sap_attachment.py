@@ -443,4 +443,68 @@ def test_parse_attachment_large_list_111_rows():
     assert items[-1]["ticket_no"] == "Thành Công in 3874"
 
 
+def test_check_existing_sap_attachments():
+    """Kiểm tra đối chiếu các file đính kèm đã có trên SAP MIGO với số phiếu."""
+    titles = [
+        "3874 BB",
+        "VAT 3874",
+        "Email_trao_doi.msg",
+        "Other_Document.pdf"
+    ]
+    # Khớp số phiếu 3874 từ text 'Thành Công in 3874'
+    bbbg, vat = MigoAttachmentRunner.check_existing_sap_attachments(titles, "Thành Công in 3874")
+    assert bbbg == "3874 BB"
+    assert vat == "VAT 3874"
+
+    # Trường hợp số phiếu 6456
+    titles_6456 = ["6456 BBBG.pdf", "HD_VAT_6456.xlsx"]
+    bbbg, vat = MigoAttachmentRunner.check_existing_sap_attachments(titles_6456, "AUTOMECH IN 6456")
+    assert bbbg == "6456 BBBG.pdf"
+    assert vat == "HD_VAT_6456.xlsx"
+
+    # Trường hợp trên SAP chỉ có BBBG, chưa có VAT
+    titles_only_bb = ["3874 BB"]
+    bbbg, vat = MigoAttachmentRunner.check_existing_sap_attachments(titles_only_bb, "Thành Công in 3874")
+    assert bbbg == "3874 BB"
+    assert vat is None
+
+    # Không khớp số phiếu
+    bbbg, vat = MigoAttachmentRunner.check_existing_sap_attachments(titles, "LTV in 6397")
+    assert bbbg is None
+    assert vat is None
+
+
+def test_process_attachment_batch_with_sap_existing_attachments():
+    """Kiểm tra khi BBBG đã có sẵn trên SAP MIGO thì bot đánh dấu Thành Công in 3874, không báo FILE_NOT_FOUND."""
+    from unittest.mock import MagicMock
+    mock_sap = MagicMock()
+    mock_session = MagicMock()
+    mock_sap.ensure_session.return_value = mock_session
+
+    runner = MigoAttachmentRunner(sap_engine=mock_sap)
+    
+    # Mock read_sap_attachment_titles và open_migo_document
+    runner.open_migo_document = lambda session, doc, year=None, mode="DISPLAY": (True, "OK")
+    runner.read_sap_attachment_titles = lambda session: ["3874 BB"]
+    
+    # Giả lập thư mục không có file nào (để chứng minh không upload lại từ thư mục)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        res = runner.process_attachment_batch(
+            folder_path=tmp_dir,
+            items=[{"doc": "5006458947", "ticket_no": "Thành Công in 3874"}],
+            dry_run=False
+        )
+        assert len(res["results"]) == 1
+        item = res["results"][0]
+        # BBBG đã có trên SAP -> đánh dấu Thành Công in 3874
+        assert item["bbbg_status"] == "Thành Công in 3874"
+        # VAT chưa có trên SAP và thư mục không có -> FILE_NOT_FOUND
+        assert item["vat_status"] == "FILE_NOT_FOUND"
+        # Overall status thành công vì đã có BBBG hợp lệ
+        assert item["overall_status"] == "Thành Công in 3874"
+        assert res["total_success"] == 1
+
+
+
 
