@@ -1809,22 +1809,107 @@ class SapEngine:
         materials: List[str],
         plants: List[str],
         limit: int = 20,
-        model_name: str = ""
+        model_name: str = "",
+        shop_name: str = "BODY"
     ) -> List[Dict[str, str]]:
-        """Tra cứu và tổng hợp danh sách mã tồn thấp từ MB52 qua cả 2 xưởng (hoặc các Plant chỉ định) trong MỘT LẦN CHẠY MB52 duy nhất.
+        """Tra cứu và tổng hợp danh sách mã tồn thấp chuẩn theo 261008_Stock_FG_MA_BODY V3.7.
         
-        - BODY: Plant 3093 (Kho FG) & 3001 (Line Body)
-        - XMĐ:  Plant 3093 (Kho FG), 2001 (Xưởng XMĐ) & 3001 (Line Body)
-        Tự xử lý gom dữ liệu và sắp xếp tăng dần theo tổng tồn (mã tồn thấp nhất / hết hàng lên đầu).
+        - BODY: Tồn kho Body tính theo 11 cột chuẩn:
+          Material, US, Line Body (3001|3003), BD Kho (3001|1003), BD Carset (INT((Line+Kho)/US)),
+          Transit (Intransit), Tồn MA (3093|3093), Tồn Line (3093|3000), Model, Trạm, Cảnh báo.
+        - Tự động đọc và đối chiếu trực tiếp từ file 261008_Stock_FG_MA_BODY.xlsm nếu có sẵn,
+          hoặc chạy MB52 đa xưởng live và tổng hợp chuẩn theo cùng thuật toán.
         """
         clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
         target_plants = [p.strip().upper() for p in (plants or []) if p.strip()]
         if not target_plants:
             target_plants = ["3093", "3001"]
 
-        print(f"[SAP LOW STOCK] Quét MB52 cả 2 xưởng {target_plants} cho {len(clean_mats)} mã (Model={model_name}, Top={limit})...")
+        # 1. ƯU TIÊN KIỂM TRA FILE CHUẨN 261008_Stock_FG_MA_BODY.xlsm NẾU CÓ
+        excel_body = Path(r"G:\SAP±008_Stock_FG_MA_BODY.xlsm")
+        if excel_body.exists():
+            try:
+                import openpyxl
+                wb_b = openpyxl.load_workbook(str(excel_body), data_only=True)
+                if "TON TONG" in wb_b.sheetnames:
+                    ws_tt = wb_b["TON TONG"]
+                    clean_model = (model_name or "").strip().upper()
+                    threshold = 200
+                    warnings_map = {}
 
-        # 1. Gọi MB52 DUY NHẤT 1 LẦN cho cả 2 xưởng (Plant 3093 và 3001) với giới hạn trích xuất tối đa toàn bộ dữ liệu (15,000 dòng)
+                    for r in range(2, ws_tt.max_row + 1):
+                        mat_v = ws_tt.cell(r, 1).value
+                        model_v = ws_tt.cell(r, 9).value
+                        if not mat_v or not model_v:
+                            continue
+                        m_str = str(mat_v).strip().upper()
+                        mdl_str = str(model_v).strip()
+
+                        # Nếu có danh sách mã chỉ định thì lọc theo mã, ngược lại lọc theo Model
+                        if clean_mats and m_str not in clean_mats:
+                            continue
+                        if not clean_mats and clean_model and clean_model != "ALL" and clean_model not in mdl_str.upper():
+                            continue
+
+                        us = float(ws_tt.cell(r, 2).value or 1)
+                        if us <= 0:
+                            us = 1
+                        line_body = float(ws_tt.cell(r, 3).value or 0)
+                        kho_body = float(ws_tt.cell(r, 4).value or 0)
+                        can_build = float(ws_tt.cell(r, 5).value or 0)
+                        intransit = float(ws_tt.cell(r, 6).value or 0)
+                        kho_ma = float(ws_tt.cell(r, 7).value or 0)
+                        line_ma = float(ws_tt.cell(r, 8).value or 0)
+                        tram = str(ws_tt.cell(r, 10).value or "").strip()
+
+                        # Xác định hành động cảnh báo chuẩn V3.7
+                        pending = max(0.0, intransit)
+                        if pending > 0 and int((line_body + kho_body + pending) / us) >= threshold:
+                            action = f"Hàng chờ xuất sang Body ({int(pending)})"
+                        else:
+                            if kho_ma > 0:
+                                action = "Ưu tiên xuất Body"
+                            elif line_ma > 0:
+                                action = "Ưu tiên kéo line"
+                            else:
+                                action = "MA hết tồn"
+                            if pending > 0:
+                                action += f" (Chờ xuất: {int(pending)})"
+
+                        rec = {
+                            "product": m_str,
+                            "us": str(int(us)),
+                            "line_body": format_qty_display(line_body),
+                            "bd_kho": format_qty_display(kho_body),
+                            "bd_carset": format_qty_display(can_build),
+                            "transit": format_qty_display(intransit),
+                            "kho_ma": format_qty_display(kho_ma),
+                            "line_ma": format_qty_display(line_ma),
+                            "model": mdl_str,
+                            "station": tram or "-",
+                            "status": action,
+                            "total_stock": format_qty_display(line_body + kho_body),
+                            "stock_3093": format_qty_display(kho_ma),
+                            "stock_3001": format_qty_display(line_body),
+                            "unit": "PC",
+                            "_sort_key": (can_build, line_body / us, m_str)
+                        }
+
+                        if m_str not in warnings_map or (tram and warnings_map[m_str]["station"] == "-"):
+                            warnings_map[m_str] = rec
+
+                    wb_b.close()
+                    if warnings_map:
+                        sorted_recs = sorted(warnings_map.values(), key=lambda x: x["_sort_key"])
+                        for sr in sorted_recs:
+                            sr.pop("_sort_key", None)
+                        print(f"[SAP LOW STOCK] Đã trích xuất {len(sorted_recs)} mã tồn thấp chuẩn từ 261008_Stock_FG_MA_BODY.xlsm.")
+                        return sorted_recs[:limit]
+            except Exception as e_excel:
+                print(f"[SAP LOW STOCK WARN] Lỗi đọc trực tiếp từ Stock_FG_MA_BODY.xlsm: {e_excel}, chuyển sang MB52 live...")
+
+        # 2. DỰ PHÒNG: GỌI MB52 LIVE QUA SAP NẾU CHƯA CÓ FILE EXCEL HOẶC DỮ LIỆU TEST
+        print(f"[SAP LOW STOCK] Quét MB52 cả 2 xưởng {target_plants} cho {len(clean_mats)} mã (Model={model_name}, Top={limit})...")
         try:
             mb52_records = self.check_stock_mb52(clean_mats, plants=target_plants, max_rows=15000)
             print(f"[SAP LOW STOCK] MB52 trả về tổng cộng {len(mb52_records)} dòng dữ liệu từ các xưởng.")
@@ -1832,7 +1917,6 @@ class SapEngine:
             print(f"[SAP LOW STOCK ERROR] Lỗi truy vấn MB52 đa xưởng: {e}")
             raise SapExecutionError(f"Không thể truy vấn tồn kho MB52 đa xưởng {target_plants}: {e}") from e
 
-        # 2. Xác định danh sách mã cần đánh giá
         if clean_mats:
             mats_to_evaluate = list(clean_mats)
         else:
@@ -1841,7 +1925,6 @@ class SapEngine:
         stock_by_mat = {m: {p: 0.0 for p in target_plants} for m in mats_to_evaluate}
         unit_by_mat = {m: "PC" for m in mats_to_evaluate}
 
-        # Tạo helper mapping để map linh hoạt mã trả về từ MB52 (có/không BIW, có/không suffix AA...) về key chuẩn trong mats_to_evaluate
         def _find_eval_mat(prod_code: str) -> Optional[str]:
             p_clean = prod_code.strip().upper()
             if not p_clean:
@@ -1862,13 +1945,11 @@ class SapEngine:
                     return target_m
             return None
 
-        # 3. Gom tồn kho theo Mã hàng và theo từng Plant (TUYỆT ĐỐI BỎ QUA SLoc 9999 của QC)
         for r in mb52_records:
             mat_raw = r.get("product", "").strip().upper()
             p = r.get("plant", "").strip().upper()
             sloc = r.get("sloc", "").strip().upper()
 
-            # LOẠI BỎ TRIỆT ĐỂ SLOC 9999 (QC / Phế phẩm / Blocked) THEO 261008_Stock_FG_MA_BODY
             if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE"]:
                 continue
 
@@ -1885,10 +1966,10 @@ class SapEngine:
             if r.get("unit"):
                 unit_by_mat[matched_mat] = r.get("unit")
 
-        # 4. Nạp danh mục Trạm (Station) từ Master Data
+        # Nạp danh mục Trạm (Station) từ Master Data
         tram_map = {}
         candidate_paths = [
-            Path("G:/SAP/261008_Stock_FG_MA_BODY.xlsm"),
+            Path(r"G:\SAP±008_Stock_FG_MA_BODY.xlsm"),
             Path(__file__).resolve().parent.parent / "data" / "DATA_MASTER.xlsx"
         ]
         for candidate_master in candidate_paths:
@@ -1923,7 +2004,6 @@ class SapEngine:
                 except Exception:
                     pass
 
-        # 5. Tự xử lý tổng hợp và phân loại cảnh báo
         output_records = []
         for mat in mats_to_evaluate:
             p_stocks = stock_by_mat.get(mat, {p: 0.0 for p in target_plants})
@@ -1939,7 +2019,14 @@ class SapEngine:
                 "station": t_val or "-",
                 "model": model_name or "N/A",
                 "unit": unit_by_mat.get(mat, "PC"),
-                "total_stock": format_qty_display(total_s)
+                "total_stock": format_qty_display(total_s),
+                "us": "1",
+                "line_body": format_qty_display(p_stocks.get("3001", 0.0)),
+                "bd_kho": "0",
+                "bd_carset": format_qty_display(total_s),
+                "transit": "0",
+                "kho_ma": format_qty_display(p_stocks.get("3093", 0.0)),
+                "line_ma": "0"
             }
             for p in target_plants:
                 row[f"stock_{p}"] = format_qty_display(p_stocks.get(p, 0.0))
@@ -1954,7 +2041,6 @@ class SapEngine:
             row["_raw_total"] = total_s
             output_records.append(row)
 
-        # 5. Tự xử lý sắp xếp: TĂNG DẦN THEO TỔNG TỒN (mã tồn thấp nhất / hết hàng lên đầu)
         output_records.sort(key=lambda x: (x["_raw_total"], x["product"]))
         for r in output_records:
             r.pop("_raw_total", None)

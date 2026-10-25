@@ -466,8 +466,22 @@ def run_bridge():
                             shop_name = meta.get("shop", "BODY")
                             target_plants = meta.get("plants", ["3093", "3001"] if shop_name == "BODY" else ["3093", "2001", "3001"])
                             limit_cnt = meta.get("limit", 20)
-                            records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name)
-                            if shop_name == "XMD":
+                            records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name, shop_name=shop_name)
+                            if shop_name == "BODY":
+                                headers = {
+                                    "product": "Material",
+                                    "us": "US",
+                                    "line_body": "Line Body",
+                                    "bd_kho": "BD Kho",
+                                    "bd_carset": "BD Carset",
+                                    "transit": "Transit",
+                                    "kho_ma": "Tồn MA",
+                                    "line_ma": "Tồn Line",
+                                    "model": "Model",
+                                    "station": "Trạm",
+                                    "status": "Cảnh báo"
+                                }
+                            elif shop_name == "XMD":
                                 headers = {
                                     "product": "Mã hàng", "station": "Trạm", "model": "Model",
                                     "stock_3093": "Kho 3093", "stock_2001": "XMĐ 2001", "stock_3001": "Sơn 3001",
@@ -479,7 +493,7 @@ def run_bridge():
                                     "stock_3093": "Kho FG 3093", "stock_3001": "Line Body 3001",
                                     "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
                                 }
-                            summary = f"Cảnh báo tồn thấp Top {len(records)} mã {model_name} - Xưởng {shop_name} (Plant {', '.join(target_plants)})"
+                            summary = f"Cảnh báo tồn kho Body - Model {model_name} ({len(records)} mã Ưu tiên xuất theo chuẩn Stock_FG_MA_BODY)"
 
                         elif cmd in ["CHECK_OB", "VL06O"]:
                             ob_no = meta.get("obNo", "")
