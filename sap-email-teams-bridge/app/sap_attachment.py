@@ -60,6 +60,19 @@ def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
             raise e
 
 
+def safe_find_by_id(session, path: str):
+    """Tìm control an toàn, tương thích cả SAP GUI COM và MagicMock 1-arg."""
+    if session is None:
+        return None
+    try:
+        return session.findById(path)
+    except Exception:
+        try:
+            return session.findById(path, False)
+        except Exception:
+            return None
+
+
 def sanitize_migo_session(session):
     """Dọn sạch mọi popup kẹt (wnd[2], wnd[1]) và đưa session về màn hình /nMIGO sạch sẽ."""
     if session is None:
@@ -67,22 +80,157 @@ def sanitize_migo_session(session):
     try:
         for w_idx in (2, 1):
             try:
-                w = session.findById(f"wnd[{w_idx}]", False)
+                w = safe_find_by_id(session, f"wnd[{w_idx}]")
                 if w:
                     try:
                         w.Close()
                     except Exception:
                         try:
-                            session.findById(f"wnd[{w_idx}]").SendVKey(12)
+                            w.SendVKey(12)
                         except Exception:
                             pass
             except Exception:
                 pass
-        session.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
-        session.findById("wnd[0]").SendVKey(0)
-        time.sleep(0.3)
+        okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
+        if okcd:
+            try:
+                okcd.text = "/nMIGO"
+            except Exception:
+                okcd.Text = "/nMIGO"
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(0)
+            sap_wait_idle(session, 3.0)
     except Exception:
         pass
+
+
+def sap_wait_idle(session, max_wait_sec: float = 5.0) -> None:
+    """Chờ SAP GUI hoàn tất xử lý (session.Busy == False) tương tự WaitIdle trong VBA."""
+    if session is None:
+        return
+    start = time.time()
+    while getattr(session, "Busy", False):
+        if time.time() - start >= max_wait_sec:
+            break
+        time.sleep(0.05)
+
+
+RECORDED_MIGO_IDS = {
+    "GODYNPRO-ACTION": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-ACTION",
+        "wnd[0]/usr/cmbGODYNPRO-ACTION",
+    ],
+    "GODYNPRO-REFDOC": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-REFDOC",
+        "wnd[0]/usr/cmbGODYNPRO-REFDOC",
+    ],
+    "GODYNPRO-MAT_DOC": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-MAT_DOC",
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-MAT_DOC",
+        "wnd[0]/usr/txtGODYNPRO-MAT_DOC",
+        "wnd[0]/usr/ctxtGODYNPRO-MAT_DOC",
+    ],
+    "GODYNPRO-DOC_YEAR": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-DOC_YEAR",
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-DOC_YEAR",
+        "wnd[0]/usr/txtGODYNPRO-DOC_YEAR",
+        "wnd[0]/usr/ctxtGODYNPRO-DOC_YEAR",
+    ],
+    "OK_GO": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_GO",
+        "wnd[0]/tbar[1]/btn[0]",
+    ],
+    "OK_REF_ATTA": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
+        "wnd[0]/titl/shellcont/shell",
+    ],
+    "GOHEAD-BKTXT": [
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
+        "wnd[0]/usr/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
+        "wnd[0]/usr/txtGOHEAD-BKTXT",
+    ],
+}
+
+
+def find_control_recursive(root, target_name: str, depth: int = 0, max_depth: int = 15):
+    """Tìm kiếm đệ quy một control theo thuộc tính Name trong cây SAP GUI."""
+    if root is None or depth > max_depth:
+        return None
+    try:
+        r_name = getattr(root, "name", None) or getattr(root, "Name", None)
+        if r_name and str(r_name).upper() == target_name.upper():
+            return root
+    except Exception:
+        pass
+    try:
+        children = getattr(root, "Children", None) or getattr(root, "children", None)
+        if children:
+            count = getattr(children, "Count", None) or getattr(children, "count", 0)
+            for i in range(count):
+                try:
+                    ch = children(i)
+                    found = find_control_recursive(ch, target_name, depth + 1, max_depth)
+                    if found:
+                        return found
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return None
+
+
+def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: float = 3.0):
+    """Tìm kiếm control trên SAP MIGO qua 4 tầng: findByName -> candidate IDs -> recursive -> retry."""
+    if session is None:
+        return None
+    start = time.time()
+    while True:
+        sap_wait_idle(session, 1.0)
+        # Tầng 1: findByName trực tiếp từ wnd[0]
+        try:
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                try:
+                    ctl = w0.findByName(name, kind)
+                    if ctl:
+                        return ctl
+                except Exception:
+                    pass
+                try:
+                    ctl = w0.findByName(name)
+                    if ctl:
+                        return ctl
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Tầng 2: Tìm kiếm theo các ID đã ghi nhận từ bản mẫu chuẩn VBA
+        if name in RECORDED_MIGO_IDS:
+            for cid in RECORDED_MIGO_IDS[name]:
+                try:
+                    ctl = safe_find_by_id(session, cid)
+                    if ctl:
+                        return ctl
+                except Exception:
+                    pass
+
+        # Tầng 3: Quét đệ quy toàn bộ cây control của wnd[0]
+        try:
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                ctl = find_control_recursive(w0, name)
+                if ctl:
+                    return ctl
+        except Exception:
+            pass
+
+        if time.time() - start >= timeout_sec:
+            break
+        time.sleep(0.1)
+
+    return None
 
 
 def ensure_sap_tabs(target_tabs: int = 3) -> int:
@@ -431,35 +579,27 @@ class MigoAttachmentRunner:
 
         try:
             # 1. Bảo đảm phần Header MIGO được mở
-            try:
-                session.SendCommand("MIGO_OK_HEADER_OPEN")
-                time.sleep(0.3)
-            except Exception:
-                pass
-
-            # 2. Tìm trường GOHEAD-BKTXT (findByName trước, sau đó thử các fallback ID)
-            head_field = None
-            try:
-                head_field = session.findById("wnd[0]").findByName("GOHEAD-BKTXT", "GuiTextField")
-            except Exception:
-                pass
+            head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=1.5)
             if head_field is None:
-                for cand_id in [
-                    "wnd[0]/usr/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
-                    "wnd[0]/usr/txtGOHEAD-BKTXT"
-                ]:
-                    try:
-                        head_field = session.findById(cand_id)
-                        if head_field:
-                            break
-                    except Exception:
-                        pass
+                try:
+                    session.SendCommand("MIGO_OK_HEADER_OPEN")
+                    sap_wait_idle(session, 3.0)
+                except Exception:
+                    pass
+                head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=3.0)
 
             if head_field is None:
                 return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT trên MIGO"
 
-            current_text = str(getattr(head_field, "Text", "")).strip()
+            current_text = ""
+            for prop in ("Text", "text"):
+                try:
+                    val = getattr(head_field, prop)
+                    if isinstance(val, str):
+                        current_text = val.strip()
+                        break
+                except Exception:
+                    pass
 
             # Trường hợp 1: Đã có sẵn HeadText và trùng khớp số phiếu
             if current_text:
@@ -470,23 +610,59 @@ class MigoAttachmentRunner:
                 else:
                     return "HEADTEXT_DIFF", f"SAP đã có HeadText khác: '{current_text}'"
 
-            # Trường hợp 2: HeadText đang rỗng -> Điền mới và bấm Lưu (Save / vKey 11)
+            # Trường hợp 2: HeadText đang rỗng -> Mở khóa bằng F2 nếu cần, điền mới và Lưu (F11)
+            is_changeable = getattr(head_field, "Changeable", True)
+            if not is_changeable:
+                try:
+                    head_field.SetFocus()
+                    w0 = safe_find_by_id(session, "wnd[0]")
+                    if w0:
+                        w0.SendVKey(2)  # F2 kích hoạt chỉnh sửa Header Text
+                    sap_wait_idle(session, 3.0)
+                    head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=2.0)
+                except Exception:
+                    pass
+
+            if head_field is None:
+                return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT sau khi mở khóa"
+
             try:
                 head_field.Text = ticket_clean
-                session.findById("wnd[0]").SendVKey(11)  # Ctrl+S / Save
-                time.sleep(0.6)
+            except Exception:
+                try:
+                    head_field.text = ticket_clean
+                except Exception:
+                    pass
 
-                sbar = session.findById("wnd[0]/sbar")
-                s_type = getattr(sbar, "MessageType", "")
-                s_msg = getattr(sbar, "Text", "")
-                if s_type in ("E", "A"):
-                    return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
-                return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}'"
-            except Exception as write_err:
-                return "HEADTEXT_WRITE_ERROR", str(write_err)
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(11)  # Ctrl+S / Save
+            sap_wait_idle(session, 5.0)
 
+            # Kiểm tra lỗi sau khi lưu
+            try:
+                sbar = safe_find_by_id(session, "wnd[0]/sbar")
+                if sbar:
+                    s_type = ""
+                    s_msg = ""
+                    for prop in ("MessageType", "messageType"):
+                        v = getattr(sbar, prop, None)
+                        if isinstance(v, str):
+                            s_type = v.strip()
+                            break
+                    for prop in ("Text", "text"):
+                        v = getattr(sbar, prop, None)
+                        if isinstance(v, str):
+                            s_msg = v.strip()
+                            break
+                    if s_type in ("E", "A"):
+                        return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
+            except Exception:
+                pass
+
+            return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}'"
         except Exception as e:
-            return "HEADTEXT_EXCEPTION", str(e)
+            return "HEADTEXT_EXCEPTION", f"Lỗi xử lý HeadText: {e}"
 
     @staticmethod
     def check_existing_sap_attachments(titles: List[str], ticket_no: str) -> Tuple[Optional[str], Optional[str]]:
@@ -731,100 +907,50 @@ class MigoAttachmentRunner:
 
     def open_migo_document(self, session, doc: str, year: str = "2026", mode: str = "DISPLAY") -> Tuple[bool, str]:
         """Điều hướng SAP tới chứng từ MIGO cần xem (A04 Display) hoặc sửa (A12 Change), R02 Material Document."""
+        if session is None:
+            return False, "NO_SESSION: Session SAP là None"
         try:
             try:
                 session.findById("wnd[0]").maximize()
             except Exception:
                 pass
 
-            wnd_text = getattr(session.findById("wnd[0]"), "Text", "")
-            if "Material Document" in wnd_text or "MIGO" in wnd_text:
-                try:
-                    session.findById("wnd[0]").SendVKey(12)  # F12 Cancel/Back để đóng chứng từ cũ
-                    time.sleep(0.3)
-                except Exception:
-                    pass
-            else:
-                session.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
-                session.findById("wnd[0]").SendVKey(0)
-                time.sleep(0.5)
+            # Luôn dọn dẹp popup kẹt và reset về /nMIGO sạch sẽ trước khi nạp chứng từ mới
+            sanitize_migo_session(session)
+            sap_wait_idle(session, 5.0)
+
+            target_act = "A12" if mode == "CHANGE" else "A04"
 
             # 1. Thiết lập ACTION (A12 Change / A04 Display)
-            target_act = "A12" if mode == "CHANGE" else "A04"
-            act_cb = None
-            try:
-                act_cb = session.findById("wnd[0]").findByName("GODYNPRO-ACTION", "GuiComboBox")
-            except Exception:
-                pass
-            if act_cb is None:
-                for cand_id in [
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-ACTION",
-                    "wnd[0]/usr/cmbGODYNPRO-ACTION"
-                ]:
-                    try:
-                        act_cb = session.findById(cand_id)
-                        if act_cb:
-                            break
-                    except Exception:
-                        pass
-            if act_cb:
+            act_cb = wait_control(session, "GODYNPRO-ACTION", "GuiComboBox", timeout_sec=3.0)
+            if act_cb is not None:
                 try:
-                    if getattr(act_cb, "Key", "") != target_act:
-                        act_cb.Key = target_act
-                        time.sleep(0.3)
-                except Exception:
-                    if mode == "CHANGE":
+                    curr_act = str(getattr(act_cb, "key", None) or getattr(act_cb, "Key", "")).strip()
+                    if curr_act != target_act:
                         try:
-                            act_cb.Key = "A02"
-                            time.sleep(0.3)
+                            act_cb.key = target_act
                         except Exception:
-                            pass
+                            act_cb.Key = target_act
+                        sap_wait_idle(session, 5.0)
+                except Exception:
+                    pass
 
             # 2. Thiết lập REFDOC (R02 Material Document)
-            ref_cb = None
-            try:
-                ref_cb = session.findById("wnd[0]").findByName("GODYNPRO-REFDOC", "GuiComboBox")
-            except Exception:
-                pass
-            if ref_cb is None:
-                for cand_id in [
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-REFDOC",
-                    "wnd[0]/usr/cmbGODYNPRO-REFDOC"
-                ]:
-                    try:
-                        ref_cb = session.findById(cand_id)
-                        if ref_cb:
-                            break
-                    except Exception:
-                        pass
-            if ref_cb:
+            ref_cb = wait_control(session, "GODYNPRO-REFDOC", "GuiComboBox", timeout_sec=3.0)
+            if ref_cb is not None:
                 try:
-                    if getattr(ref_cb, "Key", "") != "R02":
-                        ref_cb.Key = "R02"
-                        time.sleep(0.3)
+                    curr_ref = str(getattr(ref_cb, "key", None) or getattr(ref_cb, "Key", "")).strip()
+                    if curr_ref != "R02":
+                        try:
+                            ref_cb.key = "R02"
+                        except Exception:
+                            ref_cb.Key = "R02"
+                        sap_wait_idle(session, 5.0)
                 except Exception:
                     pass
 
             # 3. Điền số chứng từ vào GODYNPRO-MAT_DOC
-            doc_fld = None
-            try:
-                doc_fld = session.findById("wnd[0]").findByName("GODYNPRO-MAT_DOC")
-            except Exception:
-                pass
-            if doc_fld is None:
-                for cand_id in [
-                    "wnd[0]/usr/ctxtGODYNPRO-MAT_DOC",
-                    "wnd[0]/usr/txtGODYNPRO-MAT_DOC",
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-MAT_DOC",
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-MAT_DOC"
-                ]:
-                    try:
-                        doc_fld = session.findById(cand_id)
-                        if doc_fld:
-                            break
-                    except Exception:
-                        pass
-
+            doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=4.0)
             if doc_fld is None:
                 return False, "CONTROL_NOT_FOUND: Không tìm thấy ô nhập số chứng từ GODYNPRO-MAT_DOC trên MIGO"
 
@@ -832,44 +958,43 @@ class MigoAttachmentRunner:
                 doc_fld.SetFocus()
             except Exception:
                 pass
-            doc_fld.Text = str(doc).strip()
+            try:
+                doc_fld.text = str(doc).strip()
+            except Exception:
+                doc_fld.Text = str(doc).strip()
 
             # 4. Điền DOC_YEAR nếu có
             if year:
-                yr_fld = None
-                try:
-                    yr_fld = session.findById("wnd[0]").findByName("GODYNPRO-DOC_YEAR")
-                except Exception:
-                    pass
-                if yr_fld is None:
-                    for cand_id in [
-                        "wnd[0]/usr/ctxtGODYNPRO-DOC_YEAR",
-                        "wnd[0]/usr/txtGODYNPRO-DOC_YEAR",
-                        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-DOC_YEAR"
-                    ]:
-                        try:
-                            yr_fld = session.findById(cand_id)
-                            if yr_fld:
-                                break
-                        except Exception:
-                            pass
-                if yr_fld:
+                yr_fld = wait_control(session, "GODYNPRO-DOC_YEAR", "GuiTextField", timeout_sec=2.0)
+                if yr_fld is not None:
                     try:
-                        yr_fld.Text = str(year).strip()
+                        try:
+                            yr_fld.text = str(year).strip()
+                        except Exception:
+                            yr_fld.Text = str(year).strip()
                     except Exception:
                         pass
 
-            # 5. Gửi phím Enter (VKey 0) để mở chứng từ
-            session.findById("wnd[0]").SendVKey(0)
-            time.sleep(0.6)
+            # 5. Bấm nút Execute (btnOK_GO) hoặc Enter để nạp chứng từ
+            ok_go_btn = wait_control(session, "OK_GO", "GuiButton", timeout_sec=2.0)
+            if ok_go_btn is not None:
+                try:
+                    ok_go_btn.Press()
+                except Exception:
+                    session.findById("wnd[0]").SendVKey(0)
+            else:
+                session.findById("wnd[0]").SendVKey(0)
 
-            # 6. Kiểm tra thông báo trạng thái
+            sap_wait_idle(session, 5.0)
+
+            # 6. Kiểm tra thông báo trạng thái hoặc lỗi
             try:
-                sbar = session.findById("wnd[0]/sbar")
-                msg = getattr(sbar, "Text", "")
-                msg_type = getattr(sbar, "MessageType", "")
-                if msg_type in ("E", "A"):
-                    return False, f"DOC_NOT_FOUND: {msg}"
+                sbar = session.findById("wnd[0]/sbar", False)
+                if sbar:
+                    msg = getattr(sbar, "Text", "") or getattr(sbar, "text", "")
+                    msg_type = getattr(sbar, "MessageType", "") or getattr(sbar, "messageType", "")
+                    if msg_type in ("E", "A"):
+                        return False, f"DOC_NOT_FOUND: {msg}"
             except Exception:
                 pass
 
@@ -920,6 +1045,7 @@ class MigoAttachmentRunner:
                     headtext_res = "OPEN_FAIL"
                     headtext_msg = nav_msg
                     overall_status = f"Lỗi mở DOC: {nav_msg}"
+                    sanitize_migo_session(session)
                 else:
                     if fill_headtext and ticket_no:
                         headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
@@ -1294,6 +1420,9 @@ class MigoAttachmentRunner:
                         session = self.sap_engine.ensure_session()
                 else:
                     session = self.sap_engine.ensure_session()
+
+            if session is not None:
+                sanitize_migo_session(session)
 
             for idx, item in enumerate(items, 1):
                 doc = str(item.get("doc", "")).strip()
