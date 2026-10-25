@@ -469,13 +469,13 @@ def run_bridge():
                             records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name)
                             if shop_name == "XMD":
                                 headers = {
-                                    "product": "Mã hàng", "model": "Model",
+                                    "product": "Mã hàng", "station": "Trạm", "model": "Model",
                                     "stock_3093": "Kho 3093", "stock_2001": "XMĐ 2001", "stock_3001": "Sơn 3001",
                                     "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
                                 }
                             else:
                                 headers = {
-                                    "product": "Mã hàng", "model": "Model",
+                                    "product": "Mã hàng", "station": "Trạm", "model": "Model",
                                     "stock_3093": "Kho FG 3093", "stock_3001": "Line Body 3001",
                                     "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
                                 }

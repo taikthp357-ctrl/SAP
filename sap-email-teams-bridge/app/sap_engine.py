@@ -10,6 +10,7 @@ Tích hợp toàn bộ mã VBS/VBA chuẩn xác từ ModuleSAP.bas & modPosting.
 """
 
 import os
+from pathlib import Path
 import re
 import time
 import unicodedata
@@ -1459,13 +1460,19 @@ class SapEngine:
             print(f"[SAP MB51] Đang nhập điều kiện: Materials={materials}, Days={days}, Plant={plant}...")
             clean_mats = [m.strip().upper() for m in materials if m.strip()]
 
-            multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
-            if self._find_by_id_safe(multi_btn_id) is not None:
-                self._fill_multiple_selection(multi_btn_id, clean_mats)
-            else:
+            # 1. Nhập Materials: Nếu chỉ có 1 mã, điền thẳng vào ctxtMATNR-LOW (TUYỆT ĐỐI không mở popup Multiple Selection wnd[1])
+            if len(clean_mats) == 1:
                 mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
-                if mat_single is not None and clean_mats:
+                if mat_single is not None:
                     mat_single.text = clean_mats[0]
+            elif len(clean_mats) > 1:
+                multi_btn_id = "wnd[0]/usr/btn%_MATNR_%_APP_%-VALU_PUSH"
+                if self._find_by_id_safe(multi_btn_id) is not None:
+                    self._fill_multiple_selection(multi_btn_id, clean_mats)
+                else:
+                    mat_single = self._find_by_id_safe("wnd[0]/usr/ctxtMATNR-LOW")
+                    if mat_single is not None:
+                        mat_single.text = clean_mats[0]
 
             if plant:
                 p_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtWERKS-LOW")
@@ -1475,6 +1482,7 @@ class SapEngine:
                     except Exception:
                         pass
 
+            # 2. Điền Posting Date 7 ngày gần nhất chuẩn xác vào ctxtBUDAT-LOW và ctxtBUDAT-HIGH
             end_date = datetime.now()
             start_date = end_date - timedelta(days=int(days))
             b_low = self._find_by_id_safe("wnd[0]/usr/ctxtBUDAT-LOW")
@@ -1484,10 +1492,18 @@ class SapEngine:
             if b_high is not None:
                 b_high.text = end_date.strftime("%d.%m.%Y")
 
+            print(f"[SAP MB51] Đã điền Posting Date: {start_date.strftime('%d.%m.%Y')} -> {end_date.strftime('%d.%m.%Y')}")
+
+            # 3. Đảm bảo đóng mọi popup phụ (nếu có) trước khi bấm F8 trên wnd[0]
+            self._dismiss_popups()
+
             print("[SAP MB51] Đang bấm thực thi (F8)...")
             exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
             if exec_btn is not None:
-                exec_btn.press()
+                try:
+                    exec_btn.press()
+                except Exception:
+                    self.session.findById("wnd[0]").sendVKey(8)
             else:
                 self.session.findById("wnd[0]").sendVKey(8)
 
@@ -1869,13 +1885,58 @@ class SapEngine:
             if r.get("unit"):
                 unit_by_mat[matched_mat] = r.get("unit")
 
-        # 4. Tự xử lý tổng hợp và phân loại cảnh báo
+        # 4. Nạp danh mục Trạm (Station) từ Master Data
+        tram_map = {}
+        candidate_paths = [
+            Path("G:/SAP/261008_Stock_FG_MA_BODY.xlsm"),
+            Path(__file__).resolve().parent.parent / "data" / "DATA_MASTER.xlsx"
+        ]
+        for candidate_master in candidate_paths:
+            if candidate_master.exists():
+                try:
+                    import openpyxl
+                    wb_m = openpyxl.load_workbook(str(candidate_master), read_only=True)
+                    ws_m = wb_m["DATA"] if "DATA" in wb_m.sheetnames else wb_m.active
+                    r_iter = ws_m.iter_rows(values_only=True)
+                    hdr = next(r_iter, None)
+                    if hdr:
+                        mat_idx = 1
+                        tram_idx = -1
+                        for idx, h in enumerate(hdr):
+                            if not h:
+                                continue
+                            h_str = str(h).strip().upper()
+                            if "MÃ" in h_str or "MATNR" in h_str:
+                                mat_idx = idx
+                            elif "TRẠM" in h_str or "TRAM" in h_str:
+                                tram_idx = idx
+                        if tram_idx >= 0:
+                            for r_val in r_iter:
+                                if r_val and len(r_val) > max(mat_idx, tram_idx):
+                                    m_code = str(r_val[mat_idx]).strip().upper() if r_val[mat_idx] else ""
+                                    t_code = str(r_val[tram_idx]).strip() if r_val[tram_idx] else ""
+                                    if m_code and t_code and t_code != "-":
+                                        tram_map[m_code] = t_code
+                    wb_m.close()
+                    if tram_map:
+                        break
+                except Exception:
+                    pass
+
+        # 5. Tự xử lý tổng hợp và phân loại cảnh báo
         output_records = []
         for mat in mats_to_evaluate:
             p_stocks = stock_by_mat.get(mat, {p: 0.0 for p in target_plants})
             total_s = sum(p_stocks.values())
+            t_val = tram_map.get(mat, "")
+            if not t_val:
+                for km, kv in tram_map.items():
+                    if mat in km or km in mat:
+                        t_val = kv
+                        break
             row = {
                 "product": mat,
+                "station": t_val or "-",
                 "model": model_name or "N/A",
                 "unit": unit_by_mat.get(mat, "PC"),
                 "total_stock": format_qty_display(total_s)

@@ -22,7 +22,7 @@ try:
 except Exception:
     SLOC_MASTER = {}
 
-MAX_DISPLAY_RECORDS = 12          # Số dòng tối đa hiển thị trực quan trên Teams
+MAX_DISPLAY_RECORDS = 50          # Số dòng tối đa hiển thị trực quan trên Teams
 MAX_TEAMS_PAYLOAD_BYTES = 26000   # Trần dung lượng an toàn (dưới mốc 28 KB của Teams)
 
 
@@ -71,15 +71,7 @@ class TeamsDispatcher:
             tbl.append("</tr>")
         tbl.append("</tbody></table>")
 
-        # Nếu số dòng thực tế nhiều hơn số dòng hiển thị, thêm thanh thông báo
-        if total > displayed:
-            tbl.append(
-                f"<div style='margin-top:6px;padding:6px 10px;background:#eef4fa;"
-                f"border-left:4px solid #005a9e;font-size:12px;color:#24292f;font-family:Segoe UI,sans-serif;'>"
-                f"📊 <strong>Đang hiển thị {displayed} / {total} dòng gần nhất</strong> "
-                f"(Dữ liệu được nén tối ưu &lt; 28KB cho màn hình Teams di động)."
-                f"</div>"
-            )
+        # Bỏ dòng thông báo giới hạn theo yêu cầu sếp
 
         return "".join(tbl)
 
