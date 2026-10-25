@@ -238,7 +238,7 @@ class TeamsDispatcher:
                         if sloc_k not in ("1005", "3001"):
                             badges.append(
                                 f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
-                                f"📦 Kho {sloc_k}: {format_qty_display(sloc_qty)} {unit}</span>"
+                                f"📦 SLoc {sloc_k}: {format_qty_display(sloc_qty)} {unit}</span>"
                             )
 
                 # 3. Badge Số lượng Lô (Batch)

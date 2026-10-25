@@ -19,97 +19,95 @@ class SmartCommandParser:
     """Bộ bóc tách ý định câu lệnh và thực thể từ Email V3 của Power Automate."""
 
     INTENT_SCORES = {
-        "TON_THAP": [
-            (r"\b(?:ton\s*thap|thap|canh\s*bao\s*ton|low\s*stock|doh\s*thap|sap\s*het|thieu\s*hang)\b", 16),
-            (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 22),
-            (r"\b(?:ton\s*thap\s*(?:body|xmd|limo|vf\d+))\b", 20),
-        ],
-        "CHECK_BOM": [
-            (r"\b(?:check\s*bom|kiem\s*tra\s*bom|co\s*bom|bom\s*co\s*khong|co\s*bom\s*khong|dinh\s*muc|cs03)\b", 22),
-            (r"\b(?:linh\s*kien\s*con|ma\s*con|thanh\s*phan|bom|subcon)\b", 18),
-        ],
-        "CHECK_QUEUE": [
-            (r"\b(?:check\s*queue|kiem\s*tra\s*queue|ket\s*queue|loi\s*queue|queue\s*ewm|mqueue|scwm/mon\s*queue)\b", 22),
-            (r"\b(?:queue|mqueue0001)\b", 18),
-        ],
-        "CHECK_OB": [
-            (r"\b(?:check\s*(?:con\s*)?ob|kiem\s*tra\s*(?:con\s*)?ob|kt\s*ob|con\s*ob|ob\s*co\s*khong|co\s*ob|ob\s*treo|vl06o|don\s*xuat|outbound)\b", 18),
-            (r"\b(?:ob\s*nao\s*dang\s*cho|cho\s*xuat|ob\s*mo|ob\s*chua\s*xuat|ob\s*ma|con\s*ob\s*ma)\b", 16),
-            (r"\b(?:check\s*don\s*ob|xem\s*ob)\b", 12),
-        ],
-        "LICHSU_BIN": [
-            (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|wht|scwm/mon|/scwm/mon)\b", 18),
-            (r"\b(?:ls\s*bin|vet\s*bin|di\s*chuyen\s*bin|lich\s*su\s*dich\s*chuyen)\b", 14),
-        ],
-        "TIM_GR_DOC": [
-            (r"\b(?:tim\s*gr|chung\s*tu\s*gr|gr\s*doc|mb51\s*gr|lich\s*su\s*gr|so\s*gr|tra\s*gr|chung\s*tu\s*nhap)\b", 22),
-            (r"\b(?:tra\s*cuu\s*gr|tim\s*chung\s*tu|xem\s*gr|chung\s*tu\s*mb51)\b", 18),
-        ],
-        "CHECK_IB": [
-            (r"\b(?:chi\s*tiet\s*ib|chi\s*tiet\s*inbound|ib\s*detail|check\s*inbound\s*detail|doi\s*chieu\s*ib|so\s*khop\s*ib|kiem\s*tra\s*inbound)\b", 22),
-            (r"\b(?:check\s*ib\s*18\d{6,8}|inbound\s*18\d{6,8}|ib\s*18\d{6,8})\b", 22),
-        ],
-        "TIM_IB": [
-            (r"\b(?:tim\s*ib|tim\s*inbound|find\s*ib|find\s*inbound|inbound\s*theo\s*po|inbound\s*theo\s*bill)\b", 22),
-        ],
-        "CHECK_FG_OB": [
-            (r"\b(?:dien\s*ob|di\s*en\s*ob|check\s*ob\s*fg|kha\s*dung\s*ob|ob\s*fg|ton\s*ob)\b", 24),
-        ],
-        "CHECK_NVL_MIGO": [
-            (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
+        "WHO_IS_TAI": [
+            (r"\b(?:anh\s+tai|sap\s+tai|ong\s+tai|tai)\s+(?:la\s+ai|nao\s+day|la\s+ai\s+day)\b", 100),
+            (r"\b(?:ai\s+tao\s+ra\s+bot|ai\s+viet\s+bot|tac\s+gia\s+bot|pham\s+tien\s+tai|ai\s+lam\s+ra\s+bot)\b", 100),
+            (r"\b(?:who\s+is\s+tai|author|tac\s*gia|cha\s+de\s+bot)\b", 100),
         ],
         "ATT_MIGO": [
-            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 35),
-            (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 35),
-            (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 28),
-            (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 22),
-            (r"\b(?:att\s*vat\s*bbbg|att\s*bbbg\s*vat)\b", 30),
+            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 95),
+            (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 95),
+            (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 90),
+            (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 85),
+            (r"\b(?:att\s*vat\s*bbbg|att\s*bbbg\s*vat)\b", 92),
         ],
-        "CHECK_PO": [
-            (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 20),
-            (r"\b(?:po\s*45\d{8}|po\s*55\d{8}|me2n\s*po)\b", 22),
+        "CHECK_BOM": [
+            (r"\b(?:bom|check\s*bom|kiem\s*tra\s*bom|co\s*bom|bom\s*co\s*khong|dinh\s*muc|cs03)\b", 90),
+            (r"\b(?:linh\s*kien|linh\s*kien\s*con|ma\s*con|thanh\s*phan|subcon)\b", 88),
         ],
-        "VITRI": [
-            (r"\b(?:vi\s*tri|vitri|vtri|bin|posting|scwm/post|scwm)\b", 10),
-            (r"\b(?:ngay\s*gr|gio\s*gr|check\s*gr|kiem\s*tra\s*gr)\b", 10),
-            (r"\b(?:tim\s*hang|o\s*dau|ke\s*nao|nam\s*o|khu\s*vuc|zone)\b", 8),
-            (r"\b(?:check\s*bin|kiem\s*tra\s*bin|bin\s*nao|o\s*ke|tra\s*bin)\b", 12),
-            (r"\b(?:post|gr)\b", 5),
+        "CHECK_QUEUE": [
+            (r"\b(?:queue|check\s*queue|kiem\s*tra\s*queue|ket\s*queue|loi\s*queue|queue\s*ewm|mqueue|scwm/mon\s*queue|mqueue0001)\b", 85),
         ],
-        "LICHSU": [
-            (r"\b(?:lich\s*su|lichsu|lsu|ls|mb51)\b", 10),
-            (r"\b(?:xuat\s*nhap|nhap\s*xuat|giao\s*dich|chung\s*tu|movement|mvt)\b", 9),
-            (r"\b(?:da\s*xuat|da\s*nhap|bi\s*tru|tru\s*ton)\b", 7),
+        "CHECK_OB": [
+            (r"\b(?:ob|outbound|con\s*ob|check\s*ob|kiem\s*tra\s*ob|kt\s*ob|don\s*xuat|don\s*ob|vl06o|prdo|ob\s*treo|cho\s*xuat)\b", 80),
+            (r"\b(?:ob\s*nao\s*dang\s*cho|ob\s*mo|ob\s*chua\s*xuat|ob\s*ma|con\s*ob\s*ma)\b", 78),
         ],
-        "TON": [
-            (r"\b(?:ton\s*kho|tonkho|check\s*ton|kt\s*ton|kiem\s*tra\s*ton|mb52)\b", 10),
-            (r"\b(?:so\s*luong\s*ton|con\s*ton|con\s*hang|stock)\b", 8),
-            (r"\b(?:ton)\b", 6),
+        "TIM_GR_DOC": [
+            (r"\b(?:tim\s*gr|chung\s*tu\s*gr|gr\s*doc|mb51\s*gr|lich\s*su\s*gr|so\s*gr|tra\s*gr|chung\s*tu\s*nhap)\b", 84),
+            (r"\b(?:tra\s*cuu\s*gr|tim\s*chung\s*tu|xem\s*gr|chung\s*tu\s*mb51)\b", 84),
+        ],
+        "TIM_IB": [
+            (r"\b(?:tim\s*ib|tim\s*inbound|find\s*ib|find\s*inbound|inbound\s*theo\s*po|inbound\s*theo\s*bill)\b", 83),
         ],
         "IB_TREO": [
-            (r"\b(?:ib\s*treo|ibtreo|don\s*treo|inbound\s*treo|vl06i|check\s*ib|inbound)\b", 12),
-            (r"\b(?:chua\s*gr|chua\s*nhap|hang\s*chua\s*ve|cho\s*nhap|treo)\b", 9),
-            (r"\b(?:ib)\b", 6),
+            (r"\b(?:ib\s*treo|ibtreo|don\s*treo|inbound\s*treo|chua\s*gr|chua\s*nhap|hang\s*chua\s*ve|cho\s*nhap|treo)\b", 82),
         ],
-        "TAO_BBBG": [
-            (r"\b(?:tao\s*bbbg|doi\s*soat\s*bbbg|xuat\s*bbbg|bbbg\s*fg|tao\s*bien\s*ban\s*ban\s*giao|bbbg\s*new|lap\s*bbbg)\b", 26),
+        "CHECK_IB": [
+            (r"\b(?:chi\s*tiet\s*ib|chi\s*tiet\s*inbound|ib\s*detail|check\s*inbound\s*detail|doi\s*chieu\s*ib|so\s*khop\s*ib|kiem\s*tra\s*inbound)\b", 80),
+            (r"\b(?:check\s*ib\s*18\d{6,8}|inbound\s*18\d{6,8}|ib\s*18\d{6,8})\b", 80),
+            (r"\b(?:ib|inbound|con\s*ib|còn\s*ib|check\s*ib|kiem\s*tra\s*ib|hang\s*ve|hàng\s*về|lich\s*ve|lịch\s*về|asn|vl06i|zmme240)\b", 78),
         ],
-        "XEM_BBBG": [
-            (r"\b(?:xem\s*bbbg|preview\s*bbbg|xem\s*truoc\s*bbbg|xac\s*nhan\s*gui\s*bbbg)\b", 26),
-        ],
-        "RA_DON_NVL": [
-            (r"\b(?:ra\s*don\s*nvl|phan\s*bo\s*nvl|ke\s*hoach\s*nvl|nvl\s*v31|nvl\s*zone|len\s*don\s*nvl)\b", 26),
-        ],
-        "DIEU_PHOI_OB": [
-            (r"\b(?:dieu\s*phoi\s*ob|rc65|ob\s*tool|xuat\s*don\s*ob|gate\s*ob|whole\s*batch)\b", 26),
-        ],
-        "TRA_CUU_ASN": [
-            (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 24),
+        "TON_THAP": [
+            (r"\b(?:ton\s*thap|thap|canh\s*bao\s*ton|low\s*stock|doh\s*thap|sap\s*het|thieu\s*hang)\b", 78),
+            (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 82),
+            (r"\b(?:ton\s*thap\s*(?:body|xmd|limo|vf\d+))\b", 80),
         ],
         "STO": [
-            (r"\b(?:sto|stock\s*transport|me2n|check\s*sto|dieu\s*chuyen)\b", 12),
-            (r"\b(?:hang\s*di\s*duong|di\s*duong|mb5t)\b", 9),
-            (r"\b(?:po\s*dieu\s*chuyen|don\s*dieu\s*chuyen)\b", 8),
+            (r"\b(?:sto|check\s*sto|po\s*mo|check\s*po|check\s*sa|me2n|don\s*mua|con\s*no\s*po|mb5t|dieu\s*chuyen)\b", 75),
+            (r"\b(?:po\s*dieu\s*chuyen|don\s*dieu\s*chuyen)\b", 72),
+        ],
+        "LICHSU": [
+            (r"\b(?:lich\s*su|lichsu|mb51|xuat\s*nhap|nhap\s*xuat|giao\s*dich|chung\s*tu\s*nhap|gr\s*doc)\b", 70),
+            (r"\b\d+\s*(?:ngay|hom)\s*(?:gan\s*nhat|qua)?\b", 70),
+        ],
+        "CHECK_RES": [
+            (r"\b(?:res|reservation|mb22|mb23|mb25|phieu\s*linh)\b", 68),
+        ],
+        "TON": [
+            (r"\b(?:check\s*ton|check\s*ton|ton\s*kho|mb52|check\s*sloc|ton\s*sloc|sloc)\b", 65),
+            (r"\b(?:so\s*luong\s*ton|con\s*ton|con\s*hang|stock|ton)\b", 62),
+        ],
+        "VITRI": [
+            (r"\b(?:vi\s*tri|vtri|check\s*bin|ton\s*bin|scwm/post|scwm|post|o\s*bin|ke\s*bin|tim\s*hang|ngay\s*gr|gio\s*gr)\b", 60),
+            (r"\b(?:check\s*bin|kiem\s*tra\s*bin|bin\s*nao|o\s*ke|tra\s*bin|bin)\b", 60),
+        ],
+        "LICHSU_BIN": [
+            (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|wht|scwm/mon|/scwm/mon)\b", 72),
+        ],
+        "CHECK_FG_OB": [
+            (r"\b(?:dien\s*ob|di\s*en\s*ob|check\s*ob\s*fg|kha\s*dung\s*ob|ob\s*fg|ton\s*ob)\b", 82),
+        ],
+        "CHECK_NVL_MIGO": [
+            (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 84),
+        ],
+        "CHECK_PO": [
+            (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 74),
+            (r"\b(?:po\s*45\d{8}|po\s*55\d{8}|me2n\s*po)\b", 76),
+        ],
+        "TAO_BBBG": [
+            (r"\b(?:tao\s*bbbg|doi\s*soat\s*bbbg|xuat\s*bbbg|bbbg\s*fg|tao\s*bien\s*ban\s*ban\s*giao|bbbg\s*new|lap\s*bbbg)\b", 92),
+        ],
+        "XEM_BBBG": [
+            (r"\b(?:xem\s*bbbg|preview\s*bbbg|xem\s*truoc\s*bbbg|xac\s*nhan\s*gui\s*bbbg)\b", 92),
+        ],
+        "RA_DON_NVL": [
+            (r"\b(?:ra\s*don\s*nvl|phan\s*bo\s*nvl|ke\s*hoach\s*nvl|nvl\s*v31|nvl\s*zone|len\s*don\s*nvl)\b", 92),
+        ],
+        "DIEU_PHOI_OB": [
+            (r"\b(?:dieu\s*phoi\s*ob|rc65|ob\s*tool|xuat\s*don\s*ob|gate\s*ob|whole\s*batch)\b", 92),
+        ],
+        "TRA_CUU_ASN": [
+            (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 88),
         ],
         "HELP": [
             (r"\b(?:huong\s*dan|tro\s*giup|help|cu\s*phap|cach\s*dung|menu)\b", 15),
@@ -595,11 +593,13 @@ class SmartCommandParser:
 
         is_no_mat_allowed = (
             best_score > 0 and (
-                best_intent == "TON_THAP"
+                best_intent == "WHO_IS_TAI"
+                or best_intent == "CHECK_RES"
+                or best_intent == "TON_THAP"
                 or (best_intent == "CHECK_OB" and ob_no)
                 or (best_intent == "LICHSU_BIN" and bin_val)
                 or (best_intent == "VITRI" and bin_val)
-                or (best_intent == "CHECK_IB" and inbound_no)
+                or (best_intent == "CHECK_IB" and inbound_no) or best_intent == "IB_TREO"
                 or (best_intent == "TIM_IB" and (po_no or ref_no))
                 or (best_intent == "CHECK_PO" and po_no)
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
@@ -627,7 +627,7 @@ class SmartCommandParser:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")
 
-        if best_intent == "ATT_MIGO":
+        if best_intent in ("ATT_MIGO", "WHO_IS_TAI"):
             materials = []
 
         meta.update({
@@ -676,3 +676,35 @@ class SmartCommandParser:
 # Alias tương thích ngược
 EmailCommandParser = SmartCommandParser
 NaturalCommandParser = SmartCommandParser
+
+
+def classify_sap_query(raw_text: str) -> dict:
+    """
+    Phan tich cau hoi tieng Viet tu nhien cua nguoi dung va tra ve:
+    - intent: Nghiep vu can goi
+    - tcode: T-Code SAP tuong ung
+    - days: So ngay tra cuu (neu co, mac dinh 7 ngay)
+    """
+    parsed = SmartCommandParser.parse(raw_text)
+    if not parsed or not parsed.get("valid"):
+        return {"intent": "UNKNOWN", "tcode": "/n", "days": 7}
+    tcode_map = {
+        "WHO_IS_TAI": "NONE (Easter Egg)",
+        "CHECK_BOM": "/nCS03",
+        "CHECK_QUEUE": "/n/SCWM/MON",
+        "CHECK_OB": "/nVL06O",
+        "CHECK_IB": "/nVL06I -> /nZMME240",
+        "STO": "/nME2N",
+        "LICHSU": "/nMB51",
+        "MB52": "/nMB52",
+        "TON": "/nMB52",
+        "TON_KHO": "/nMB52",
+        "VITRI": "/n/SCWM/POST",
+        "CHECK_RES": "/nMB25"
+    }
+    cmd = parsed.get("command", "VITRI")
+    return {
+        "intent": cmd,
+        "tcode": tcode_map.get(cmd, "/n/SCWM/POST"),
+        "days": parsed.get("days", 7)
+    }

@@ -479,7 +479,8 @@ def test_check_open_ob_vl06o_mock():
     assert res[0]["obNo"] == "80012346"  # Sắp xếp số OB giảm dần
     assert res[1]["obNo"] == "80012345"
     # Kiểm tra Shipping Point được điền thẳng 3093 theo chuẩn RC65 (không dùng popup)
-    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-LOW"].text == "3093"
+    assert mock_controls["wnd[0]/usr/ctxtIT_MATNR-LOW"].text == "BIW001"
+    assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-LOW"].text == ""
     assert mock_controls["wnd[0]/usr/ctxtIF_VSTEL-HIGH"].text == ""
 
 

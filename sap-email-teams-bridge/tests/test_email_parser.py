@@ -677,3 +677,42 @@ def test_parse_tra_cuu_asn_natural():
     assert res is not None
     assert res["valid"] is True
     assert res["command"] == "TRA_CUU_ASN"
+
+
+def test_parse_who_is_tai_easter_egg():
+    for q in ["Anh Tài là ai", "SAP Tài là ai", "ai tạo ra bot", "tác giả bot", "ông tài nào đây"]:
+        res = EmailCommandParser.parse(q)
+        assert res is not None
+        assert res["valid"] is True
+        assert res["command"] == "WHO_IS_TAI"
+
+
+def test_parse_check_ob_natural_with_material():
+    res = EmailCommandParser.parse("Check còn OB mã BIW70007551HA")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_OB"
+    assert "BIW70007551HA" in res["materials"]
+
+
+def test_classify_sap_query_all_intents():
+    from app.email_parser import classify_sap_query
+    c1 = classify_sap_query("Anh Tài là ai")
+    assert c1["intent"] == "WHO_IS_TAI"
+    assert c1["tcode"] == "NONE (Easter Egg)"
+
+    c2 = classify_sap_query("Check còn OB mã BIW70007551HA")
+    assert c2["intent"] == "CHECK_OB"
+    assert c2["tcode"] == "/nVL06O"
+
+    c3 = classify_sap_query("check sto BIW70007551HA")
+    assert c3["intent"] == "STO"
+    assert c3["tcode"] == "/nME2N"
+
+    c4 = classify_sap_query("check tồn BIW70007551HA")
+    assert c4["intent"] == "TON"
+    assert c4["tcode"] == "/nMB52"
+
+    c5 = classify_sap_query("BIW70007551HA")
+    assert c5["intent"] == "VITRI"
+    assert c5["tcode"] == "/n/SCWM/POST"

@@ -410,7 +410,7 @@ def run_bridge():
                         print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
                         print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
                         print(f"  -> Tham số:  Inbound='{meta.get('inboundNo', '')}' | PO='{meta.get('poNo', '')}' | Ref='{meta.get('refNo', '')}' | Plant='{plant}'")
-                    elif cmd != "PING":
+                    elif cmd not in ("PING", "WHO_IS_TAI"):
                         resolved_mats, notes = resolver.resolve_list(raw_mats)
                         print(f"\n[DETECTED] {req_id} | Người hỏi: {meta['senderName']} ({meta['senderEmail']})")
                         print(f"  -> Ý định:   {cmd} ({meta['intentReason']})")
@@ -443,6 +443,39 @@ def run_bridge():
                             )
                             summary = f"Kiểm tra kết nối PING-PONG thành công (Request ID: {meta.get('requestId') or req_id})"
 
+                        elif cmd == "WHO_IS_TAI":
+                            custom_html = (
+                                f"<div style='font-family:Segoe UI,sans-serif;background:#f0f8ff;border:1px solid #b6d4fe;"
+                                f"border-left:4px solid #0969da;padding:14px 16px;border-radius:6px;color:#24292f;'>"
+                                f"<div style='font-weight:bold;color:#0969da;font-size:15px;margin-bottom:8px;'>"
+                                f"🦾✨ Dạ kính chào sếp! Em xin phép được giới thiệu về 'Cha đẻ' của em ạ!</div>"
+                                f"<div style='font-size:13px;line-height:1.7;'>"
+                                f"• <strong>Tác giả / Kiến trúc sư trưởng:</strong> Kỹ sư <strong>Phạm Tiến Tài (FVN-KSX-NMVFHP)</strong>.<br>"
+                                f"• <strong>Sứ mệnh của em:</strong> Được anh Tài khai sinh, lập trình và nạp năng lượng 24/7 để đồng hành cùng các sếp và anh chị em xưởng sản xuất, "
+                                f"giải phóng mọi người khỏi cảnh quay cuồng giữa rừng mã SAP, F3 mỏi tay hay trích xuất Excel thủ công!<br>"
+                                f"• <strong>Năng lực cốt lõi:</strong> Soi vị trí Bin EWM (<code>/SCWM/POST</code>), kiểm tra tồn kho MB52, "
+                                f"săn đơn xuất OB (<code>VL06O</code>), kiểm tra hàng về IB (<code>VL06I</code>/<code>ZMME240</code>), theo dõi STO (<code>ME2N</code>), "
+                                f"tra cứu định mức BOM (<code>CS03</code>), đối soát BBBG và đính kèm MIGO GOS tự động.<br>"
+                                f"• <strong>Lời nhắn từ trợ lý:</strong> Sếp cần tra cứu mã hàng, vị trí hay đơn hàng nào, cứ ra lệnh cho em nhé! "
+                                f"Nếu em có điểm nào chưa chuẩn, sếp cứ 'méc' anh Tài để em được... nâng cấp thêm ạ! 😄📦"
+                                f"</div></div>"
+                            )
+                            summary = "Giới thiệu tác giả: Kỹ sư Phạm Tiến Tài (FVN-KSX-NMVFHP) - Kiến trúc sư trưởng SAP Bridge"
+
+                        elif cmd in ["CHECK_RES", "MB23", "MB25"]:
+                            custom_html = (
+                                f"<div style='font-family:Segoe UI,sans-serif;background:#fff8c5;border:1px solid #d4a72c;"
+                                f"border-left:4px solid #9a6700;padding:12px 14px;border-radius:4px;color:#24292f;'>"
+                                f"<div style='font-weight:bold;color:#9a6700;font-size:14px;margin-bottom:6px;'>"
+                                f"📋 Kiểm tra Phiếu Lĩnh / Reservation (MB23/MB25)</div>"
+                                f"<div style='font-size:12px;line-height:1.6;'>"
+                                f"• <strong>Mã yêu cầu:</strong> {meta.get('requestId') or req_id}<br>"
+                                f"• <strong>Trạng thái:</strong> Hệ thống đã tiếp nhận yêu cầu kiểm tra Reservation.<br>"
+                                f"• <strong>Hướng dẫn:</strong> Vui lòng cung cấp số phiếu Reservation (RSNUM 10 số) để tra cứu chi tiết."
+                                f"</div></div>"
+                            )
+                            summary = "Tra cứu thông tin phiếu lĩnh Reservation (MB23/MB25)"
+
                         elif cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
                             records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
                             headers = {
@@ -453,6 +486,32 @@ def run_bridge():
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                             summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+
+                            # Smart Combo Check: Nếu /SCWM/POST trả về 0 dòng, tự động fallback kiểm tra MB52 xem còn tồn ở SLoc ngoài EWM không
+                            if not records and resolved_mats:
+                                try:
+                                    mb52_fb = sap.check_stock_mb52(resolved_mats, plant=plant)
+                                    if mb52_fb:
+                                        sloc_summary = []
+                                        for r_fb in mb52_fb:
+                                            sloc_summary.append(f"SLoc {r_fb.get('sloc', '')}: {r_fb.get('unrest', '0')} {r_fb.get('unit', '')}")
+                                        sloc_str = ", ".join(sloc_summary[:4])
+                                        summary = f"Trên EWM (Kho {plant}) hiện không còn Bin nào, nhưng trên MB52 đang có tồn tại {sloc_str}!"
+                                        print(f"[COMBO CHECK] EWM rỗng nhưng MB52 có tồn: {sloc_str}")
+                                        for r_fb in mb52_fb:
+                                            records.append({
+                                                "product": r_fb.get("product", ""),
+                                                "batch": r_fb.get("batch", ""),
+                                                "bin": f"SLoc {r_fb.get('sloc', '')} (Ngoài EWM)",
+                                                "totalQty": r_fb.get("unrest", "0"),
+                                                "availQty": r_fb.get("unrest", "0"),
+                                                "unit": r_fb.get("unit", ""),
+                                                "grDate": "Xem MB52",
+                                                "grTime": "",
+                                                "cat": "Tồn SLoc"
+                                            })
+                                except Exception as fb_err:
+                                    print(f"[COMBO CHECK WARN] Không thể fallback sang MB52: {fb_err}")
 
                         elif cmd in ["TON_KHO", "TONKHO"]:
                             wh_slocs = config.get("warehouse_slocs", ["1005", "3093"])

@@ -726,7 +726,7 @@ class SapEngine:
 
             self._wait_idle(1.0)
 
-            # 2. Bấm nút Filter trên Toolbar (btn[29] hoặc &MB_FILTER)
+            # 2. Bấm nút Filter trên Toolbar (btn[29] hoặc &MB_FILTER / &ILT)
             btn29 = self._find_by_id_safe("wnd[0]/tbar[1]/btn[29]")
             if btn29 is not None:
                 btn29.press()
@@ -734,10 +734,30 @@ class SapEngine:
                 try:
                     grid.pressToolbarButton("&MB_FILTER")
                 except Exception:
-                    self.session.findById("wnd[0]").sendVKey(29)
+                    try:
+                        grid.pressToolbarButton("&ILT")
+                    except Exception:
+                        if hasattr(self, "session") and self.session is not None:
+                            wnd0 = self._find_by_id_safe("wnd[0]")
+                            if wnd0 is not None and hasattr(wnd0, "sendVKey"):
+                                wnd0.sendVKey(29)
 
             self._wait_idle(3.0)
             wnd1 = self._find_by_id_safe("wnd[1]")
+            if wnd1 is None:
+                # Fallback: Trực tiếp thử các nút Filter trên Application Toolbar tbar[1] nếu wnd[1] chưa bật
+                for alt_btn in ["wnd[0]/tbar[1]/btn[29]", "wnd[0]/tbar[1]/btn[38]"]:
+                    fb = self._find_by_id_safe(alt_btn)
+                    if fb is not None:
+                        try:
+                            fb.press()
+                            self._wait_idle(2.0)
+                            wnd1 = self._find_by_id_safe("wnd[1]")
+                            if wnd1 is not None:
+                                break
+                        except Exception:
+                            pass
+
             if wnd1 is None:
                 print(f"[SAP ALV FILTER WARN] Không tìm thấy popup wnd[1] sau khi bấm Filter cột {column_id}")
                 return False
@@ -1707,11 +1727,23 @@ class SapEngine:
             # Xóa sạch các trường lọc cũ trên màn hình chọn
             self._clear_all_selection_inputs()
 
-            # 2. Xóa trường ngày giao để lấy trọn vẹn không bị lọc ngày
+            # 2. Xóa trường ngày giao để lấy trọn vẹn không bị lọc ngày (Shift+F2 / sendVKey 14)
             lfdat_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-LOW")
             if lfdat_ctl is not None:
                 try:
                     lfdat_ctl.text = ""
+                    if hasattr(lfdat_ctl, "setFocus"):
+                        lfdat_ctl.setFocus()
+                    if hasattr(self, "session") and self.session is not None:
+                        wnd0 = self._find_by_id_safe("wnd[0]")
+                        if wnd0 is not None and hasattr(wnd0, "sendVKey"):
+                            wnd0.sendVKey(14)
+                except Exception:
+                    pass
+            lfdat_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIT_LFDAT-HIGH")
+            if lfdat_hi is not None:
+                try:
+                    lfdat_hi.text = ""
                 except Exception:
                     pass
 
@@ -1840,7 +1872,9 @@ class SapEngine:
                     actual_receiving = "4007"
                     actual_supplying = "3093"
                 else:
-                    actual_supplying = user_plant
+                    # Mặc định đơn vị tại 3093 tra cứu đơn nhận về 3093
+                    actual_receiving = user_plant
+                    actual_supplying = ""
 
             print(
                 f"[SAP ME2N TRACE] Đang tra cứu STO: Materials={clean_mats}, "
@@ -1855,11 +1889,11 @@ class SapEngine:
                 except Exception:
                     pass
 
-            # 2. Đặt Selection Parameter AVIS (Đơn đang thực hiện giao nhận)
+            # 2. Đặt Selection Parameter WE101 (Open Goods Receipt) theo chuẩn Check_PO_SA_Availability
             selpa_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtSELPA-LOW")
             if selpa_ctl is not None:
                 try:
-                    selpa_ctl.text = "AVIS"
+                    selpa_ctl.text = "WE101"
                 except Exception:
                     pass
 
@@ -2418,11 +2452,34 @@ class SapEngine:
                 if self._find_by_id_safe(btn_id) is not None:
                     self._clear_multiple_selection(btn_id)
 
-            # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Điền Shipping Point trực tiếp vào ctxtIF_VSTEL-LOW (không dùng popup)
+            # 3. ĐIỀU KIỆN THEN CHỐT: Điền Mã hàng (MATNR) trực tiếp trên Selection Screen trước khi F8
+            if clean_mats:
+                mat_low = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-LOW")
+                if len(clean_mats) == 1 and mat_low is not None:
+                    try:
+                        mat_low.text = clean_mats[0]
+                    except Exception as e:
+                        print(f"[SAP VL06O WARN] Không thể điền MATNR-LOW: {e}")
+                elif len(clean_mats) > 1:
+                    multi_mat_id = "wnd[0]/usr/btn%_IT_MATNR_%_APP_%-VALU_PUSH"
+                    if self._find_by_id_safe(multi_mat_id) is not None:
+                        self._fill_multiple_selection(multi_mat_id, clean_mats)
+                    elif mat_low is not None:
+                        mat_low.text = clean_mats[0]
+
+                mat_hi = self._find_by_id_safe("wnd[0]/usr/ctxtIT_MATNR-HIGH")
+                if mat_hi is not None:
+                    try:
+                        mat_hi.text = ""
+                    except Exception:
+                        pass
+
+            # 4. Xử lý Shipping Point: Không ép cứng 3093 khi tìm theo mã hàng (trừ khi người dùng yêu cầu plant khác)
             vstel_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-LOW")
             if vstel_ctl is not None:
                 try:
-                    vstel_ctl.text = target_vstel
+                    vstel_val = "" if clean_mats else target_vstel
+                    vstel_ctl.text = vstel_val
                 except Exception as e:
                     print(f"[SAP VL06O WARN] Không thể điền Shipping Point: {e}")
 
@@ -2433,21 +2490,35 @@ class SapEngine:
                 except Exception:
                     pass
 
-            # 4. Khoảng ngày Planned GI Date: -60 ngày đến +60 ngày theo đúng RC65
-            from_date = (datetime.now() - timedelta(days=60)).strftime("%d.%m.%Y")
-            to_date = (datetime.now() + timedelta(days=60)).strftime("%d.%m.%Y")
-            d_from = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
-            if d_from is not None:
-                try:
-                    d_from.text = from_date
-                except Exception:
-                    pass
-            d_to = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-HIGH")
-            if d_to is not None:
-                try:
-                    d_to.text = to_date
-                except Exception:
-                    pass
+            # 5. Khoảng ngày: Nếu tìm theo Mã hàng hoặc số OB -> Xóa sạch khoảng ngày để quét toàn bộ không bị lọc mất
+            if clean_mats or clean_ob:
+                for dt_id in [
+                    "wnd[0]/usr/ctxtIT_WADAT-LOW", "wnd[0]/usr/ctxtIT_WADAT-HIGH",
+                    "wnd[0]/usr/ctxtIT_LFDAT-LOW", "wnd[0]/usr/ctxtIT_LFDAT-HIGH"
+                ]:
+                    dt_ctl = self._find_by_id_safe(dt_id)
+                    if dt_ctl is not None:
+                        try:
+                            dt_ctl.text = ""
+                        except Exception:
+                            pass
+                from_date = "ALL"
+                to_date = "ALL"
+            else:
+                from_date = (datetime.now() - timedelta(days=60)).strftime("%d.%m.%Y")
+                to_date = (datetime.now() + timedelta(days=60)).strftime("%d.%m.%Y")
+                d_from = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
+                if d_from is not None:
+                    try:
+                        d_from.text = from_date
+                    except Exception:
+                        pass
+                d_to = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-HIGH")
+                if d_to is not None:
+                    try:
+                        d_to.text = to_date
+                    except Exception:
+                        pass
 
             # 5. Goods Movement Status = "A" (Chưa xuất hàng / Đang mở theo RC65)
             target_gm = "A"

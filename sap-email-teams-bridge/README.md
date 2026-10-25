@@ -1,4 +1,4 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.49
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.50
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
@@ -13,26 +13,35 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
 
-3. **An toàn nghiệp vụ & Kiểm soát ranh giới Đọc / Ghi (P1 Safety Hardening - v1.0.49):**
-   - **F01 (Phân tách truy vấn JSON & Đính kèm MIGO):** JSON tra cứu (e.g. `TRA_CUU_ASN`, `MB52`, `VITRI`) được định tuyến độc lập, tuyệt đối không bị nhận nhầm sang lệnh ghi đính kèm `ATT_MIGO`.
-   - **F02 (Kiểm soát phiên đính kèm MIGO):** Chế độ dry-run và kiểm tra session an toàn; không tự tạo báo cáo giả mạo trạng thái `DONE`/`HEADTEXT_DONE` khi không có phiên thực thi.
-   - **F03 (Minh bạch mô phỏng Điều phối OB & MIGO 311):** Các lệnh xem trước/mô phỏng gắn nhãn rõ ràng `SIMULATED`/`PREVIEW`, tuyệt đối không sinh số chứng từ SAP giả mạo (`mat_doc` dạng 49...).
-   - **F04 (Đối soát BBBG nghiêm ngặt):** Khóa đối soát chặt chẽ theo bộ 4 thuộc tính `(material, batch, doc_no, unit)`. Khấu trừ chuẩn xác chứng từ hủy (102/312) theo dấu số lượng.
-   - **F05 (Xuất xứ dữ liệu ASN rõ ràng):** Dữ liệu thiếu tờ khai hải quan thể hiện minh bạch `UNKNOWN`, không mặc định giả định "ĐÃ THÔNG QUAN".
-   - **F06 (Phân bổ NVL & OB chính xác):** Loại trừ tồn kho QC/Blocked; tách biệt giữa tồn bằng 0 và không có dữ liệu; thống nhất nguồn tồn kho giữa nhu cầu chỉ định lô và nhu cầu chung.
-   - **F07 (Idempotency đặt trước & Tính linh hoạt đường dẫn CSDL):** Hỗ trợ đường dẫn CSDL tương đối/cấu hình động; tránh nhân bản đặt trước trùng lặp.
-   - **F08 (Chuẩn hóa số lượng đa định dạng US/EU):** Phân tích chính xác số thập phân và phân cách hàng nghìn; badge KPI hiển thị nhất quán, trực quan.
+3. **Ổn định tương tác Live SAP GUI & Ma trận Ý định (v1.0.50 Live Stabilization):**
+   - **VL06O (Check Outbound):** Điền thẳng mã vật tư vào `ctxtIT_MATNR-LOW` ngay tại Selection Screen trước khi F8; không ép cứng Shipping Point (`IF_VSTEL-LOW = '3093'`); xóa sạch giới hạn ngày giao hàng; bổ sung cơ chế fallback bấm nút Filter `wnd[0]/tbar[1]/btn[29]` trên Classic ALV Fullscreen Container.
+   - **ME2N (Check STO/PO):** Cấu hình `LISTU = "ALV"`, tham số chọn `SELPA = "WE101"` (Open Goods Receipt); phân định chuẩn xác Nhà máy nhận hàng `S_WERKS-LOW` (Plant 3093) thay vì nhầm sang Supplying Plant.
+   - **VL06I (Check Inbound):** Bổ sung phím tắt Shift+F2 (`sendVKey(14)`) tại ô `IT_LFDAT-LOW` để xóa sạch ngày mặc định; điền mã vật tư và chuyển sang Item View (`btn[18]`) trước khi trích xuất.
+   - **Chuẩn hóa nhãn SLoc MB52:** Đổi nhãn tóm tắt từ `📦 Kho {sloc}` thành `📦 SLoc {sloc}` để phản ánh đúng thuật ngữ Storage Location trong SAP ERP.
+   - **Bảng Ma trận Ý định theo Trọng số (Weighted Intent Matrix - 12 mức ưu tiên):** Tự động phân loại ngôn ngữ tự nhiên (viết tắt, tiếng lóng kho vận) với độ chính xác tuyệt đối:
+     1. `WHO_IS_TAI`: Easter Egg card tôn vinh tác giả Phạm Tiến Tài (FVN-KSX-NMVFHP).
+     2. `ATT_MIGO`: Đính kèm file GOS & điền số phiếu HeadText MIGO.
+     3. `CHECK_BOM`: Định mức linh kiện con (CS03).
+     4. `CHECK_QUEUE`: Lỗi kẹt Queue EWM (/SCWM/MON).
+     5. `CHECK_OB`: Danh sách đơn xuất Outbound (VL06O).
+     6. `CHECK_IB`: Danh sách đơn nhập Inbound (VL06I/ZMME240).
+     7. `STO`: Đơn điều chuyển kho & PO mở (ME2N).
+     8. `LICHSU`: Lịch sử xuất nhập 7–N ngày (MB51).
+     9. `CHECK_RES`: Phiếu lĩnh / Reservation (MB23/MB25).
+     10. `TON`: Tồn kho theo SLoc (MB52).
+     11. `VITRI`: Vị trí Bin, Batch, Ngày/Giờ GR (/SCWM/POST).
+     12. Mặc định thông minh: Tự động chạy `VITRI` khi chỉ gửi mã hàng.
+   - **Kiểm tra kép Combo (VITRI $\rightarrow$ MB52 Fallback):** Khi tra cứu vị trí `/SCWM/POST` trả về 0 dòng, hệ thống tự động kiểm tra MB52 để phát hiện ngay hàng đang nằm ở các SLoc ngoài EWM (như 3000, 9999).
 
-4. **Hỗ trợ toàn diện 8 nhóm nghiệp vụ logistics & tra cứu thông minh:**
-   - **/SCWM/POST:** Vị trí lưu kho (Bin), Số lượng khả dụng, Số Lô, Ngày GR, Giờ GR, Trạng thái kho EWM.
-   - **MB52 (Tồn kho):** Tồn kho tổng hợp hoặc lọc riêng Kho 1005 & 3093 (Tồn, Lô, ĐVT).
-   - **MB52 (Tồn thấp đa Plant):** Cảnh báo Top N mã tồn thấp theo Dòng xe (BODY: Plant 3093 & 3001; XMĐ: Plant 3093, 2001 & 3001).
-   - **MB51:** Lịch sử xuất - nhập - chuyển kho trong N ngày gần nhất (Tự động xóa trắng Material Document & Movement Type cũ).
-   - **VL06I & Tra cứu ASN:** Danh sách đơn Inbound (IB) treo chưa Goods Receipt (GM = A), tình trạng thông quan và chi tiết chứng từ.
-   - **ME2N:** Danh sách đơn điều chuyển kho (STO) theo mã hàng (SL đặt, đã xuất, còn nợ).
-   - **VL06O & Phân bổ OB:** Danh sách đơn Outbound (OB) đang mở chưa xuất hàng và thuật toán phân bổ tồn kho khả dụng.
-   - **/SCWM/MON:** Lịch sử xuất nhập & di chuyển Bin-to-Bin (Warehouse Tasks: Confirmed & Cancelled).
-   - **Đối soát BBBG & GR Document:** So khớp chéo biên bản bàn giao và chứng từ nhập kho vật tư/thành phẩm.
+4. **An toàn nghiệp vụ & Kiểm soát ranh giới Đọc / Ghi (P1 Safety Hardening):**
+   - **F01 (Phân tách truy vấn JSON & Đính kèm MIGO):** JSON tra cứu được định tuyến độc lập, không rơi vào nhánh ghi `ATT_MIGO`.
+   - **F02 (Kiểm soát phiên đính kèm MIGO):** Chế độ dry-run và kiểm tra session an toàn; không tự tạo báo cáo giả mạo trạng thái `DONE`/`HEADTEXT_DONE`.
+   - **F03 (Minh bạch mô phỏng Điều phối OB & MIGO 311):** Gắn nhãn rõ ràng `SIMULATED`/`PREVIEW`, không sinh số chứng từ giả mạo.
+   - **F04 (Đối soát BBBG nghiêm ngặt):** Khóa đối soát chặt chẽ `(material, batch, doc_no, unit)`. Khấu trừ chuẩn xác chứng từ hủy theo dấu số lượng.
+   - **F05 (Xuất xứ dữ liệu ASN rõ ràng):** Dữ liệu thiếu tờ khai thể hiện minh bạch `UNKNOWN`.
+   - **F06 (Phân bổ NVL & OB chính xác):** Loại trừ tồn kho QC/Blocked; phân biệt rõ tồn bằng 0 và không có dữ liệu.
+   - **F07 (Idempotency đặt trước & Tính linh hoạt đường dẫn CSDL):** Hỗ trợ đường dẫn tương đối, chống nhân bản đặt trước trùng lặp.
+   - **F08 (Chuẩn hóa số lượng đa định dạng US/EU):** Phân tích chính xác số thập phân và phân cách hàng nghìn; badge KPI hiển thị nhất quán.
 
 ## Cấu trúc thư mục
 ```text
@@ -44,7 +53,7 @@ sap-email-teams-bridge/
 ├── app/
 │   ├── bbbg_service.py             # Nghiệp vụ đối soát Biên bản bàn giao & MIGO
 │   ├── config.py                   # Quản lý đọc cấu hình & auto-fix JSON
-│   ├── email_parser.py             # Bộ bóc tách lệnh email, JSON & coaching
+│   ├── email_parser.py             # Bộ bóc tách lệnh email, Weighted Intent Matrix V2.0
 │   ├── extended_query_service.py   # Dịch vụ tra cứu mở rộng (ASN, STO, EWM Mon...)
 │   ├── material_resolver.py        # Quy đổi mã nội bộ / mã khách hàng qua Excel
 │   ├── number_utils.py             # Chuẩn hóa số lượng SAP đa định dạng (US/EU/AUTO)
@@ -52,7 +61,7 @@ sap-email-teams-bridge/
 │   ├── ob_service.py               # Nghiệp vụ điều phối Outbound & phân bổ tồn kho
 │   ├── runtime_control.py          # Kiểm soát an toàn phiên & ranh giới chạy
 │   ├── sap_attachment.py           # Quản lý tải và đính kèm GOS / MIGO header text
-│   ├── sap_engine.py               # Điều khiển SAP GUI COM, bảo vệ session & Keep-Alive
+│   ├── sap_engine.py               # Điều khiển SAP GUI COM, Live SAP GUI Stabilization
 │   ├── state_manager.py            # Quản lý hàng đợi Outbox & chống trùng bằng SQLite
 │   └── teams_dispatcher.py         # Gửi kết quả Webhook kèm bảng HTML & KPI
 ├── data/
@@ -63,7 +72,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (221 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (224 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm
