@@ -20,8 +20,18 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Set
 
 
+DEFAULT_MIGO_ATT_FOLDER = (
+    r"\\10.128.10.72\fvn$\03.Khối sản xuất\01.Nhà máy VinFast Hải Phòng"
+    r"\04.Xưởng lắp ráp kim loại - cơ khí NMHP\01. Lắp ráp kim loại"
+    r"\5.LOGISTIC\III. Internal\III. Kho P part\3. Theo doi hang nhap P"
+    r"\240101_FT-P\260802_ File ATT BBGH"
+)
+
+
 def clean_folder_path(raw_path: str) -> str:
-    """Chuẩn hóa đường dẫn thư mục UNC / Local: xóa ký tự ẩn NBSP, zero-width, nháy, và chuẩn hóa Unicode NFC."""
+    """Chuẩn hóa đường dẫn thư mục UNC / Local: xóa ký tự ẩn NBSP, zero-width, nháy, và chuẩn hóa Unicode NFC.
+    Tự động hoàn thiện đường dẫn nếu bị Outlook ngắt dòng ở ký tự thứ 73-76.
+    """
     if not raw_path:
         return ""
     p = str(raw_path)
@@ -30,6 +40,9 @@ def clean_folder_path(raw_path: str) -> str:
     p = unicodedata.normalize("NFC", p)
     if len(p) > 3 and p.endswith(("\\", "/")):
         p = p.rstrip("\\/")
+    # Tự động bù đắp nếu bị ngắt dòng cụt do Outlook (ví dụ: '... \01.Nhà máy VinFast Hải')
+    if len(p) >= 20 and DEFAULT_MIGO_ATT_FOLDER.startswith(p) and len(p) < len(DEFAULT_MIGO_ATT_FOLDER):
+        return DEFAULT_MIGO_ATT_FOLDER
     return p
 
 

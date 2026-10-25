@@ -299,3 +299,26 @@ def test_unreachable_folder_handling():
     assert "Chi tiết" not in report
 
 
+def test_clean_folder_path_auto_complete_truncated_prefix():
+    """Kiểm tra tự động hoàn thiện đường dẫn nếu bị Outlook ngắt dòng ở ký tự 73 (chữ 'Hải')."""
+    from app.sap_attachment import DEFAULT_MIGO_ATT_FOLDER
+    # Đoạn bị Outlook ngắt dòng ở ảnh của người dùng:
+    truncated = r"\\10.128.10.72\fvn$\03.Khối sản xuất\01.Nhà máy VinFast Hải"
+    resolved = clean_folder_path(truncated)
+    assert resolved == DEFAULT_MIGO_ATT_FOLDER
+    assert "260802_ File ATT BBGH" in resolved
+
+
+def test_email_parser_att_mail_without_folder_uses_default():
+    """Kiểm tra lệnh 'SAP att mail' khi không truyền link UNC thì tự động dùng thư mục mặc định từ cell B3."""
+    from app.email_parser import SmartCommandParser
+    from app.sap_attachment import DEFAULT_MIGO_ATT_FOLDER
+    text = "SAP att mail\n5006458947 | Thành Công in 3874"
+    meta = SmartCommandParser.parse(text)
+    assert meta["command"] == "ATT_MIGO"
+    assert meta["folderPath"] == DEFAULT_MIGO_ATT_FOLDER
+    assert len(meta["attachmentItems"]) == 1
+    assert meta["attachmentItems"][0]["doc"] == "5006458947"
+
+
+

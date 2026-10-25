@@ -519,6 +519,14 @@ class SmartCommandParser:
                 folder_path = clean_folder_path(raw_folder)
             except Exception:
                 folder_path = raw_folder
+        elif re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail|att)\b", norm_text):
+            # Nếu người dùng gửi lệnh đính kèm 'SAP att mail' mà không dán link dài:
+            # Tự động lấy thư mục mặc định từ ô B3 của file 261002_MIGO_ATT_V3_4_3.xlsm
+            try:
+                from app.sap_attachment import DEFAULT_MIGO_ATT_FOLDER
+                folder_path = DEFAULT_MIGO_ATT_FOLDER
+            except Exception:
+                folder_path = ""
 
         att_items = []
         try:
