@@ -444,7 +444,22 @@ def run_bridge():
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
                             plant_info = f" (Plant {plant})" if explicit_p else " (Tất cả nhà máy)"
-                            summary = f"Lịch sử giao dịch {days} ngày (MB51){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
+
+                            is_fallback = False
+                            if records:
+                                from datetime import datetime, timedelta
+                                cutoff_str = (datetime.now() - timedelta(days=int(days))).strftime("%Y%m%d")
+                                newest_date = records[0].get("postDate", "")
+                                parts = re.split(r"[./-]", newest_date)
+                                if len(parts) == 3 and len(parts[2]) == 4:
+                                    newest_iso = f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
+                                    if newest_iso < cutoff_str:
+                                        is_fallback = True
+
+                            if is_fallback:
+                                summary = f"Trong {days} ngày qua không có phát sinh. Đã mở rộng hiển thị {len(records)} giao dịch gần nhất (từ {records[0].get('postDate')}){plant_info} cho: {', '.join(resolved_mats)}{mapping_info}"
+                            else:
+                                summary = f"Lịch sử giao dịch {days} ngày (MB51){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["IB_TREO", "IB", "INBOUND", "VL06I"]:
                             records = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)

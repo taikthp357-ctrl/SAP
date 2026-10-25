@@ -1607,6 +1607,38 @@ class SapEngine:
             if alv_grid is None:
                 alv_grid = self._find_largest_grid(max_wait_sec=10.0)
 
+            # SMART FALLBACK: Nếu không có dòng dữ liệu nào trong khoảng ngày đã lọc (ví dụ 3 ngày),
+            # và người dùng không yêu cầu khoảng ngày quá dài (>60 ngày),
+            # tự động mở rộng sang 30 ngày gần nhất để bắt được giao dịch gần nhất của vật tư.
+            if alv_grid is None and days < 60:
+                print(f"[SAP MB51] 0 dòng dữ liệu trong {days} ngày gần nhất. Tự động mở rộng sang 30 ngày gần nhất...")
+                start_date_wide = end_date - timedelta(days=30)
+                if b_low is not None:
+                    try:
+                        b_low.text = start_date_wide.strftime("%d.%m.%Y")
+                    except Exception:
+                        pass
+                if b_high is not None:
+                    try:
+                        b_high.text = end_date.strftime("%d.%m.%Y")
+                    except Exception:
+                        pass
+
+                # Bấm thực thi lại (F8)
+                if exec_btn is not None:
+                    try:
+                        exec_btn.press()
+                    except Exception:
+                        self.session.findById("wnd[0]").sendVKey(8)
+                else:
+                    self.session.findById("wnd[0]").sendVKey(8)
+
+                self._wait_idle(25.0)
+                self._dismiss_popups()
+                alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+                if alv_grid is None:
+                    alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
             if alv_grid is None:
                 self._validate_grid_or_raise(alv_grid, "MB51", status_txt, status_type)
                 return []
@@ -1620,7 +1652,9 @@ class SapEngine:
                 "unit":    ["MEINS", "ERFME", "UNIT OF ENTRY", "UNIT"],
                 "plant":   ["WERKS", "PLANT"],
                 "sloc":    ["LGORT", "SLOC", "STORAGE LOCATION"],
-                "batch":   ["CHARG", "BATCH"]
+                "batch":   ["CHARG", "BATCH"],
+                "refNo":   ["XBLNR", "REFERENCE", "BILL"],
+                "headText":["BKTXT", "DOC.HEADER TEXT", "HEADER TEXT"]
             }
             records = self._extract_alv_grid(alv_grid, col_map)
             print(f"[SAP MB51] Đã trích xuất {len(records)} dòng lịch sử xuất nhập.")
