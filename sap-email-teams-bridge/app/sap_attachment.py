@@ -20,6 +20,19 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Set
 
 
+def clean_folder_path(raw_path: str) -> str:
+    """Chuẩn hóa đường dẫn thư mục UNC / Local: xóa ký tự ẩn NBSP, zero-width, nháy, và chuẩn hóa Unicode NFC."""
+    if not raw_path:
+        return ""
+    p = str(raw_path)
+    p = p.replace("\xa0", " ").replace("\u200b", "").replace("\u3000", " ")
+    p = p.strip(" \t\r\n\"\'<>|")
+    p = unicodedata.normalize("NFC", p)
+    if len(p) > 3 and p.endswith(("\\", "/")):
+        p = p.rstrip("\\/")
+    return p
+
+
 def normalize_text(text: str) -> str:
     """Chuẩn hóa chuỗi văn bản: bỏ dấu tiếng Việt, chuyển chữ thường, loại bỏ ký tự lạ."""
     if not text:
@@ -49,14 +62,16 @@ def extract_search_tokens(text: str) -> Tuple[List[str], str]:
 
 
 def format_status_label(ticket_no: str, is_success: bool) -> str:
-    """Định dạng chuỗi trạng thái thành công/thất bại chuẩn xác như Ảnh 2."""
+    """Định dạng chuỗi trạng thái thành công/thất bại chuẩn xác (tránh lặp từ 'Thành Công')."""
     if not is_success:
         return "FILE_NOT_FOUND"
     t_clean = str(ticket_no).strip()
+    if not t_clean:
+        return "Thành Công"
     norm = normalize_text(t_clean)
     if norm.startswith("thanh cong") or norm.startswith("thanhcong"):
         return t_clean
-    return f"Thành Công {t_clean}" if t_clean else "Thành Công"
+    return f"Thành Công {t_clean}"
 
 
 def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
@@ -539,11 +554,29 @@ class MigoAttachmentRunner:
         fill_headtext: bool = True,
         dry_run: bool = False
     ) -> Dict[str, Any]:
-        """Xử lý hàng loạt danh sách chứng từ: Điền số phiếu vào HeadText và Đính kèm file BBBG/VAT/Mail."""
-        has_folder = bool(folder_path and Path(folder_path).exists() and Path(folder_path).is_dir())
+        """Xử lý hàng loạt danh sách chứng từ: Điền số phiếu vào HeadText và Đính kèm file BBBG/VAT."""
+        clean_folder = clean_folder_path(folder_path)
+        is_folder_requested = bool(clean_folder)
+        has_folder = False
+        folder_error = ""
+
+        if is_folder_requested:
+            try:
+                folder_obj = Path(clean_folder)
+                if folder_obj.exists() and folder_obj.is_dir():
+                    has_folder = True
+                else:
+                    folder_error = f"Thư mục không tồn tại hoặc không thể truy cập: {clean_folder}"
+            except Exception as e:
+                folder_error = f"Lỗi truy cập thư mục: {e}"
+
         if has_folder:
-            index_data = self.index_source_folder(folder_path, recursive=True)
-            print(f"[ATT RUNNER] Đã quét thư mục '{folder_path}': Tìm thấy {index_data['total_files']} files hợp lệ.")
+            index_data = self.index_source_folder(clean_folder, recursive=True)
+            print(f"[ATT RUNNER] Đã quét thư mục '{clean_folder}': Tìm thấy {index_data['total_files']} files hợp lệ.")
+        elif is_folder_requested:
+            index_data = {"total_files": 0, "files": [], "token_map": {}}
+            print(f"[ATT WARN] Không thể truy cập thư mục '{clean_folder}': {folder_error}")
+            print(f"[ATT WARN] Vui lòng kiểm tra lại quyền truy cập mạng LAN/VPN VinFast hoặc mở thư mục trong File Explorer.")
         else:
             index_data = {"total_files": 0, "files": [], "token_map": {}}
             print(f"[ATT RUNNER] Chế độ điền số phiếu HeadText (Không đính kèm file).")
@@ -563,9 +596,9 @@ class MigoAttachmentRunner:
                 continue
 
             # =========================================================================
-            # NHÁNH 1: CHỈ ĐIỀN SỐ PHIẾU HEADTEXT (Không có thư mục / link đính kèm)
+            # TRƯỜNG HỢP 1: NGƯỜI DÙNG KHÔNG YÊU CẦU ĐÍNH KÈM (Chỉ điền số phiếu HeadText)
             # =========================================================================
-            if not has_folder:
+            if not is_folder_requested:
                 headtext_res = "SKIP"
                 headtext_msg = "Không có số phiếu cần điền"
                 overall_status = "CHƯA_XỬ_LÝ"
@@ -574,7 +607,7 @@ class MigoAttachmentRunner:
                     if fill_headtext and ticket_no:
                         headtext_res = "HEADTEXT_DONE"
                         headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
-                        overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                        overall_status = format_status_label(ticket_no, True)
                         total_success += 1
                     else:
                         headtext_res = "SKIP_NO_TICKET"
@@ -592,7 +625,7 @@ class MigoAttachmentRunner:
                         if fill_headtext and ticket_no:
                             headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
                             if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
-                                overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                                overall_status = format_status_label(ticket_no, True)
                                 total_success += 1
                             else:
                                 overall_status = f"Lỗi HeadText: {headtext_res}"
@@ -620,7 +653,50 @@ class MigoAttachmentRunner:
                 continue
 
             # =========================================================================
-            # NHÁNH 2: ĐÍNH KÈM FILE (BBBG, VAT, Mail) VÀ ĐIỀN SỐ PHIẾU MIGO
+            # TRƯỜNG HỢP 2: CÓ YÊU CẦU ĐÍNH KÈM NHƯNG THƯ MỤC LỖI TRUY CẬP (Mất mạng / VPN)
+            # =========================================================================
+            if not has_folder:
+                headtext_res = "SKIP"
+                headtext_msg = "Không điền HeadText"
+
+                if fill_headtext and ticket_no:
+                    if dry_run or session is None:
+                        headtext_res = "HEADTEXT_DONE"
+                        headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
+                    else:
+                        loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
+                        if loaded_ok:
+                            headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+                        else:
+                            headtext_res = "OPEN_FAIL"
+                            headtext_msg = nav_msg
+
+                bbbg_res = "LỖI_THƯ_MỤC"
+                vat_res = "LỖI_THƯ_MỤC"
+                if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
+                    overall_status = f"{format_status_label(ticket_no, True)} (Lỗi link thư mục)"
+                else:
+                    overall_status = "LỖI_THƯ_MỤC"
+                total_missing += 1
+
+                results.append({
+                    "doc": doc,
+                    "ticket_no": ticket_no,
+                    "headtext_status": headtext_res,
+                    "headtext_msg": headtext_msg,
+                    "bbbg_file": None,
+                    "vat_file": None,
+                    "mail_file": None,
+                    "bbbg_status": bbbg_res,
+                    "vat_status": vat_res,
+                    "mail_status": "LỖI_THƯ_MỤC",
+                    "overall_status": overall_status,
+                    "match_notes": folder_error or "Không thể truy cập thư mục đính kèm"
+                })
+                continue
+
+            # =========================================================================
+            # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
             # =========================================================================
             bbbg_path, vat_path, mail_path, match_notes = self.match_files(doc, ticket_no, index_data)
 
@@ -646,7 +722,7 @@ class MigoAttachmentRunner:
                     overall_status = "FILE_NOT_FOUND"
                     total_missing += 1
             else:
-                loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="DISPLAY")
+                loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE" if (fill_headtext and ticket_no) else "DISPLAY")
                 if not loaded_ok:
                     bbbg_res = nav_msg
                     vat_res = nav_msg
@@ -702,7 +778,8 @@ class MigoAttachmentRunner:
             })
 
         return {
-            "folder_path": folder_path if has_folder else "",
+            "folder_path": clean_folder if is_folder_requested else "",
+            "folder_error": folder_error,
             "total_items": len(items),
             "total_success": total_success,
             "total_missing": total_missing,
@@ -717,43 +794,44 @@ class MigoAttachmentRunner:
         success = batch_summary.get("total_success", 0)
         missing = batch_summary.get("total_missing", 0)
         folder_path = batch_summary.get("folder_path", "")
+        folder_error = batch_summary.get("folder_error", "")
 
         lines = []
         if not folder_path:
             lines.append(f"📝 **KẾT QUẢ ĐIỀN SỐ PHIẾU HEADTEXT MIGO**")
-            lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Lỗi: {missing})")
+            lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Lỗi/Thiếu: {missing})")
             lines.append("")
-            lines.append("| DOC | Số phiếu | Điền HeadText | Trạng thái | Chi tiết |")
-            lines.append("| :--- | :--- | :--- | :--- | :--- |")
+            lines.append("| Số DOC | Số phiếu | Điền HeadText | Trạng thái |")
+            lines.append("| :--- | :--- | :--- | :--- |")
             for r in results:
                 doc = r["doc"]
                 ticket = r["ticket_no"] or "-"
                 head = r.get("headtext_status", "-")
                 status = r.get("overall_status", "-")
-                msg = r.get("headtext_msg", "")
-                lines.append(f"| {doc} | {ticket} | {head} | {status} | {msg} |")
+                lines.append(f"| {doc} | {ticket} | {head} | {status} |")
         else:
-            lines.append(f"📎 **KẾT QUẢ ĐÍNH KÈM VAT, BBBG, MAIL & ĐIỀN SỐ PHIẾU MIGO**")
+            lines.append(f"📎 **KẾT QUẢ ĐÍNH KÈM BBBG, VAT & ĐIỀN SỐ PHIẾU MIGO**")
             lines.append(f"• Thư mục nguồn: `{folder_path}`")
+            if folder_error:
+                lines.append(f"⚠️ **Cảnh báo thư mục:** `{folder_error}`")
             lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Thiếu/Lỗi: {missing})")
             lines.append("")
-            lines.append("**Danh sách trạng thái từng chứng từ (Theo chuẩn MIGO ATT):**")
+            lines.append("**Danh sách trạng thái từng chứng từ:**")
             for r in results:
                 doc = r["doc"]
                 status = r["overall_status"]
                 lines.append(f"- `{doc}`: {status}")
 
             lines.append("")
-            lines.append("| DOC | Số phiếu | HeadText SAP | BBBG | VAT | Mail (.msg) | Trạng thái chi tiết |")
-            lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            lines.append("| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |")
+            lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
             for r in results:
                 doc = r["doc"]
                 ticket = r["ticket_no"] or "-"
                 head = r.get("headtext_status", "-")
                 bbbg = r.get("bbbg_status", "-")
                 vat = r.get("vat_status", "-")
-                mail_st = r.get("mail_status") or "-"
-                notes = r.get("match_notes", "")
-                lines.append(f"| {doc} | {ticket} | {head} | {bbbg} | {vat} | {mail_st} | {notes} |")
+                status = r.get("overall_status", "-")
+                lines.append(f"| {doc} | {ticket} | {head} | {bbbg} | {vat} | {status} |")
 
         return "\n".join(lines)

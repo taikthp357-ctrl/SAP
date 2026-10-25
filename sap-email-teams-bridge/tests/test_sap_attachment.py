@@ -17,6 +17,8 @@ from app.sap_attachment import (
     normalize_text,
     extract_search_tokens,
     parse_attachment_items_from_text,
+    clean_folder_path,
+    format_status_label,
     BBBG_REGEX,
     VAT_REGEX,
     MAIL_REGEX
@@ -136,7 +138,9 @@ def test_process_attachment_batch_dry_run(sample_attachment_dir):
     report = runner.format_teams_report(summary)
     assert "`5006995954`: Thành Công in 5794" in report
     assert "`9999999999`: FILE_NOT_FOUND" in report
-    assert "| DOC | Số phiếu | HeadText SAP | BBBG | VAT | Mail (.msg) |" in report
+    assert "| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |" in report
+    assert "Mail (.msg)" not in report
+    assert "Chi tiết" not in report
 
 
 def test_handle_migo_headtext_mock():
@@ -249,4 +253,49 @@ def test_parse_attachment_multi_row_list_and_table():
     assert len(items_html) == 2
     assert items_html[0] == {"doc": "4995880054", "ticket_no": "OUT_P1_23581"}
     assert items_html[1] == {"doc": "4995877314", "ticket_no": "OUT_P1_23582"}
+
+
+def test_clean_folder_path():
+    """Kiểm tra hàm làm sạch đường dẫn thư mục: xóa nbsp \xa0, zero-width, nháy, và chuẩn hóa Unicode NFC."""
+    raw = "  \"\\\\10.128.10.72\\fvn$\\03.Khối\xa0sản\xa0xuất\\260802_\xa0File\xa0ATT\xa0BBGH\\\"  "
+    cleaned = clean_folder_path(raw)
+    assert "\xa0" not in cleaned
+    assert '"' not in cleaned
+    assert not cleaned.endswith("\\")
+    assert "03.Khối sản xuất" in cleaned
+    assert "260802_ File ATT BBGH" in cleaned
+
+
+def test_format_status_label_no_duplication():
+    """Kiểm tra format_status_label không bị lặp từ 'Thành Công'."""
+    assert format_status_label("Thành Công in 3874", True) == "Thành Công in 3874"
+    assert format_status_label("thanh cong 1234", True) == "thanh cong 1234"
+    assert format_status_label("in 3874", True) == "Thành Công in 3874"
+    assert format_status_label("", True) == "Thành Công"
+    assert format_status_label("in 3874", False) == "FILE_NOT_FOUND"
+
+
+def test_unreachable_folder_handling():
+    """Kiểm tra khi người dùng nhập thư mục không tồn tại / không truy cập được thì báo lỗi rõ ràng chứ không âm thầm skip."""
+    runner = MigoAttachmentRunner()
+    fake_folder = r"\\10.999.999.999\not_exist_share\fake_dir"
+    res = runner.process_attachment_batch(
+        folder_path=fake_folder,
+        items=[{"doc": "5006458947", "ticket_no": "Thành Công in 3874"}],
+        dry_run=True
+    )
+    assert res["folder_path"] == fake_folder
+    assert "Thư mục không tồn tại" in res["folder_error"]
+    assert len(res["results"]) == 1
+    r0 = res["results"][0]
+    assert r0["bbbg_status"] == "LỖI_THƯ_MỤC"
+    assert r0["vat_status"] == "LỖI_THƯ_MỤC"
+    assert "Lỗi link thư mục" in r0["overall_status"]
+
+    report = runner.format_teams_report(res)
+    assert "Cảnh báo thư mục" in report
+    assert "| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |" in report
+    assert "Mail (.msg)" not in report
+    assert "Chi tiết" not in report
+
 

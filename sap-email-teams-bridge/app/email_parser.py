@@ -125,7 +125,10 @@ class SmartCommandParser:
         else:
             source = html_body if (not raw_body or len(raw_body.strip()) < 5) else raw_body
 
-        text = re.sub(r"<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", source, flags=re.IGNORECASE)
+        import html
+        text = html.unescape(source)
+        text = text.replace("\xa0", " ").replace("\u200b", "").replace("\u3000", " ")
+        text = re.sub(r"<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</td>", "\t", text, flags=re.IGNORECASE)
         text = re.sub(r"<at[^>]*>.*?</at>", " ", text, flags=re.IGNORECASE | re.DOTALL)
         text = re.sub(r"<[^>]+>", " ", text)
@@ -506,11 +509,16 @@ class SmartCommandParser:
         folder_path = ""
         folder_m = re.search(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", command_text)
         if folder_m:
-            folder_path = folder_m.group(0).strip()
+            raw_folder = folder_m.group(0).strip()
             # Cắt ngắn nếu đường dẫn bị dính kèm số chứng từ (10 số) ở cùng dòng
-            doc_boundary = re.search(r"[\s\t]+(?=(?:49\d{8}|500\d{7}|\d{10})\b)", folder_path)
+            doc_boundary = re.search(r"[\s\t]+(?=(?:49\d{8}|500\d{7}|\d{10})\b)", raw_folder)
             if doc_boundary:
-                folder_path = folder_path[:doc_boundary.start()].strip()
+                raw_folder = raw_folder[:doc_boundary.start()].strip()
+            try:
+                from app.sap_attachment import clean_folder_path
+                folder_path = clean_folder_path(raw_folder)
+            except Exception:
+                folder_path = raw_folder
 
         att_items = []
         try:

@@ -628,8 +628,7 @@ def run_bridge():
                                     "doc": "Số DOC",
                                     "ticket_no": "Số phiếu",
                                     "headtext_status": "Điền HeadText",
-                                    "overall_status": "Trạng thái",
-                                    "headtext_msg": "Chi tiết"
+                                    "overall_status": "Trạng thái"
                                 }
                                 summary = f"Điền số phiếu HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
                             else:
@@ -639,11 +638,9 @@ def run_bridge():
                                     "headtext_status": "Điền HeadText",
                                     "bbbg_status": "BBBG",
                                     "vat_status": "VAT",
-                                    "mail_status": "Email (.msg)",
-                                    "overall_status": "Trạng thái",
-                                    "match_notes": "Chi tiết"
+                                    "overall_status": "Trạng thái"
                                 }
-                                summary = f"Đính kèm VAT, BBBG, Mail & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                                summary = f"Đính kèm VAT, BBBG & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(
