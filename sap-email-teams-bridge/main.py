@@ -12,6 +12,7 @@ Tính năng:
 
 import sys
 import os
+import re
 import time
 import json
 import gc
@@ -297,9 +298,12 @@ def run_bridge():
             for mail in mail_candidates:
                 entry_id = getattr(mail, "EntryID", "")
                 if entry_id and state_mgr.is_message_processed("", entry_id):
-                    mail.UnRead = False
-                    mail.Save()
-                    move_mail_to_processed(mail, bot_folder)
+                    try:
+                        mail.UnRead = False
+                        mail.Save()
+                        move_mail_to_processed(mail, bot_folder)
+                    except Exception as out_err:
+                        print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead thư cũ: {out_err}")
                     continue
 
                 req_id = f"REF-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
@@ -312,9 +316,12 @@ def run_bridge():
                         actual_sender = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
                         if actual_sender and not any(actual_sender == s or actual_sender.endswith(s) for s in allowed_senders):
                             print(f"[SECURITY] {req_id} | Người gửi '{actual_sender}' không thuộc allowed_senders. Chuyển thư sang Failed.")
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_failed(mail, bot_folder)
+                            try:
+                                mail.UnRead = False
+                                mail.Save()
+                                move_mail_to_failed(mail, bot_folder)
+                            except Exception as out_err:
+                                print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead thư security: {out_err}")
                             continue
 
                     raw_body = getattr(mail, "Body", "")
@@ -527,6 +534,30 @@ def run_bridge():
                             target_label = ob_no or ', '.join(resolved_mats) or 'Tất cả'
                             summary = f"Danh sách đơn Outbound (OB) đang mở (VL06O) cho: {target_label}"
 
+                        elif cmd in ["CHECK_BOM", "BOM", "CS03"]:
+                            records = sap.check_bom_cs03(resolved_mats, plant=plant)
+                            headers = {
+                                "parent": "Mã cha", "component": "Mã con (BL)",
+                                "description": "Tên linh kiện", "qty": "Định mức",
+                                "unit": "ĐVT", "status": "Trạng thái"
+                            }
+                            mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
+                            has_bom_cnt = sum(1 for r in records if "CÓ BOM" in str(r.get("status", "")).upper())
+                            if has_bom_cnt > 0:
+                                summary = f"Kết quả kiểm tra định mức BOM (CS03) Plant {plant} cho: {', '.join(resolved_mats)}{mapping_info}"
+                            else:
+                                summary = f"Xác nhận: Mã {', '.join(resolved_mats)} tại Plant {plant} KHÔNG CÓ BOM trên SAP.{mapping_info}"
+
+                        elif cmd in ["CHECK_QUEUE", "QUEUE"]:
+                            inbound_filter = meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
+                            records = sap.check_ewm_queue_mon(inbound_filter=inbound_filter)
+                            headers = {
+                                "document": "Số IB / Doc", "error_message": "Nội dung lỗi Queue",
+                                "queue_name": "Tên Queue"
+                            }
+                            filter_info = f" (Lọc theo: {inbound_filter})" if inbound_filter else ""
+                            summary = f"Danh sách lỗi kẹt Queue EWM (/SCWM/MON){filter_info}"
+
                         elif cmd in ["LICHSU_BIN", "MON", "WHT"]:
                             bin_name = meta.get("bin", "")
                             records = sap.check_bin_history_mon(resolved_mats, bin_name=bin_name, days=days)
@@ -671,9 +702,12 @@ def run_bridge():
                             print(f"[OUTBOX QUEUED] {req_id} | Tra cứu SAP xong. Webhook chưa gửi được, đã lưu vào Outbox SQLite để tự động thử lại.")
 
                         state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "SUCCEEDED")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
+                        try:
+                            mail.UnRead = False
+                            mail.Save()
+                            move_mail_to_processed(mail, bot_folder)
+                        except Exception as out_err:
+                            print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead sau khi hoàn tất SAP: {out_err}")
 
                     except Exception as sap_err:
                         print(f"[SAP ERROR] {req_id} | {sap_err}")
@@ -689,9 +723,12 @@ def run_bridge():
                             state_mgr.record_outbox_failure(req_id, f"Lỗi Webhook sau lỗi SAP: {sap_err}", max_attempts=max_retries)
 
                         state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "FAILED")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_failed(mail, bot_folder)
+                        try:
+                            mail.UnRead = False
+                            mail.Save()
+                            move_mail_to_failed(mail, bot_folder)
+                        except Exception as out_err:
+                            print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead sau lỗi SAP: {out_err}")
 
                 except Exception as mail_err:
                     print(f"[MAIL ERROR] {req_id} | Lỗi khi xử lý thư: {mail_err}")

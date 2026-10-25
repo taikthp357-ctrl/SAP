@@ -431,3 +431,23 @@ def test_teams_dispatcher_att_migo_kpi_badges_partial_done():
     assert "15 Chứng từ MIGO" in badges_html
     assert "10 Số phiếu HeadText" in badges_html
     assert "⚡ 10/15 Thành công" in badges_html
+
+
+
+def test_teams_dispatcher_bom_kpi_badges():
+    """Kiểm tra KPI badges cho CHECK_BOM."""
+    records = [
+        {"parent": "BIW70007551HA", "component": "COMP01", "description": "Ốc vít", "qty": "2", "unit": "PC", "status": "CÓ BOM (Usage 1)"},
+        {"parent": "BIW70007551HA", "component": "COMP02", "description": "Gioăng", "qty": "1", "unit": "PC", "status": "CÓ BOM (Usage 1)"}
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "CHECK_BOM")
+    assert "Có BOM (2 Linh kiện con)" in badges_html
+
+
+def test_teams_dispatcher_queue_kpi_badges():
+    """Kiểm tra KPI badges cho CHECK_QUEUE."""
+    records = [
+        {"document": "1800012345", "error_message": "Item is locked", "queue_name": "Q_INB_01"}
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "CHECK_QUEUE")
+    assert "1 Lỗi Queue kẹt" in badges_html

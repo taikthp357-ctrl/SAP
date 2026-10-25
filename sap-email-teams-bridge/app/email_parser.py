@@ -24,9 +24,17 @@ class SmartCommandParser:
             (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 22),
             (r"\b(?:ton\s*thap\s*(?:body|xmd|limo|vf\d+))\b", 20),
         ],
+        "CHECK_BOM": [
+            (r"\b(?:check\s*bom|kiem\s*tra\s*bom|co\s*bom|bom\s*co\s*khong|co\s*bom\s*khong|dinh\s*muc|cs03)\b", 22),
+            (r"\b(?:linh\s*kien\s*con|ma\s*con|thanh\s*phan|bom|subcon)\b", 18),
+        ],
+        "CHECK_QUEUE": [
+            (r"\b(?:check\s*queue|kiem\s*tra\s*queue|ket\s*queue|loi\s*queue|queue\s*ewm|mqueue|scwm/mon\s*queue)\b", 22),
+            (r"\b(?:queue|mqueue0001)\b", 18),
+        ],
         "CHECK_OB": [
-            (r"\b(?:check\s*ob|kiem\s*tra\s*ob|kt\s*ob|ob\s*co\s*khong|co\s*ob|ob\s*treo|vl06o|don\s*xuat|outbound)\b", 16),
-            (r"\b(?:ob\s*nao\s*dang\s*cho|cho\s*xuat|ob\s*mo|ob\s*chua\s*xuat)\b", 14),
+            (r"\b(?:check\s*(?:con\s*)?ob|kiem\s*tra\s*(?:con\s*)?ob|kt\s*ob|con\s*ob|ob\s*co\s*khong|co\s*ob|ob\s*treo|vl06o|don\s*xuat|outbound)\b", 18),
+            (r"\b(?:ob\s*nao\s*dang\s*cho|cho\s*xuat|ob\s*mo|ob\s*chua\s*xuat|ob\s*ma|con\s*ob\s*ma)\b", 16),
             (r"\b(?:check\s*don\s*ob|xem\s*ob)\b", 12),
         ],
         "LICHSU_BIN": [
@@ -217,6 +225,8 @@ class SmartCommandParser:
             "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR",
             "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
             "TIM_IB", "FIND_IB",
+            "CHECK_BOM", "BOM", "CS03",
+            "CHECK_QUEUE", "QUEUE",
             "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
             "CHECK_FG_OB", "DIEN_OB",
             "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
@@ -348,6 +358,10 @@ class SmartCommandParser:
                     canonical_cmd = "CHECK_FG_OB"
                 elif cmd in ("CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"):
                     canonical_cmd = "CHECK_NVL_MIGO"
+                elif cmd in ("CHECK_BOM", "BOM", "CS03"):
+                    canonical_cmd = "CHECK_BOM"
+                elif cmd in ("CHECK_QUEUE", "QUEUE"):
+                    canonical_cmd = "CHECK_QUEUE"
 
                 expected_q = 0.0
                 try:
@@ -642,6 +656,7 @@ class SmartCommandParser:
                 or (best_intent == "TIM_IB" and (po_no or ref_no))
                 or (best_intent == "CHECK_PO" and po_no)
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
+                or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
             )
         ) or (best_score == 0 and bool(bin_val))

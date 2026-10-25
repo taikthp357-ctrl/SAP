@@ -3486,3 +3486,191 @@ class SapEngine:
                 })
 
         return records
+
+    def check_bom_cs03(self, materials: List[str], plant: str = "3093") -> List[Dict[str, Any]]:
+        """Kiểm tra mã hàng có BOM trên SAP hay không qua /nCS03.
+        Nếu có, trả về danh sách mã linh kiện con (Components), định mức (Qty), đơn vị (Unit), và mô tả.
+        Thử lần lượt các BOM Usage phổ biến trong nhà máy: '1' (Production), '3' (Universal), '5' (Sales/Distribution).
+        TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY).
+        """
+        results: List[Dict[str, Any]] = []
+        if not materials:
+            return results
+
+        user_plant = str(plant or "3093").strip().upper()
+
+        for mat in materials:
+            clean_mat = str(mat).strip().upper()
+            if not clean_mat:
+                continue
+
+            bom_found_for_mat = False
+            for usage in ("1", "3", "5"):
+                try:
+                    self._open_transaction("CS03")
+                    self._wait_idle(5.0)
+
+                    mat_fld = self.smart_find("RC29N-MATNR", "GuiCTextField") or self._find_by_id_safe("wnd[0]/usr/ctxtRC29N-MATNR")
+                    if mat_fld is not None:
+                        mat_fld.text = clean_mat
+
+                    werks_fld = self.smart_find("RC29N-WERKS", "GuiCTextField") or self._find_by_id_safe("wnd[0]/usr/ctxtRC29N-WERKS")
+                    if werks_fld is not None:
+                        werks_fld.text = user_plant
+
+                    stlan_fld = self.smart_find("RC29N-STLAN", "GuiTextField") or self._find_by_id_safe("wnd[0]/usr/txtRC29N-STLAN")
+                    if stlan_fld is not None:
+                        stlan_fld.text = usage
+
+                    w0 = self._find_by_id_safe("wnd[0]")
+                    if w0 is not None:
+                        w0.sendVKey(0)
+                    self._wait_idle(5.0)
+
+                    status_txt, status_type = self._get_status()
+                    if status_type in ("E", "A") or any(k in status_txt.lower() for k in ["not found", "no bom", "does not exist", "không tìm thấy"]):
+                        continue
+
+                    if status_type == "W":
+                        if w0 is not None:
+                            w0.sendVKey(0)
+                        self._wait_idle(3.0)
+
+                    # Cách 1: Đọc từ TableControl tblSAPLCSDITCMAT
+                    tbl = self._find_by_id_safe("wnd[0]/usr/tblSAPLCSDITCMAT")
+                    if tbl is not None:
+                        v_rows = getattr(tbl, "VisibleRowCount", 0)
+                        for r_idx in range(v_rows):
+                            try:
+                                c_mat = tbl.GetCell(r_idx, 1).Text.strip()
+                                if not c_mat or "_" in c_mat or c_mat.startswith("---"):
+                                    break
+                                c_desc = tbl.GetCell(r_idx, 2).Text.strip()
+                                c_qty = tbl.GetCell(r_idx, 3).Text.strip()
+                                c_unit = tbl.GetCell(r_idx, 4).Text.strip()
+                                results.append({
+                                    "parent": clean_mat,
+                                    "component": c_mat,
+                                    "description": c_desc,
+                                    "qty": c_qty,
+                                    "unit": c_unit,
+                                    "status": f"CÓ BOM (Usage {usage})"
+                                })
+                                bom_found_for_mat = True
+                            except Exception:
+                                break
+
+                    # Cách 2: Nếu CS03 cấu hình hiển thị dạng ALV Grid
+                    if not bom_found_for_mat:
+                        grid = self._find_largest_grid(max_wait_sec=2.0)
+                        if grid is not None:
+                            grid_records = self._extract_alv_grid(
+                                grid,
+                                {
+                                    "component": ["IDNRK", "COMPONENT", "MATERIAL", "MATNR"],
+                                    "description": ["OJTXP", "DESCRIPTION", "TEXT"],
+                                    "qty": ["MENGE", "QUANTITY", "COMP. QTY"],
+                                    "unit": ["MEINS", "UNIT"]
+                                }
+                            )
+                            for rec in grid_records:
+                                if rec.get("component"):
+                                    rec["parent"] = clean_mat
+                                    rec["status"] = f"CÓ BOM (Usage {usage})"
+                                    results.append(rec)
+                                    bom_found_for_mat = True
+
+                    if bom_found_for_mat:
+                        break
+                except Exception as e:
+                    print(f"[SAP CS03 WARN] Lỗi đọc BOM {clean_mat} usage {usage}: {e}")
+                    continue
+
+            if not bom_found_for_mat:
+                results.append({
+                    "parent": clean_mat,
+                    "component": "-",
+                    "description": "Không tìm thấy BOM trên SAP",
+                    "qty": "-",
+                    "unit": "-",
+                    "status": "KHÔNG CÓ BOM"
+                })
+
+        return results
+
+    def check_ewm_queue_mon(self, inbound_filter: str = "", warehouse: str = "VF02", monitor: str = "SAP") -> List[Dict[str, str]]:
+        """Tra cứu danh sách Inbound hoặc lệnh EWM đang bị kẹt lỗi trên /SCWM/MON (Node MQUEUE0001).
+        TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY).
+        """
+        results: List[Dict[str, str]] = []
+        try:
+            self._open_transaction("/SCWM/MON")
+            self._wait_idle(10.0)
+
+            # Xử lý popup khởi tạo Warehouse & Monitor nếu có
+            wnd1 = self._find_by_id_safe("wnd[1]")
+            if wnd1 is not None and self._find_by_id_safe("wnd[1]/usr/ctxtP_LGNUM"):
+                lgnum_ctl = self._find_by_id_safe("wnd[1]/usr/ctxtP_LGNUM")
+                if lgnum_ctl is not None:
+                    lgnum_ctl.text = warehouse
+                mon_ctl = self._find_by_id_safe("wnd[1]/usr/ctxtP_MONIT")
+                if mon_ctl is not None:
+                    mon_ctl.text = monitor
+                btn8 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[8]")
+                if btn8 is not None:
+                    btn8.press()
+                else:
+                    wnd1.sendVKey(8)
+                self._wait_idle(10.0)
+
+            # Mở cây thư mục Node MQUEUE0001
+            tree = self._find_by_id_safe("wnd[0]/usr/shell/shellcont[0]/shell")
+            if tree is not None:
+                try:
+                    tree.expandNode("T000000001")
+                except Exception:
+                    pass
+                try:
+                    tree.selectedNode = "MQUEUE0001"
+                    tree.doubleClickNode("MQUEUE0001")
+                    self._wait_idle(5.0)
+                except Exception:
+                    pass
+
+                wnd1 = self._find_by_id_safe("wnd[1]")
+                if wnd1 is not None:
+                    for chk_id in ["wnd[1]/usr/chkP_QIN", "wnd[1]/usr/chkP_QOUT"]:
+                        chk = self._find_by_id_safe(chk_id)
+                        if chk is not None:
+                            try:
+                                chk.Selected = False
+                            except Exception:
+                                pass
+                    btn8 = self._find_by_id_safe("wnd[1]/tbar[0]/btn[8]")
+                    if btn8 is not None:
+                        btn8.press()
+                    else:
+                        wnd1.sendVKey(8)
+                    self._wait_idle(10.0)
+
+            grid = self._find_largest_grid(max_wait_sec=10.0)
+            if grid is not None:
+                col_map = {
+                    "document": ["BUSOBJ_KEY", "OBJECT KEY", "INBOUND", "DOCUMENT", "REF"],
+                    "error_message": ["ERRMESS", "ERROR MESSAGE", "MESSAGE", "ERROR"],
+                    "queue_name": ["QNAME", "QUEUE", "QUEUE NAME"]
+                }
+                raw_records = self._extract_alv_grid(grid, col_map)
+                for rec in raw_records:
+                    doc_val = rec.get("document", "")
+                    err_val = rec.get("error_message", "")
+                    if not err_val and not doc_val:
+                        continue
+                    if inbound_filter and inbound_filter not in doc_val:
+                        continue
+                    results.append(rec)
+
+            return results
+        except Exception as e:
+            print(f"[SAP QUEUE ERROR] {e}")
+            return []

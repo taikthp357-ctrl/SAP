@@ -373,6 +373,26 @@ class TeamsDispatcher:
                         f"⚡ {success_count}/{tot_items} Thành công</span>"
                     )
 
+            elif any(k in cmd_upper for k in ["CHECK_BOM", "BOM", "CS03"]):
+                comp_count = sum(1 for r in records if r.get("component") not in ("", "-"))
+                bom_ok = any("CÓ BOM" in str(r.get("status", "")).upper() for r in records)
+                if bom_ok:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"🧩 Có BOM ({comp_count} Linh kiện con)</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚠️ Không có BOM</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["CHECK_QUEUE", "QUEUE"]):
+                badges.append(
+                    f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                    f"⚠️ {len(records)} Lỗi Queue kẹt</span>"
+                )
+
             elif any(k in cmd_upper for k in ["CHECK_OB", "VL06O", "OB"]):
                 ob_set = {r.get("obNo") for r in records if r.get("obNo")}
                 total_qty = sum(parse_sap_float(r.get("qty")) for r in records)
@@ -619,6 +639,10 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã kiểm tra Posting Change kho NVL 1005 (Plant 3093) cho sếp rồi ạ! 📋"
             elif cmd_u in ["TON_THAP", "LOW_STOCK"]:
                 greeting = f"Sếp ơi, em đã kiểm tra cảnh báo tồn kho Body (Model {meta.get('model', 'LIMO')}) cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_BOM", "BOM", "CS03"]:
+                greeting = "Sếp ơi, em đã kiểm tra cấu trúc định mức BOM (CS03) cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_QUEUE", "QUEUE"]:
+                greeting = "Sếp ơi, em đã quét danh sách kẹt Queue EWM (/SCWM/MON) cho sếp rồi ạ 👇"
             elif cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
                 if not meta.get("folderPath"):
                     greeting = "Sếp ơi, em đã tự động điền số phiếu vào Header Text MIGO cho sếp rồi ạ 👇"

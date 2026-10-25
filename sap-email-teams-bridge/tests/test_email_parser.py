@@ -620,3 +620,33 @@ def test_parse_dien_so_phieu_and_raw_excel_row():
     assert res2["command"] == "ATT_MIGO"
     assert res2["attachmentItems"][0]["doc"] == "4995880054"
     assert res2["attachmentItems"][0]["ticket_no"] == "OUT_P1_23581"
+
+
+
+def test_parse_check_con_ob():
+    """Kiểm tra câu lệnh 'SAP check còn OB mã BIW70007551HA không' nhận diện chuẩn CHECK_OB."""
+    cmd = "SAP check còn OB mã BIW70007551HA không"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_OB"
+    assert "BIW70007551HA" in res["materials"]
+
+
+def test_parse_check_bom():
+    """Kiểm tra câu lệnh 'SAP check bom BIW70007551HA' nhận diện chuẩn CHECK_BOM."""
+    cmd = "SAP check bom BIW70007551HA"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_BOM"
+    assert "BIW70007551HA" in res["materials"]
+
+
+def test_parse_check_queue():
+    """Kiểm tra câu lệnh 'SAP check queue 18001234' nhận diện chuẩn CHECK_QUEUE."""
+    cmd = "SAP check queue 18001234"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_QUEUE"
