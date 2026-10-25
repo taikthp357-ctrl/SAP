@@ -502,6 +502,12 @@ class SmartCommandParser:
             folder_path = folder_m.group(0).strip()
 
         att_docs = re.findall(r"\b500\d{7}\b", command_text)
+        att_items = []
+        try:
+            from app.sap_attachment import parse_attachment_items_from_text
+            att_items = parse_attachment_items_from_text(command_text)
+        except Exception:
+            att_items = [{"doc": d, "ticket_no": ""} for d in att_docs]
 
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         plant = default_plant
@@ -627,7 +633,8 @@ class SmartCommandParser:
             "refNo": ref_no,
             "materialDocument": mat_doc,
             "folderPath": folder_path,
-            "attachmentDocs": att_docs
+            "attachmentDocs": att_docs,
+            "attachmentItems": att_items
         })
         return meta
 

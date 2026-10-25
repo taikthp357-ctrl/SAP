@@ -592,19 +592,26 @@ def run_bridge():
                         elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
                             from app.sap_attachment import MigoAttachmentRunner
                             folder_path = meta.get("folderPath", "")
-                            att_docs = meta.get("attachmentDocs", [])
-                            if not att_docs and raw_mats:
-                                att_docs = [m for m in raw_mats if m.isdigit() and len(m) >= 8]
-                            items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
+                            items_to_att = meta.get("attachmentItems", [])
+                            if not items_to_att:
+                                att_docs = meta.get("attachmentDocs", [])
+                                if not att_docs and raw_mats:
+                                    att_docs = [m for m in raw_mats if m.isdigit() and len(m) >= 8]
+                                items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
+
                             runner = MigoAttachmentRunner(sap_engine=sap)
-                            att_summary = runner.process_attachment_batch(folder_path, items_to_att, dry_run=meta.get("dryRun", False))
+                            att_summary = runner.process_attachment_batch(
+                                folder_path, items_to_att, fill_headtext=True, dry_run=meta.get("dryRun", False)
+                            )
                             records = att_summary["results"]
                             headers = {
                                 "doc": "Số DOC", "ticket_no": "Số phiếu",
+                                "headtext_status": "Điền HeadText",
                                 "bbbg_status": "BBBG", "vat_status": "VAT",
+                                "mail_status": "Email (.msg)",
                                 "overall_status": "Trạng thái", "match_notes": "Chi tiết"
                             }
-                            summary = f"Đính kèm VAT & BBBG MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                            summary = f"Đính kèm VAT, BBBG, Mail & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

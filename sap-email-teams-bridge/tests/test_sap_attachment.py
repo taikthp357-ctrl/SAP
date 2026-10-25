@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests cho module MigoAttachmentRunner tự động đính kèm BBBG & VAT vào SAP MIGO."""
+"""Unit tests cho module MigoAttachmentRunner tự động đính kèm BBBG, VAT, Email & điền số phiếu vào HeadText."""
 
 import tempfile
 import shutil
@@ -16,20 +16,23 @@ from app.sap_attachment import (
     MigoAttachmentRunner,
     normalize_text,
     extract_search_tokens,
+    parse_attachment_items_from_text,
     BBBG_REGEX,
-    VAT_REGEX
+    VAT_REGEX,
+    MAIL_REGEX
 )
 
 
 @pytest.fixture
 def sample_attachment_dir():
-    """Tạo thư mục tạm chứa các file mẫu BBBG và VAT."""
+    """Tạo thư mục tạm chứa các file mẫu BBBG, VAT và Email."""
     temp_dir = tempfile.mkdtemp(prefix="test_migo_att_")
     base = Path(temp_dir)
 
     # Tạo các file mẫu
     (base / "in 5794_BBBG.pdf").write_text("sample content bbbg 5794")
     (base / "in 5794_VAT.pdf").write_text("sample content vat 5794")
+    (base / "in 5794_Order_Mail.msg").write_text("sample outlook mail file")
     
     sub = base / "subfolder"
     sub.mkdir()
@@ -54,38 +57,61 @@ def test_normalize_and_token_extraction():
     assert "5006995954" in nums_doc
 
 
+def test_parse_attachment_items_from_text():
+    """Kiểm tra bóc tách danh sách chứng từ và số phiếu từ nội dung email / tin nhắn Teams."""
+    sample_text = """
+    Thư mục nguồn: \\\\10.128.10.72\\fvn$\\03.Khối sản xuất\\260802_ File ATT BBGH
+    5006995954: Thành Công in 5794
+    5006995985: Thành Công in 5794
+    5006995500 \t Thanhcong in 5799
+    5006995502 - Thành Công in - 4929
+    5007072362 Thành Đạt in 6157
+    """
+    items = parse_attachment_items_from_text(sample_text)
+    assert len(items) == 5
+    assert items[0]["doc"] == "5006995954"
+    assert "in 5794" in items[0]["ticket_no"]
+    assert items[2]["doc"] == "5006995500"
+    assert "5799" in items[2]["ticket_no"]
+    assert items[4]["doc"] == "5007072362"
+    assert "6157" in items[4]["ticket_no"]
+
+
 def test_index_source_folder(sample_attachment_dir):
-    """Kiểm tra lập chỉ mục file trong thư mục nguồn và thư mục con."""
+    """Kiểm tra lập chỉ mục file trong thư mục nguồn và thư mục con (bao gồm cả .msg)."""
     runner = MigoAttachmentRunner()
     index = runner.index_source_folder(str(sample_attachment_dir), recursive=True)
 
-    assert index["total_files"] == 5
+    assert index["total_files"] == 6  # 5 file pdf + 1 file .msg
     assert "5794" in index["token_map"]
     assert "5799" in index["token_map"]
     assert "5007072362" in index["token_map"]
 
 
 def test_match_files_exact(sample_attachment_dir):
-    """Kiểm tra khớp file chính xác theo số phiếu và loại file."""
+    """Kiểm tra khớp file chính xác theo số phiếu và loại file (BBBG, VAT, Mail)."""
     runner = MigoAttachmentRunner()
     index = runner.index_source_folder(str(sample_attachment_dir), recursive=True)
 
-    # Test khớp 5794
-    b_path, v_path, notes = runner.match_files("5006995954", "Thành Công in 5794", index)
+    # Test khớp 5794 (Có đủ BBBG, VAT, và Email .msg)
+    b_path, v_path, m_path, notes = runner.match_files("5006995954", "Thành Công in 5794", index)
     assert b_path is not None
     assert "5794_BBBG.pdf" in b_path.name
     assert v_path is not None
     assert "5794_VAT.pdf" in v_path.name
+    assert m_path is not None
+    assert "Order_Mail.msg" in m_path.name
 
     # Test khớp 5799 trong thư mục con
-    b_path2, v_path2, _ = runner.match_files("5006995500", "Thanhcong in 5799", index)
+    b_path2, v_path2, m_path2, _ = runner.match_files("5006995500", "Thanhcong in 5799", index)
     assert b_path2 is not None
     assert "5799_BBGH.pdf" in b_path2.name
     assert v_path2 is not None
     assert "5799_HoaDon.pdf" in v_path2.name
+    assert m_path2 is None
 
     # Test thiếu file BBBG nhưng có file VAT (như case 5007072362)
-    b_path3, v_path3, notes3 = runner.match_files("5007072362", "Thành Đạt in 6157", index)
+    b_path3, v_path3, m_path3, notes3 = runner.match_files("5007072362", "Thành Đạt in 6157", index)
     assert b_path3 is None
     assert v_path3 is not None
     assert "5007072362_VAT.pdf" in v_path3.name
@@ -102,7 +128,7 @@ def test_process_attachment_batch_dry_run(sample_attachment_dir):
         {"doc": "9999999999", "ticket_no": "Khong Ton Tai"}
     ]
 
-    summary = runner.process_attachment_batch(str(sample_attachment_dir), items, dry_run=True)
+    summary = runner.process_attachment_batch(str(sample_attachment_dir), items, fill_headtext=True, dry_run=True)
     assert summary["total_items"] == 4
     assert summary["total_success"] == 3  # 3 items khớp được ít nhất 1 file
     assert summary["total_missing"] == 1  # 1 item hoàn toàn không có file
@@ -110,13 +136,40 @@ def test_process_attachment_batch_dry_run(sample_attachment_dir):
     report = runner.format_teams_report(summary)
     assert "`5006995954`: Thành Công in 5794" in report
     assert "`9999999999`: FILE_NOT_FOUND" in report
-    assert "| DOC | Số phiếu | BBBG | VAT |" in report
+    assert "| DOC | Số phiếu | HeadText SAP | BBBG | VAT | Mail (.msg) |" in report
+
+
+def test_handle_migo_headtext_mock():
+    """Kiểm tra logic đọc và điền số phiếu vào Header Text trên SAP MIGO."""
+    mock_session = MagicMock()
+    mock_field = MagicMock()
+    mock_field.Text = ""  # Ban đầu Header Text rỗng
+    mock_wnd0 = MagicMock()
+    mock_wnd0.findByName.return_value = mock_field
+    mock_sbar = MagicMock()
+    mock_sbar.MessageType = "S"
+    mock_sbar.Text = "Material document changed"
+
+    def find_by_id(path):
+        if "sbar" in path:
+            return mock_sbar
+        elif "wnd[0]" in path:
+            return mock_wnd0
+        return MagicMock()
+
+    mock_session.findById.side_effect = find_by_id
+
+    runner = MigoAttachmentRunner()
+    status, msg = runner.handle_migo_headtext(mock_session, "Thành Đạt in 6157")
+    assert status == "HEADTEXT_DONE"
+    assert "Đã điền và lưu mới HeadText" in msg
+    assert mock_field.Text == "Thành Đạt in 6157"
+    mock_wnd0.SendVKey.assert_called_with(11)  # Ctrl+S Save
 
 
 def test_sap_session_gos_mock():
     """Kiểm tra tương tác mock SAP GUI với GOS."""
     mock_session = MagicMock()
-    # Mock sbar
     mock_sbar = MagicMock()
     mock_sbar.Text = "The attachment was successfully created"
     mock_sbar.MessageType = "S"
