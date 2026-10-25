@@ -753,6 +753,48 @@ class TeamsDispatcher:
             return False
 
     @classmethod
+    def send_progress_update(
+        cls,
+        webhook_url: str,
+        request_id: str,
+        meta: Dict[str, Any],
+        current: int,
+        total: int,
+        current_doc: str = "",
+        success_count: int = 0
+    ) -> bool:
+        """Gửi thông báo tiến độ xử lý danh sách lớn (100 - 300 chứng từ) tới Teams mỗi 3-5 phút."""
+        percent = int(current * 100 / total) if total > 0 else 0
+        summary = f"Đang đính kèm & điền HeadText MIGO: {current}/{total} chứng từ ({percent}%)"
+        progress_html = (
+            f"<div style='font-family:Segoe UI,sans-serif;padding:12px;background:#f0f7ff;border:1px solid #cce4ff;"
+            f"border-left:4px solid #0078d4;border-radius:4px;color:#24292f;'>"
+            f"<div style='font-size:13px;font-weight:bold;color:#0078d4;margin-bottom:8px;'>"
+            f"⏳ Tiến độ xử lý: {current}/{total} ({percent}%)</div>"
+            f"<div style='background:#e0e0e0;border-radius:4px;height:10px;width:100%;overflow:hidden;margin-bottom:8px;'>"
+            f"<div style='background:#0078d4;height:100%;width:{percent}%;'></div>"
+            f"</div>"
+            f"<div style='font-size:12px;color:#444;'>"
+            f"Đã xử lý: <b>{current}</b> | Thành công: <b style='color:#107c10;'>{success_count}</b>"
+            f" | Đang chạy DOC: <code>{current_doc}</code></div>"
+            f"<div style='font-size:11px;color:#666;margin-top:6px;'>"
+            f"⏱️ <em>Danh sách dài cần vài phút, sếp đợi em thêm chút nhé. Em đang tiếp tục tự động xử lý ạ!</em></div>"
+            f"</div>"
+        )
+        payload, data = cls.prepare_safe_payload(
+            request_id,
+            meta,
+            status="INFO",
+            summary=summary,
+            records=[],
+            headers_map={},
+            custom_html=progress_html
+        )
+        if not webhook_url:
+            return False
+        return cls.send_raw_payload(webhook_url, payload)
+
+    @classmethod
     def send_raw_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> bool:
         """Gửi trực tiếp payload đã chuẩn hóa (dùng cho hàng đợi outbox retry)."""
         if not webhook_url or "YOUR_WEBHOOK_URL_HERE" in webhook_url:

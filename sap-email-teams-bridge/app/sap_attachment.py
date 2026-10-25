@@ -17,7 +17,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple, Set, Callable
 
 
 DEFAULT_MIGO_ATT_FOLDER = (
@@ -97,7 +97,7 @@ def normalize_text(text: str) -> str:
 
 # Regex phát hiện loại file chứng từ
 BBBG_REGEX = re.compile(r"(?:^|[^a-z0-9])(bbbg|bbgh|bbg|bb|bien[ _-]*ban)(?:$|[^a-z0-9])", re.I)
-VAT_REGEX = re.compile(r"(?:^|[^a-z0-9])(vat|invoice|hoa[ _-]*don|hd)(?:$|[^a-z0-9])", re.I)
+VAT_REGEX = re.compile(r"(?:^|[^a-z0-9])(vat|invoice|inv|hoa[ _-]*don|hd|hddt|gtgt|tax|ct|chung[ _-]*tu)(?:$|[^a-z0-9])", re.I)
 MAIL_REGEX = re.compile(r"(?:^|[^a-z0-9])(mail|email|thu|xac[ _-]*nhan|trao[ _-]*doi|order)(?:$|[^a-z0-9])", re.I)
 
 
@@ -114,16 +114,10 @@ def extract_search_tokens(text: str) -> Tuple[List[str], str]:
 
 
 def format_status_label(ticket_no: str, is_success: bool) -> str:
-    """Định dạng chuỗi trạng thái thành công/thất bại chuẩn xác (tránh lặp từ 'Thành Công')."""
+    """Định dạng chuỗi trạng thái thành công/thất bại: 'DONE' nếu thành công, 'FILE_NOT_FOUND' nếu thiếu file."""
     if not is_success:
         return "FILE_NOT_FOUND"
-    t_clean = str(ticket_no).strip()
-    if not t_clean:
-        return "Thành Công"
-    norm = normalize_text(t_clean)
-    if norm.startswith("thanh cong") or norm.startswith("thanhcong"):
-        return t_clean
-    return f"Thành Công {t_clean}"
+    return "DONE"
 
 
 def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
@@ -262,9 +256,9 @@ class MigoAttachmentRunner:
             "total_files": len(files_indexed)
         }
 
-    @staticmethod
-    def match_files(doc: str, ticket_no: str, index: Dict[str, Any]) -> Tuple[Optional[Path], Optional[Path], Optional[Path], str]:
-        """Tìm file BBBG, VAT, và Email phù hợp nhất cho số chứng từ và số phiếu đã cho."""
+    @classmethod
+    def match_all_files(cls, doc: str, ticket_no: str, index: Dict[str, Any]) -> Dict[str, List[Path]]:
+        """Tìm tất cả các file BBBG, VAT (hỗ trợ nhiều file VAT) và Mail phù hợp."""
         files = index.get("files", [])
         token_map = index.get("token_map", {})
 
@@ -287,35 +281,46 @@ class MigoAttachmentRunner:
                     if num in f["compact"]:
                         cand_indices.add(idx)
 
-        bbbg_match: Optional[Path] = None
-        vat_match: Optional[Path] = None
-        mail_match: Optional[Path] = None
-
         cand_list = [files[i] for i in cand_indices]
 
-        # 1. Tìm BBBG match
-        bbbg_cands = [f for f in cand_list if f["is_bbbg"]]
-        if bbbg_cands:
-            bbbg_match = bbbg_cands[0]["path"]
+        # 1. Tìm các file BBBG
+        bbbg_files = [f["path"] for f in cand_list if f["is_bbbg"]]
 
-        # 2. Tìm VAT match
-        vat_cands = [f for f in cand_list if f["is_vat"]]
-        if vat_cands:
-            vat_match = vat_cands[0]["path"]
+        # 2. Tìm các file VAT
+        vat_files = [f["path"] for f in cand_list if f["is_vat"]]
 
-        # 3. Tìm Mail match (.msg / .eml / từ khóa mail)
-        mail_cands = [f for f in cand_list if f["is_mail"]]
-        if mail_cands:
-            mail_match = mail_cands[0]["path"]
+        # 3. Tìm các file Mail
+        mail_files = [f["path"] for f in cand_list if f["is_mail"]]
+
+        # Fallback VAT: Nếu không có file nào mang từ khóa VAT rõ ràng,
+        # nhưng có file khớp số phiếu và không phải BBBG / Mail -> coi đó là hóa đơn VAT (ký hiệu riêng)
+        if not vat_files:
+            fallback = [f["path"] for f in cand_list if not f["is_bbbg"] and not f["is_mail"]]
+            if fallback:
+                vat_files = fallback
+
+        return {
+            "bbbg": bbbg_files,
+            "vat": vat_files,
+            "mail": mail_files
+        }
+
+    @classmethod
+    def match_files(cls, doc: str, ticket_no: str, index: Dict[str, Any]) -> Tuple[Optional[Path], Optional[Path], Optional[Path], str]:
+        """Tìm file BBBG, VAT, và Email phù hợp nhất cho số chứng từ và số phiếu đã cho (tương thích ngược)."""
+        all_matches = cls.match_all_files(doc, ticket_no, index)
+        bbbg_match = all_matches["bbbg"][0] if all_matches["bbbg"] else None
+        vat_match = all_matches["vat"][0] if all_matches["vat"] else None
+        mail_match = all_matches["mail"][0] if all_matches["mail"] else None
 
         notes = []
-        if bbbg_match:
-            notes.append(f"BBBG: {bbbg_match.name}")
+        if all_matches["bbbg"]:
+            notes.append(f"BBBG: {len(all_matches['bbbg'])} file ({', '.join(p.name for p in all_matches['bbbg'][:2])})")
         else:
             notes.append("BBBG: FILE_NOT_FOUND")
 
-        if vat_match:
-            notes.append(f"VAT: {vat_match.name}")
+        if all_matches["vat"]:
+            notes.append(f"VAT: {len(all_matches['vat'])} file ({', '.join(p.name for p in all_matches['vat'][:2])})")
         else:
             notes.append("VAT: FILE_NOT_FOUND")
 
@@ -784,7 +789,8 @@ class MigoAttachmentRunner:
         items: List[Dict[str, str]],
         year: str = "2026",
         fill_headtext: bool = True,
-        dry_run: bool = False
+        dry_run: bool = False,
+        progress_callback: Optional[Callable[[int, int, str, int], None]] = None
     ) -> Dict[str, Any]:
         """Xử lý hàng loạt danh sách chứng từ: Điền số phiếu vào HeadText và Đính kèm file BBBG/VAT."""
         clean_folder = clean_folder_path(folder_path)
@@ -821,9 +827,22 @@ class MigoAttachmentRunner:
         total_success = 0
         total_missing = 0
 
-        for item in items:
+        total_items = len(items)
+        last_progress_time = time.time()
+        PROGRESS_INTERVAL_SEC = 180.0  # Cập nhật tiến độ lên Teams mỗi 3 phút
+
+        for idx, item in enumerate(items, 1):
             doc = str(item.get("doc", "")).strip()
             ticket_no = str(item.get("ticket_no", "")).strip()
+
+            # Thông báo tiến độ định kỳ lên Teams sau mỗi 3 phút khi xử lý danh sách lớn (100 - 300 doc)
+            now = time.time()
+            if progress_callback and total_items > 20 and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
+                last_progress_time = now
+                try:
+                    progress_callback(idx - 1, total_items, doc, total_success)
+                except Exception as ex:
+                    print(f"[PROGRESS WARN] Callback error: {ex}")
             if not doc:
                 continue
 
@@ -930,25 +949,39 @@ class MigoAttachmentRunner:
             # =========================================================================
             # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
             # =========================================================================
-            bbbg_path, vat_path, mail_path, match_notes = self.match_files(doc, ticket_no, index_data)
+            all_matches = self.match_all_files(doc, ticket_no, index_data)
+            bbbg_paths = all_matches["bbbg"]
+            vat_paths = all_matches["vat"]
+            mail_paths = all_matches["mail"]
+
+            match_notes_list = []
+            if bbbg_paths:
+                match_notes_list.append(f"BBBG: {len(bbbg_paths)} file")
+            else:
+                match_notes_list.append("BBBG: FILE_NOT_FOUND")
+            if vat_paths:
+                match_notes_list.append(f"VAT: {len(vat_paths)} file")
+            else:
+                match_notes_list.append("VAT: FILE_NOT_FOUND")
+            match_notes = " | ".join(match_notes_list)
 
             headtext_res = "SKIP"
             headtext_msg = "Không điền HeadText"
             bbbg_res = "FILE_NOT_FOUND"
             vat_res = "FILE_NOT_FOUND"
-            mail_res = "FILE_NOT_FOUND" if mail_path else None
+            mail_res = "FILE_NOT_FOUND" if mail_paths else None
             overall_status = "FILE_NOT_FOUND"
 
             if dry_run or session is None:
                 if fill_headtext and ticket_no:
                     headtext_res = "HEADTEXT_DONE"
                     headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
-                bbbg_res = format_status_label(ticket_no, bool(bbbg_path))
-                vat_res = format_status_label(ticket_no, bool(vat_path))
-                if mail_path:
-                    mail_res = format_status_label(ticket_no, True)
-                if bbbg_path or vat_path or mail_path:
-                    overall_status = format_status_label(ticket_no, True)
+                bbbg_res = "DONE" if bbbg_paths else "FILE_NOT_FOUND"
+                vat_res = f"DONE ({len(vat_paths)})" if len(vat_paths) > 1 else ("DONE" if vat_paths else "FILE_NOT_FOUND")
+                if mail_paths:
+                    mail_res = "DONE"
+                if bbbg_paths or vat_paths or mail_paths:
+                    overall_status = "DONE"
                     total_success += 1
                 else:
                     overall_status = "FILE_NOT_FOUND"
@@ -973,34 +1006,61 @@ class MigoAttachmentRunner:
                     b_ok = False
                     if sap_bbbg:
                         b_ok = True
-                        bbbg_res = format_status_label(ticket_no, True)
+                        bbbg_res = "DONE"
                         print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
-                    elif bbbg_path:
-                        b_ok, b_msg = self.attach_file_to_current_migo(session, bbbg_path)
-                        bbbg_res = format_status_label(ticket_no, b_ok) if b_ok else f"Lỗi: {b_msg}"
+                    elif bbbg_paths:
+                        succ_bb = []
+                        fail_bb = []
+                        for bp in bbbg_paths:
+                            ok_b, msg_b = self.attach_file_to_current_migo(session, bp)
+                            if ok_b:
+                                succ_bb.append(bp.name)
+                            else:
+                                fail_bb.append(f"{bp.name}: {msg_b}")
+                        if succ_bb:
+                            b_ok = True
+                            bbbg_res = f"DONE ({len(succ_bb)})" if len(succ_bb) > 1 else "DONE"
+                        else:
+                            bbbg_res = f"Lỗi: {'; '.join(fail_bb)}"
                     else:
                         bbbg_res = "FILE_NOT_FOUND"
 
-                    # 3. Đính kèm file VAT
+                    # 3. Đính kèm file VAT (hỗ trợ 1 hoặc nhiều file VAT)
                     v_ok = False
                     if sap_vat:
                         v_ok = True
-                        vat_res = format_status_label(ticket_no, True)
+                        vat_res = "DONE"
                         print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
-                    elif vat_path:
-                        v_ok, v_msg = self.attach_file_to_current_migo(session, vat_path)
-                        vat_res = format_status_label(ticket_no, v_ok) if v_ok else f"Lỗi: {v_msg}"
+                    elif vat_paths:
+                        succ_vat = []
+                        fail_vat = []
+                        for vp in vat_paths:
+                            ok_v, msg_v = self.attach_file_to_current_migo(session, vp)
+                            if ok_v:
+                                succ_vat.append(vp.name)
+                            else:
+                                fail_vat.append(f"{vp.name}: {msg_v}")
+                        if succ_vat:
+                            v_ok = True
+                            vat_res = f"DONE ({len(succ_vat)})" if len(succ_vat) > 1 else "DONE"
+                        else:
+                            vat_res = f"Lỗi: {'; '.join(fail_vat)}"
                     else:
                         vat_res = "FILE_NOT_FOUND"
 
                     # 4. Đính kèm file Mail (nếu có)
                     m_ok = False
-                    if mail_path:
-                        m_ok, m_msg = self.attach_file_to_current_migo(session, mail_path)
-                        mail_res = format_status_label(ticket_no, m_ok) if m_ok else f"Lỗi: {m_msg}"
+                    if mail_paths:
+                        ok_m, msg_m = self.attach_file_to_current_migo(session, mail_paths[0])
+                        if ok_m:
+                            m_ok = True
+                            mail_res = "DONE"
+                        else:
+                            mail_res = f"Lỗi: {msg_m}"
 
+                    # Thành công nếu BBBG, VAT, Mail hoặc HeadText thành công
                     if b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
-                        overall_status = format_status_label(ticket_no, True)
+                        overall_status = "DONE"
                         total_success += 1
                     else:
                         overall_status = "INCOMPLETE"
@@ -1011,9 +1071,9 @@ class MigoAttachmentRunner:
                 "ticket_no": ticket_no,
                 "headtext_status": headtext_res,
                 "headtext_msg": headtext_msg,
-                "bbbg_file": bbbg_path.name if bbbg_path else None,
-                "vat_file": vat_path.name if vat_path else None,
-                "mail_file": mail_path.name if mail_path else None,
+                "bbbg_file": ", ".join(p.name for p in bbbg_paths) if bbbg_paths else None,
+                "vat_file": ", ".join(p.name for p in vat_paths) if vat_paths else None,
+                "mail_file": mail_paths[0].name if mail_paths else None,
                 "bbbg_status": bbbg_res,
                 "vat_status": vat_res,
                 "mail_status": mail_res,

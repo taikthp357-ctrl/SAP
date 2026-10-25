@@ -619,8 +619,22 @@ def run_bridge():
                                 items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
 
                             runner = MigoAttachmentRunner(sap_engine=sap)
+
+                            def on_att_progress(done_count, total_count, cur_doc, cur_success):
+                                try:
+                                    TeamsDispatcher.send_progress_update(
+                                        webhook_url, req_id, meta, done_count, total_count, cur_doc, cur_success
+                                    )
+                                    print(f"[PROGRESS TEAMS] {req_id} | Đã cập nhật tiến độ {done_count}/{total_count} ({int(done_count*100/total_count)}%) lên Teams!")
+                                except Exception as ex:
+                                    print(f"[PROGRESS WARN] Không thể gửi cập nhật tiến độ: {ex}")
+
                             att_summary = runner.process_attachment_batch(
-                                folder_path, items_to_att, fill_headtext=True, dry_run=meta.get("dryRun", False)
+                                folder_path,
+                                items_to_att,
+                                fill_headtext=True,
+                                dry_run=meta.get("dryRun", False),
+                                progress_callback=on_att_progress
                             )
                             records = att_summary["results"]
                             if not folder_path:

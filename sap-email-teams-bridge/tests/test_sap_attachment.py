@@ -136,7 +136,7 @@ def test_process_attachment_batch_dry_run(sample_attachment_dir):
     assert summary["total_missing"] == 1  # 1 item hoàn toàn không có file
 
     report = runner.format_teams_report(summary)
-    assert "`5006995954`: Thành Công in 5794" in report
+    assert "`5006995954`: DONE" in report
     assert "`9999999999`: FILE_NOT_FOUND" in report
     assert "| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |" in report
     assert "Mail (.msg)" not in report
@@ -218,7 +218,7 @@ def test_process_attachment_batch_headtext_only():
     assert res0["ticket_no"] == "OUT_P1_23581"
     assert res0["headtext_status"] == "HEADTEXT_DONE"
     assert res0["bbbg_status"] == "SKIP_NO_ATTACH"
-    assert "Thành Công OUT_P1_23581" in res0["overall_status"]
+    assert res0["overall_status"] == "DONE"
 
 
 def test_parse_attachment_multi_row_list_and_table():
@@ -266,12 +266,12 @@ def test_clean_folder_path():
     assert "260802_ File ATT BBGH" in cleaned
 
 
-def test_format_status_label_no_duplication():
-    """Kiểm tra format_status_label không bị lặp từ 'Thành Công'."""
-    assert format_status_label("Thành Công in 3874", True) == "Thành Công in 3874"
-    assert format_status_label("thanh cong 1234", True) == "thanh cong 1234"
-    assert format_status_label("in 3874", True) == "Thành Công in 3874"
-    assert format_status_label("", True) == "Thành Công"
+def test_format_status_label():
+    """Kiểm tra format_status_label trả về DONE khi thành công và FILE_NOT_FOUND khi thất bại."""
+    assert format_status_label("Thành Công in 3874", True) == "DONE"
+    assert format_status_label("thanh cong 1234", True) == "DONE"
+    assert format_status_label("in 3874", True) == "DONE"
+    assert format_status_label("", True) == "DONE"
     assert format_status_label("in 3874", False) == "FILE_NOT_FOUND"
 
 
@@ -532,13 +532,57 @@ def test_process_attachment_batch_with_sap_existing_attachments():
         )
         assert len(res["results"]) == 1
         item = res["results"][0]
-        # BBBG đã có trên SAP -> đánh dấu Thành Công in 3874
-        assert item["bbbg_status"] == "Thành Công in 3874"
+        # BBBG đã có trên SAP -> đánh dấu DONE
+        assert item["bbbg_status"] == "DONE"
         # VAT chưa có trên SAP và thư mục không có -> FILE_NOT_FOUND
         assert item["vat_status"] == "FILE_NOT_FOUND"
         # Overall status thành công vì đã có BBBG hợp lệ
-        assert item["overall_status"] == "Thành Công in 3874"
+        assert item["overall_status"] == "DONE"
         assert res["total_success"] == 1
+
+
+def test_multiple_vat_files_matching():
+    """Kiểm tra một chứng từ có nhiều file VAT trong thư mục thì đính kèm tất cả và báo DONE."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        # Tạo 2 file VAT cho số phiếu 6461
+        (tmp_path / "6461_VAT_1.pdf").write_text("vat1")
+        (tmp_path / "6461_VAT_2.pdf").write_text("vat2")
+        (tmp_path / "6461_BBBG.pdf").write_text("bbbg")
+
+        runner = MigoAttachmentRunner()
+        idx_data = runner.index_source_folder(str(tmp_path))
+        all_matches = runner.match_all_files("5007136566", "thành đạt in - 6461", idx_data)
+        assert len(all_matches["vat"]) == 2
+        assert len(all_matches["bbbg"]) == 1
+
+        res = runner.process_attachment_batch(
+            folder_path=str(tmp_path),
+            items=[{"doc": "5007136566", "ticket_no": "thành đạt in - 6461"}],
+            dry_run=True
+        )
+        assert len(res["results"]) == 1
+        r0 = res["results"][0]
+        assert r0["bbbg_status"] == "DONE"
+        assert "DONE" in r0["vat_status"]
+        assert r0["overall_status"] == "DONE"
+
+
+def test_custom_vat_naming_fallback():
+    """Kiểm tra hóa đơn không có chữ VAT mà dùng ký hiệu riêng như file Excel thì vẫn nhận diện được."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        # File mang số phiếu 6461 nhưng không có chữ BBBG hoặc Mail
+        (tmp_path / "6461_CT01.pdf").write_text("invoice")
+
+        runner = MigoAttachmentRunner()
+        idx_data = runner.index_source_folder(str(tmp_path))
+        all_matches = runner.match_all_files("5007136566", "thành đạt in - 6461", idx_data)
+        assert len(all_matches["vat"]) == 1
+        assert all_matches["vat"][0].name == "6461_CT01.pdf"
+
 
 
 
