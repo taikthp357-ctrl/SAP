@@ -773,12 +773,16 @@ class MigoAttachmentRunner:
                 except Exception:
                     pass
 
-            # Trường hợp 1: Đã có sẵn HeadText và trùng khớp số phiếu -> Không cần lưu lại
+            # Trường hợp 1: Đã có sẵn HeadText -> Kiểm tra trùng khớp hay khác biệt (A01 Review Guard)
             if current_text:
                 curr_tokens, curr_compact = extract_search_tokens(current_text)
                 tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
                 if curr_compact == tick_compact or (curr_tokens and set(curr_tokens).intersection(set(tick_tokens))):
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
+                else:
+                    # Quy tắc Đợt 2 (A01): Nếu đã có HeadText khác nội dung -> Báo REVIEW, tuyệt đối không ghi đè ngầm
+                    print(f"[ATT RUNNER WARN] MIGO HeadText hiện có ('{current_text}') khác với số phiếu yêu cầu ('{ticket_clean}'). Giữ nguyên để Review thủ công.")
+                    return "HEADTEXT_REVIEW", f"Header Text hiện có ('{current_text}') khác với số phiếu yêu cầu ('{ticket_clean}'). Cần Review thủ công, không ghi đè ngầm."
 
             # Trường hợp 2: Điền số phiếu và bấm Lưu (Save / vKey 11) chuẩn theo Change_doc
             try:
@@ -1380,12 +1384,28 @@ class MigoAttachmentRunner:
                     else:
                         mail_res = f"Lỗi: {msg_m}"
 
-                # Thành công nếu BBBG, VAT, Mail hoặc HeadText thành công
-                if b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
+                # Đánh giá trạng thái tổng thể chính xác (A03 - Phân định rõ DONE, PARTIAL, REVIEW)
+                if headtext_res == "HEADTEXT_REVIEW":
+                    overall_status = "REVIEW_HEADTEXT"
+                    is_succ = False
+                elif b_ok and v_ok:
                     overall_status = "DONE"
                     is_succ = True
+                elif b_ok and not v_ok:
+                    overall_status = "PARTIAL (Thiếu VAT)"
+                    is_succ = True
+                elif v_ok and not b_ok:
+                    overall_status = "PARTIAL (Thiếu BBBG)"
+                    is_succ = True
+                elif m_ok:
+                    overall_status = "DONE"
+                    is_succ = True
+                elif headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
+                    overall_status = "PARTIAL (Chỉ có HeadText)"
+                    is_succ = True
                 else:
-                    overall_status = "INCOMPLETE"
+                    overall_status = "FILE_NOT_FOUND"
+                    is_succ = False
 
         # Sau khi xử lý xong chứng từ, gửi Esc (SendVKey 12) để MIGO trở về màn hình ô vàng cho chứng từ tiếp theo
         if not dry_run and session is not None:
@@ -1448,6 +1468,22 @@ class MigoAttachmentRunner:
         else:
             index_data = {"total_files": 0, "files": [], "token_map": {}}
             print(f"[ATT RUNNER] Chế độ điền số phiếu HeadText (Không đính kèm file).")
+
+        # Phát hiện xung đột MULTI_TICKET_DOC (A02): cùng 1 DOC nhưng có nhiều ticket_no khác nhau
+        doc_tickets = {}
+        for it in items:
+            d = str(it.get("doc", "")).strip()
+            t = str(it.get("ticket_no", "")).strip()
+            if d and t:
+                doc_tickets.setdefault(d, set()).add(t)
+
+        multi_ticket_docs = {d: sorted(list(ts)) for d, ts in doc_tickets.items() if len(ts) > 1}
+        if multi_ticket_docs:
+            print(f"[ATT RUNNER WARN] Phát hiện DOC có nhiều số phiếu khác nhau (MULTI_TICKET_DOC): {multi_ticket_docs}")
+            for it in items:
+                d = str(it.get("doc", "")).strip()
+                if d in multi_ticket_docs:
+                    it["multi_ticket_conflict"] = multi_ticket_docs[d]
 
         results = []
         total_success = 0

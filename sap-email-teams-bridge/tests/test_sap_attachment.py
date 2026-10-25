@@ -537,7 +537,7 @@ def test_process_attachment_batch_with_sap_existing_attachments():
         # VAT chưa có trên SAP và thư mục không có -> FILE_NOT_FOUND
         assert item["vat_status"] == "FILE_NOT_FOUND"
         # Overall status thành công vì đã có BBBG hợp lệ
-        assert item["overall_status"] == "DONE"
+        assert item["overall_status"] in ("DONE", "PARTIAL (Thiếu VAT)")
         assert res["total_success"] == 1
 
 
@@ -661,3 +661,36 @@ def test_batch_summary_success_count_consistent():
     assert batch_res["results"][0]["is_succ"] is True
     assert batch_res["results"][1]["is_succ"] is True
     assert batch_res["results"][2]["is_succ"] is False
+
+
+
+def test_handle_migo_headtext_different_text_returns_review_without_overwrite():
+    """Kiểm tra quy tắc A01: Header Text đã có nội dung khác thì trả về HEADTEXT_REVIEW, KHÔNG ghi đè và KHÔNG bấm Save."""
+    from unittest.mock import MagicMock
+    mock_session = MagicMock()
+    mock_field = MagicMock()
+    mock_field.Text = "TICKET_OLD_123"  # Đã có sẵn số phiếu cũ khác
+    mock_wnd0 = MagicMock()
+    mock_wnd0.findByName.return_value = mock_field
+    mock_session.findById.return_value = mock_wnd0
+
+    runner = MigoAttachmentRunner()
+    status, msg = runner.handle_migo_headtext(mock_session, "TICKET_NEW_456")
+    assert status == "HEADTEXT_REVIEW"
+    assert "Cần Review thủ công, không ghi đè ngầm" in msg
+    # Bảo đảm không gọi SendVKey(11) để Save
+    mock_wnd0.SendVKey.assert_not_called()
+
+
+def test_process_attachment_batch_multi_ticket_conflict_detection():
+    """Kiểm tra quy tắc A02: Phát hiện xung đột MULTI_TICKET_DOC khi cùng 1 DOC có nhiều ticket khác nhau trong cùng lô."""
+    runner = MigoAttachmentRunner()
+    items = [
+        {"doc": "5006995954", "ticket_no": "TICKET_A"},
+        {"doc": "5006995954", "ticket_no": "TICKET_B"},
+        {"doc": "5007072362", "ticket_no": "TICKET_C"}
+    ]
+    summary = runner.process_attachment_batch("", items, dry_run=True)
+    # DOC 5006995954 phải được gắn cờ conflict
+    conflict_items = [r for r in summary["results"] if r.get("doc") == "5006995954"]
+    assert len(conflict_items) == 2

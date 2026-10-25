@@ -1277,3 +1277,31 @@ def test_check_sto_me2n_supplying_and_receiving_plants():
     assert mock_controls["wnd[0]/usr/ctxtS_WERKS-LOW"].text == "4007"
     assert mock_controls["wnd[0]/usr/ctxtS_RESWK-LOW"].text == "3093"
 
+
+
+
+def test_check_low_stock_sloc_breakdown_body_v37():
+    """Kiểm tra quy tắc S01: Bóc tách chính xác SLoc theo 261008_Stock_FG_MA_BODY V3.7 (1003, 3003, 3093, 3000, 9999)."""
+    from unittest.mock import MagicMock
+    engine = SapEngine.__new__(SapEngine)
+
+    mock_mb52_records = [
+        {"product": "BIW_TEST_01", "plant": "3001", "sloc": "1003", "unrest": "40", "unit": "PC"},  # BD Kho
+        {"product": "BIW_TEST_01", "plant": "3001", "sloc": "3003", "unrest": "60", "unit": "PC"},  # Line Body
+        {"product": "BIW_TEST_01", "plant": "3093", "sloc": "3093", "unrest": "200", "unit": "PC"}, # Kho MA
+        {"product": "BIW_TEST_01", "plant": "3093", "sloc": "3000", "unrest": "50", "unit": "PC"},  # Line MA
+        {"product": "BIW_TEST_01", "plant": "3093", "sloc": "9999", "unrest": "5", "unit": "PC"},   # Transit/QC
+    ]
+    engine.check_stock_mb52 = MagicMock(return_value=mock_mb52_records)
+
+    res = engine.check_low_stock(["BIW_TEST_01"], plants=["3093", "3001"], limit=5)
+    assert len(res) == 1
+    r = res[0]
+    assert r["product"] == "BIW_TEST_01"
+    assert r["bd_kho"] == "40"
+    assert r["line_body"] == "60"
+    assert r["kho_ma"] == "200"
+    assert r["line_ma"] == "50"
+    assert r["transit"] == "5"
+    assert r["total_stock"] == "350"  # 40 + 60 + 200 + 50 (không cộng 5 của 9999)
+    assert r["bd_carset"] == "100"    # (40 + 60) / 1

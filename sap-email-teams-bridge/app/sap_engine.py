@@ -2190,6 +2190,18 @@ class SapEngine:
 
         stock_by_mat = {m: {p: 0.0 for p in target_plants} for m in mats_to_evaluate}
         unit_by_mat = {m: "PC" for m in mats_to_evaluate}
+        sloc_detail_by_mat = {
+            m: {
+                "line_body": 0.0,   # 3001/3003
+                "bd_kho": 0.0,      # 3001/1003
+                "kho_ma": 0.0,      # 3093/3093
+                "line_ma": 0.0,     # 3093/3000
+                "transit": 0.0,     # 9999 / QC / Transit
+                "xmd_pre": 0.0,     # 2001 (3002, 1001, 600P, 1D01)
+                "xmd_post": 0.0     # 2001 & 3001 post-paint
+            }
+            for m in mats_to_evaluate
+        }
 
         def _find_eval_mat(prod_code: str) -> Optional[str]:
             p_clean = prod_code.strip().upper()
@@ -2215,19 +2227,47 @@ class SapEngine:
             mat_raw = r.get("product", "").strip().upper()
             p = r.get("plant", "").strip().upper()
             sloc = r.get("sloc", "").strip().upper()
-
-            if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE"]:
-                continue
+            qty = parse_sap_float(r.get("unrest", "0"))
 
             matched_mat = _find_eval_mat(mat_raw)
             if not matched_mat:
                 matched_mat = mat_raw
                 stock_by_mat[matched_mat] = {pl: 0.0 for pl in target_plants}
+                sloc_detail_by_mat[matched_mat] = {
+                    "line_body": 0.0, "bd_kho": 0.0, "kho_ma": 0.0, "line_ma": 0.0,
+                    "transit": 0.0, "xmd_pre": 0.0, "xmd_post": 0.0
+                }
                 if matched_mat not in mats_to_evaluate:
                     mats_to_evaluate.append(matched_mat)
 
+            # SLoc 9999 / QC / Scrap được lưu vào transit riêng, không cộng vào tồn khả dụng
+            if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE"]:
+                sloc_detail_by_mat[matched_mat]["transit"] += qty
+                continue
+
             if p in stock_by_mat[matched_mat]:
-                stock_by_mat[matched_mat][p] += parse_sap_float(r.get("unrest", "0"))
+                stock_by_mat[matched_mat][p] += qty
+
+            # Bóc tách SLoc chuẩn theo 261008_Stock_FG_MA_BODY V3.7
+            if p == "3001":
+                if sloc == "3003":
+                    sloc_detail_by_mat[matched_mat]["line_body"] += qty
+                elif sloc == "1003":
+                    sloc_detail_by_mat[matched_mat]["bd_kho"] += qty
+                else:
+                    sloc_detail_by_mat[matched_mat]["line_body"] += qty
+            elif p == "3093":
+                if sloc == "3093":
+                    sloc_detail_by_mat[matched_mat]["kho_ma"] += qty
+                elif sloc == "3000":
+                    sloc_detail_by_mat[matched_mat]["line_ma"] += qty
+                else:
+                    sloc_detail_by_mat[matched_mat]["kho_ma"] += qty
+            elif p == "2001":
+                if sloc in ("3002", "1001", "600P", "1D01"):
+                    sloc_detail_by_mat[matched_mat]["xmd_pre"] += qty
+                else:
+                    sloc_detail_by_mat[matched_mat]["xmd_post"] += qty
 
             if r.get("unit"):
                 unit_by_mat[matched_mat] = r.get("unit")
@@ -2280,19 +2320,28 @@ class SapEngine:
                     if mat in km or km in mat:
                         t_val = kv
                         break
+            det = sloc_detail_by_mat.get(mat, {})
+            l_body = det.get("line_body", p_stocks.get("3001", 0.0))
+            b_kho = det.get("bd_kho", 0.0)
+            k_ma = det.get("kho_ma", p_stocks.get("3093", 0.0))
+            l_ma = det.get("line_ma", 0.0)
+            trans = det.get("transit", 0.0)
+            us_int = 1
+            can_build = int((l_body + b_kho) / us_int) if (l_body + b_kho) > 0 else int(total_s / us_int)
+
             row = {
                 "product": mat,
                 "station": t_val or "-",
                 "model": model_name or "N/A",
                 "unit": unit_by_mat.get(mat, "PC"),
                 "total_stock": format_qty_display(total_s),
-                "us": "1",
-                "line_body": format_qty_display(p_stocks.get("3001", 0.0)),
-                "bd_kho": "0",
-                "bd_carset": format_qty_display(total_s),
-                "transit": "0",
-                "kho_ma": format_qty_display(p_stocks.get("3093", 0.0)),
-                "line_ma": "0"
+                "us": str(us_int),
+                "line_body": format_qty_display(l_body),
+                "bd_kho": format_qty_display(b_kho),
+                "bd_carset": format_qty_display(can_build),
+                "transit": format_qty_display(trans),
+                "kho_ma": format_qty_display(k_ma),
+                "line_ma": format_qty_display(l_ma)
             }
             for p in target_plants:
                 row[f"stock_{p}"] = format_qty_display(p_stocks.get(p, 0.0))
