@@ -16,7 +16,7 @@ import time
 import json
 import gc
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pythoncom
 import win32com.client
 
@@ -32,6 +32,7 @@ from app.teams_dispatcher import TeamsDispatcher
 from app.sap_engine import SapEngine, SapExecutionError
 from app.state_manager import StateManager
 from app.number_utils import set_global_sap_number_format
+from app.sap_attachment import MigoAttachmentRunner
 
 
 def run_self_test():
@@ -447,7 +448,6 @@ def run_bridge():
 
                             is_fallback = False
                             if records:
-                                from datetime import datetime, timedelta
                                 cutoff_str = (datetime.now() - timedelta(days=int(days))).strftime("%Y%m%d")
                                 newest_date = records[0].get("postDate", "")
                                 parts = re.split(r"[./-]", newest_date)
@@ -610,7 +610,6 @@ def run_bridge():
                             summary = f"Posting Change NVL (Plant {plant or '3093'} - Kho 1005) cho: {', '.join(resolved_mats)}"
 
                         elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
-                            from app.sap_attachment import MigoAttachmentRunner
                             folder_path = meta.get("folderPath", "")
                             items_to_att = meta.get("attachmentItems", [])
                             if not items_to_att:
