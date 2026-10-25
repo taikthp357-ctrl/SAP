@@ -571,7 +571,9 @@ class MigoAttachmentRunner:
         return bbbg_match, vat_match, mail_match, " | ".join(notes)
 
     def handle_migo_headtext(self, session, ticket_no: str) -> Tuple[str, str]:
-        """Kiểm tra và tự động điền số phiếu vào trường Header Text (txtGOHEAD-BKTXT) trên SAP MIGO."""
+        """Kiểm tra và điền số phiếu vào trường Header Text theo chuẩn Change_doc:
+        MIGO_OK_HEADER_OPEN -> GOHEAD-BKTXT.Text = ticket_no -> SendVKey 11 (Save).
+        """
         if not ticket_no or not str(ticket_no).strip():
             return "SKIP_NO_TICKET", "Không có số phiếu cần điền"
 
@@ -579,14 +581,22 @@ class MigoAttachmentRunner:
 
         try:
             # 1. Bảo đảm phần Header MIGO được mở
-            head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=1.5)
+            try:
+                session.SendCommand("MIGO_OK_HEADER_OPEN")
+                time.sleep(0.1)
+            except Exception:
+                pass
+
+            # 2. Tìm trường GOHEAD-BKTXT
+            head_field = None
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    head_field = w0.findByName("GOHEAD-BKTXT", "GuiTextField")
+            except Exception:
+                pass
             if head_field is None:
-                try:
-                    session.SendCommand("MIGO_OK_HEADER_OPEN")
-                    sap_wait_idle(session, 3.0)
-                except Exception:
-                    pass
-                head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=3.0)
+                head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=2.0)
 
             if head_field is None:
                 return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT trên MIGO"
@@ -601,31 +611,14 @@ class MigoAttachmentRunner:
                 except Exception:
                     pass
 
-            # Trường hợp 1: Đã có sẵn HeadText và trùng khớp số phiếu
+            # Trường hợp 1: Đã có sẵn HeadText và trùng khớp số phiếu -> Không cần lưu lại
             if current_text:
                 curr_tokens, curr_compact = extract_search_tokens(current_text)
                 tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
                 if curr_compact == tick_compact or (curr_tokens and set(curr_tokens).intersection(set(tick_tokens))):
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
-                else:
-                    return "HEADTEXT_DIFF", f"SAP đã có HeadText khác: '{current_text}'"
 
-            # Trường hợp 2: HeadText đang rỗng -> Mở khóa bằng F2 nếu cần, điền mới và Lưu (F11)
-            is_changeable = getattr(head_field, "Changeable", True)
-            if not is_changeable:
-                try:
-                    head_field.SetFocus()
-                    w0 = safe_find_by_id(session, "wnd[0]")
-                    if w0:
-                        w0.SendVKey(2)  # F2 kích hoạt chỉnh sửa Header Text
-                    sap_wait_idle(session, 3.0)
-                    head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=2.0)
-                except Exception:
-                    pass
-
-            if head_field is None:
-                return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT sau khi mở khóa"
-
+            # Trường hợp 2: Điền số phiếu và bấm Lưu (Save / vKey 11) chuẩn theo Change_doc
             try:
                 head_field.Text = ticket_clean
             except Exception:
@@ -637,28 +630,26 @@ class MigoAttachmentRunner:
             w0 = safe_find_by_id(session, "wnd[0]")
             if w0:
                 w0.SendVKey(11)  # Ctrl+S / Save
-            sap_wait_idle(session, 5.0)
+            time.sleep(0.3)
 
-            # Kiểm tra lỗi sau khi lưu
-            try:
-                sbar = safe_find_by_id(session, "wnd[0]/sbar")
-                if sbar:
-                    s_type = ""
-                    s_msg = ""
-                    for prop in ("MessageType", "messageType"):
-                        v = getattr(sbar, prop, None)
-                        if isinstance(v, str):
-                            s_type = v.strip()
-                            break
-                    for prop in ("Text", "text"):
-                        v = getattr(sbar, prop, None)
-                        if isinstance(v, str):
-                            s_msg = v.strip()
-                            break
-                    if s_type in ("E", "A"):
-                        return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
-            except Exception:
-                pass
+            # Kiểm tra kết quả trên sbar
+            sbar = safe_find_by_id(session, "wnd[0]/sbar")
+            if sbar:
+                s_type = ""
+                s_msg = ""
+                for prop in ("MessageType", "messageType"):
+                    v = getattr(sbar, prop, None)
+                    if isinstance(v, str):
+                        s_type = v.strip()
+                        break
+                for prop in ("Text", "text"):
+                    v = getattr(sbar, prop, None)
+                    if isinstance(v, str):
+                        s_msg = v.strip()
+                        break
+                if s_type in ("E", "A"):
+                    return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
+                return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}' ({s_msg})"
 
             return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}'"
         except Exception as e:
@@ -905,98 +896,126 @@ class MigoAttachmentRunner:
         except Exception as e:
             return False, f"GOS_EXCEPTION: {e}"
 
-    def open_migo_document(self, session, doc: str, year: str = "2026", mode: str = "DISPLAY") -> Tuple[bool, str]:
-        """Điều hướng SAP tới chứng từ MIGO cần xem (A04 Display) hoặc sửa (A12 Change), R02 Material Document."""
+    def prepare_migo_session(self, session, mode: str = "CHANGE") -> bool:
+        """Chuẩn bị màn hình MIGO theo chuẩn Change_doc từ 240101_MA Log_GR Tool_V7_1:
+        Mở /nmigo một lần duy nhất trước vòng lặp và đặt Action = A12 (Change) hoặc A04 (Display).
+        """
         if session is None:
-            return False, "NO_SESSION: Session SAP là None"
+            return False
         try:
             try:
                 session.findById("wnd[0]").maximize()
             except Exception:
                 pass
 
-            # Luôn dọn dẹp popup kẹt và reset về /nMIGO sạch sẽ trước khi nạp chứng từ mới
-            sanitize_migo_session(session)
-            sap_wait_idle(session, 5.0)
+            # Đóng các popup kẹt nếu có
+            for w_idx in (2, 1):
+                try:
+                    w = safe_find_by_id(session, f"wnd[{w_idx}]")
+                    if w:
+                        try:
+                            w.Close()
+                        except Exception:
+                            w.SendVKey(12)
+                except Exception:
+                    pass
 
+            okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
+            if okcd:
+                try:
+                    okcd.Text = "/nmigo"
+                except Exception:
+                    okcd.text = "/nmigo"
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    w0.SendVKey(0)
+                time.sleep(0.3)
+
+            # Đặt Action = A12 (Change)
             target_act = "A12" if mode == "CHANGE" else "A04"
+            act_cb = None
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    act_cb = w0.findByName("GODYNPRO-ACTION", "GuiComboBox")
+            except Exception:
+                pass
+            if act_cb is None:
+                act_cb = wait_control(session, "GODYNPRO-ACTION", "GuiComboBox", timeout_sec=2.0)
 
-            # 1. Thiết lập ACTION (A12 Change / A04 Display)
-            act_cb = wait_control(session, "GODYNPRO-ACTION", "GuiComboBox", timeout_sec=3.0)
             if act_cb is not None:
                 try:
-                    curr_act = str(getattr(act_cb, "key", None) or getattr(act_cb, "Key", "")).strip()
-                    if curr_act != target_act:
-                        try:
-                            act_cb.key = target_act
-                        except Exception:
-                            act_cb.Key = target_act
-                        sap_wait_idle(session, 5.0)
+                    act_cb.Key = target_act
                 except Exception:
-                    pass
+                    try:
+                        act_cb.key = target_act
+                    except Exception:
+                        pass
+                time.sleep(0.3)
+            return True
+        except Exception as e:
+            print(f"[MIGO INIT WARN] {e}")
+            return False
 
-            # 2. Thiết lập REFDOC (R02 Material Document)
-            ref_cb = wait_control(session, "GODYNPRO-REFDOC", "GuiComboBox", timeout_sec=3.0)
-            if ref_cb is not None:
-                try:
-                    curr_ref = str(getattr(ref_cb, "key", None) or getattr(ref_cb, "Key", "")).strip()
-                    if curr_ref != "R02":
-                        try:
-                            ref_cb.key = "R02"
-                        except Exception:
-                            ref_cb.Key = "R02"
-                        sap_wait_idle(session, 5.0)
-                except Exception:
-                    pass
+    def open_migo_document(self, session, doc: str, year: str = "2026", mode: str = "CHANGE") -> Tuple[bool, str]:
+        """Nạp chứng từ MIGO theo chuẩn luồng Change_doc:
+        Điền số DOC vào GODYNPRO-MAT_DOC và gửi Enter (SendVKey 0).
+        """
+        if session is None:
+            return False, "NO_SESSION: Session SAP là None"
+        try:
+            # 1. Tìm ô nhập số chứng từ GODYNPRO-MAT_DOC
+            doc_fld = None
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    doc_fld = w0.findByName("GODYNPRO-MAT_DOC", "GuiTextField")
+            except Exception:
+                pass
+            if doc_fld is None:
+                doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=1.5)
 
-            # 3. Điền số chứng từ vào GODYNPRO-MAT_DOC
-            doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=4.0)
+            # Nếu chưa thấy ô nhập, có thể session chưa được đưa về MIGO A12 -> chuẩn bị lại
+            if doc_fld is None:
+                self.prepare_migo_session(session, mode=mode)
+                doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=2.5)
+
             if doc_fld is None:
                 return False, "CONTROL_NOT_FOUND: Không tìm thấy ô nhập số chứng từ GODYNPRO-MAT_DOC trên MIGO"
 
+            # 2. Điền số chứng từ vào ô vàng
             try:
                 doc_fld.SetFocus()
             except Exception:
                 pass
             try:
-                doc_fld.text = str(doc).strip()
-            except Exception:
                 doc_fld.Text = str(doc).strip()
-
-            # 4. Điền DOC_YEAR nếu có
-            if year:
-                yr_fld = wait_control(session, "GODYNPRO-DOC_YEAR", "GuiTextField", timeout_sec=2.0)
-                if yr_fld is not None:
-                    try:
-                        try:
-                            yr_fld.text = str(year).strip()
-                        except Exception:
-                            yr_fld.Text = str(year).strip()
-                    except Exception:
-                        pass
-
-            # 5. Bấm nút Execute (btnOK_GO) hoặc Enter để nạp chứng từ
-            ok_go_btn = wait_control(session, "OK_GO", "GuiButton", timeout_sec=2.0)
-            if ok_go_btn is not None:
-                try:
-                    ok_go_btn.Press()
-                except Exception:
-                    session.findById("wnd[0]").SendVKey(0)
-            else:
-                session.findById("wnd[0]").SendVKey(0)
-
-            sap_wait_idle(session, 5.0)
-
-            # 6. Kiểm tra thông báo trạng thái hoặc lỗi
-            try:
-                sbar = session.findById("wnd[0]/sbar", False)
-                if sbar:
-                    msg = getattr(sbar, "Text", "") or getattr(sbar, "text", "")
-                    msg_type = getattr(sbar, "MessageType", "") or getattr(sbar, "messageType", "")
-                    if msg_type in ("E", "A"):
-                        return False, f"DOC_NOT_FOUND: {msg}"
             except Exception:
-                pass
+                doc_fld.text = str(doc).strip()
+
+            # 3. Enter nạp chứng từ
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(0)
+            time.sleep(0.3)
+
+            # 4. Kiểm tra thông báo trên thanh trạng thái sbar
+            sbar = safe_find_by_id(session, "wnd[0]/sbar")
+            if sbar:
+                s_type = ""
+                s_msg = ""
+                for prop in ("MessageType", "messageType"):
+                    v = getattr(sbar, prop, None)
+                    if isinstance(v, str):
+                        s_type = v.strip()
+                        break
+                for prop in ("Text", "text"):
+                    v = getattr(sbar, prop, None)
+                    if isinstance(v, str):
+                        s_msg = v.strip()
+                        break
+                if s_type in ("E", "A"):
+                    return False, f"DOC_NOT_FOUND: {s_msg}"
 
             return True, "LOADED_OK"
         except Exception as e:
@@ -1345,7 +1364,7 @@ class MigoAttachmentRunner:
                         print(f"[ATT RUNNER Tab {tab_idx}] Lỗi kết nối session: {conn_err}")
 
                     if worker_session is not None:
-                        sanitize_migo_session(worker_session)
+                        self.prepare_migo_session(worker_session, mode="CHANGE")
 
                     for orig_idx, itm in chunk:
                         doc_str = str(itm.get("doc", "")).strip()
@@ -1422,7 +1441,7 @@ class MigoAttachmentRunner:
                     session = self.sap_engine.ensure_session()
 
             if session is not None:
-                sanitize_migo_session(session)
+                self.prepare_migo_session(session, mode="CHANGE")
 
             for idx, item in enumerate(items, 1):
                 doc = str(item.get("doc", "")).strip()
