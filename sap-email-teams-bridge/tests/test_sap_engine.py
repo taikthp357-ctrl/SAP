@@ -327,6 +327,7 @@ def test_strict_session_safety_guards_user_work():
     engine.strict_session_safety = True
     engine.connection_index = 0
     engine.session_index = 0
+    engine.auto_create_session = False
 
     app_mock = MagicMock()
     app_mock.Children.Count = 1
@@ -1065,3 +1066,91 @@ def test_mb52_excludes_subtotal_and_sorts_by_sloc():
     assert records[1]["unrest"] == "800"
     assert records[2]["sloc"] == "3001"
     assert records[2]["unrest"] == "8045"
+
+
+def test_connect_sap_hunts_idle_session_when_first_session_busy():
+    """Kiểm tra: Nếu Session 0 đang bận (Busy=True) bởi tool khác, Bot tự động chọn Session 1 rảnh rỗi."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.connection_index = 0
+    engine.session_index = 0
+    engine.strict_session_safety = True
+    engine.auto_create_session = True
+    engine.prefer_dedicated_session = False
+
+    mock_sess0 = MagicMock()
+    mock_sess0.Busy = True
+    mock_sess0.Info.Transaction = "MIGO"
+
+    mock_sess1 = MagicMock()
+    mock_sess1.Busy = False
+    mock_sess1.Info.Transaction = "SESSION_MANAGER"
+
+    mock_conn = MagicMock()
+    mock_conn.Children.Count = 2
+    mock_conn.Children.side_effect = lambda idx: [mock_sess0, mock_sess1][idx]
+
+    mock_app = MagicMock()
+    mock_app.Children.Count = 1
+    mock_app.Children.side_effect = lambda idx: [mock_conn][idx]
+
+    with pytest.MonkeyPatch().context() as m:
+        mock_sap_gui_auto = MagicMock()
+        mock_sap_gui_auto.GetScriptingEngine = mock_app
+        m.setattr("win32com.client.GetObject", lambda name: mock_sap_gui_auto)
+
+        selected = engine._connect_sap()
+        assert selected == mock_sess1
+        assert selected.Busy is False
+
+
+def test_connect_sap_creates_new_session_when_all_sessions_busy():
+    """Kiểm tra: Khi các session hiện có đều bận, Bot tự động gọi CreateSession() để mở Tab mới."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.connection_index = 0
+    engine.session_index = 0
+    engine.strict_session_safety = True
+    engine.auto_create_session = True
+    engine.prefer_dedicated_session = False
+
+    mock_sess0 = MagicMock()
+    mock_sess0.Busy = True
+    mock_sess0.Info.Transaction = "MIGO"
+
+    mock_sess_new = MagicMock()
+    mock_sess_new.Busy = False
+    mock_sess_new.Info.Transaction = "SESSION_MANAGER"
+
+    class DynamicConnMock:
+        def __init__(self):
+            self.sessions = [mock_sess0]
+
+        @property
+        def Count(self):
+            return len(self.sessions)
+
+        def __call__(self, idx):
+            return self.sessions[idx]
+
+    conn_dyn = DynamicConnMock()
+    mock_conn = MagicMock()
+    mock_conn.Children = conn_dyn
+
+    # Khi CreateSession được gọi, thêm mock_sess_new vào
+    def fake_create_session():
+        conn_dyn.sessions.append(mock_sess_new)
+
+    mock_sess0.CreateSession = MagicMock(side_effect=fake_create_session)
+
+    mock_app = MagicMock()
+    mock_app.Children.Count = 1
+    mock_app.Children.side_effect = lambda idx: [mock_conn][idx]
+
+    with pytest.MonkeyPatch().context() as m:
+        mock_sap_gui_auto = MagicMock()
+        mock_sap_gui_auto.GetScriptingEngine = mock_app
+        m.setattr("win32com.client.GetObject", lambda name: mock_sap_gui_auto)
+
+        selected = engine._connect_sap()
+        assert selected == mock_sess_new
+        mock_sess0.CreateSession.assert_called_once()
+

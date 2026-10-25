@@ -9,7 +9,10 @@
   "strict_session_safety": true,
   "max_webhook_retries": 3,
   "allowed_senders": [],
-  "warehouse_slocs": ["1005", "3093"],
+  "warehouse_slocs": [
+    "1005",
+    "3093"
+  ],
   "sloc_master": {
     "1005": "Kho NVL",
     "1013": "Kho Production COI,BLN",
@@ -31,5 +34,8 @@
     "3006": "Sloc PE",
     "P000": "Try out công đoạn Dập",
     "200E": "Waiting"
-  }
+  },
+  "auto_create_session": true,
+  "prefer_dedicated_session": false,
+  "sap_session_index": 0
 }

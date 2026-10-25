@@ -217,7 +217,9 @@ def run_bridge():
         keep_alive_idle_seconds=keep_alive_idle,
         connection_index=config.get("sap_connection_index", 0),
         session_index=config.get("sap_session_index", 0),
-        strict_session_safety=config.get("strict_session_safety", True)
+        strict_session_safety=config.get("strict_session_safety", True),
+        auto_create_session=config.get("auto_create_session", True),
+        prefer_dedicated_session=config.get("prefer_dedicated_session", False)
     )
     print(f"[READY] Đang lắng nghe thư mới trong '{bot_folder.Name}'...")
 
@@ -586,6 +588,23 @@ def run_bridge():
                                 "migoAdvice": "Khuyến nghị ra đơn MIGO 311"
                             }
                             summary = f"Posting Change NVL (Plant {plant or '3093'} - Kho 1005) cho: {', '.join(resolved_mats)}"
+
+                        elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
+                            from app.sap_attachment import MigoAttachmentRunner
+                            folder_path = meta.get("folderPath", "")
+                            att_docs = meta.get("attachmentDocs", [])
+                            if not att_docs and raw_mats:
+                                att_docs = [m for m in raw_mats if m.isdigit() and len(m) >= 8]
+                            items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
+                            runner = MigoAttachmentRunner(sap_engine=sap)
+                            att_summary = runner.process_attachment_batch(folder_path, items_to_att, dry_run=meta.get("dryRun", False))
+                            records = att_summary["results"]
+                            headers = {
+                                "doc": "Số DOC", "ticket_no": "Số phiếu",
+                                "bbbg_status": "BBBG", "vat_status": "VAT",
+                                "overall_status": "Trạng thái", "match_notes": "Chi tiết"
+                            }
+                            summary = f"Đính kèm VAT & BBBG MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

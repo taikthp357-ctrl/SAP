@@ -69,13 +69,17 @@ class SapEngine:
         keep_alive_idle_seconds: int = 900,
         connection_index: int = 0,
         session_index: int = 0,
-        strict_session_safety: bool = True
+        strict_session_safety: bool = True,
+        auto_create_session: bool = True,
+        prefer_dedicated_session: bool = False
     ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
         self.connection_index = connection_index
         self.session_index = session_index
         self.strict_session_safety = strict_session_safety
+        self.auto_create_session = auto_create_session
+        self.prefer_dedicated_session = prefer_dedicated_session
         self.session = None
         self.last_activity = time.time()
         self.last_popup_message = ""
@@ -104,42 +108,120 @@ class SapEngine:
         if app.Children.Count == 0:
             raise RuntimeError("Chưa có Connection nào trong SAP Logon. Vui lòng mở SAP và đăng nhập.")
 
-        # Quét tìm session an toàn: tránh can thiệp nhầm vào phiên người dùng đang nhập liệu
+        # Quét tìm session an toàn: tránh can thiệp nhầm vào phiên người dùng/tool khác đang thao tác
         selected_session = None
         bot_safe_tcodes = {"SESSION_MANAGER", "/SCWM/POST", "MB52", "MB51", "VL06I", "ME2N", "VL06O", "/SCWM/MON", "SCWM/MON", ""}
 
-        for c_idx in range(app.Children.Count):
-            conn = app.Children(c_idx)
-            for s_idx in range(conn.Children.Count):
-                sess = conn.Children(s_idx)
-                try:
-                    info = getattr(sess, "Info", None)
-                    tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
-                    if tcode in bot_safe_tcodes:
-                        selected_session = sess
-                        print(f"[SAP] Đã gắn kết nối an toàn: Connection {c_idx}, Session {s_idx} (T-Code: '{tcode or 'MAIN'}')")
-                        break
-                except Exception:
-                    pass
-            if selected_session is not None:
-                break
+        c_idx = min(self.connection_index, app.Children.Count - 1) if app.Children.Count > 0 else 0
+        conn = app.Children(c_idx) if app.Children.Count > 0 else None
 
-        # Nếu không tìm thấy phiên nhàn rỗi, kiểm tra phiên theo cấu hình
+        # Ưu tiên 0: Nếu người dùng chỉ định cấu hình phiên cố định hợp lệ (session_index > 0)
+        if conn and self.session_index > 0 and self.session_index < conn.Children.Count:
+            cand = conn.Children(self.session_index)
+            is_busy = False
+            try:
+                is_busy = bool(getattr(cand, "Busy", False))
+            except Exception:
+                pass
+            if not is_busy:
+                selected_session = cand
+                print(f"[SAP] Dùng phiên chỉ định: Connection {c_idx}, Session {self.session_index}")
+
+        # Ưu tiên 1: Quét tìm phiên đang ở màn hình chính SESSION_MANAGER và KHÔNG bận (Busy=False)
+        prefer_dedicated = getattr(self, "prefer_dedicated_session", False)
+        auto_create = getattr(self, "auto_create_session", True)
+
+        if selected_session is None and not prefer_dedicated:
+            for c_i in range(app.Children.Count):
+                c = app.Children(c_i)
+                for s_i in range(c.Children.Count):
+                    sess = c.Children(s_i)
+                    try:
+                        is_busy = bool(getattr(sess, "Busy", False))
+                        if is_busy:
+                            continue
+                        info = getattr(sess, "Info", None)
+                        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                        if tcode == "SESSION_MANAGER":
+                            selected_session = sess
+                            conn = c
+                            print(f"[SAP] Gắn thành công phiên nhàn rỗi: Connection {c_i}, Session {s_i} (SESSION_MANAGER, Busy=False)")
+                            break
+                    except Exception:
+                        pass
+                if selected_session is not None:
+                    break
+
+        # Ưu tiên 2: Tự động mở thêm Tab mới qua CreateSession() nếu phiên khác đang bận và tổng session < 6
+        if selected_session is None and auto_create and conn is not None:
+            if conn.Children.Count < 6:
+                try:
+                    orig_count = conn.Children.Count
+                    print(f"[SAP MULTI-SESSION] Phát hiện session hiện có đang bận bởi tool khác. Đang tự động mở Tab SAP mới qua CreateSession() (Hiện có {orig_count}/6 session)...")
+                    spawn_ok = False
+                    for s_i in range(conn.Children.Count):
+                        try:
+                            s_cand = conn.Children(s_i)
+                            if hasattr(s_cand, "CreateSession"):
+                                s_cand.CreateSession()
+                                spawn_ok = True
+                                break
+                        except Exception:
+                            continue
+
+                    if spawn_ok:
+                        for _ in range(12):
+                            time.sleep(0.5)
+                            if conn.Children.Count > orig_count:
+                                selected_session = conn.Children(conn.Children.Count - 1)
+                                print(f"[SAP MULTI-SESSION] Đã mở thành công Tab mới độc lập (Session index {conn.Children.Count - 1})! Tránh 100% xung đột với tool khác.")
+                                break
+                except Exception as e:
+                    print(f"[SAP WARN] Thử tự động CreateSession thất bại: {e}")
+
+        # Ưu tiên 3: Quét lại các session nằm trong danh sách bot_safe_tcodes và Busy=False
         if selected_session is None:
-            c_idx = min(self.connection_index, app.Children.Count - 1)
+            for c_i in range(app.Children.Count):
+                c = app.Children(c_i)
+                for s_i in range(c.Children.Count):
+                    sess = c.Children(s_i)
+                    try:
+                        is_busy = bool(getattr(sess, "Busy", False))
+                        if is_busy:
+                            continue
+                        info = getattr(sess, "Info", None)
+                        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                        if tcode in bot_safe_tcodes:
+                            selected_session = sess
+                            print(f"[SAP] Đã gắn kết nối an toàn: Connection {c_i}, Session {s_i} (T-Code: '{tcode or 'MAIN'}')")
+                            break
+                    except Exception:
+                        pass
+                if selected_session is not None:
+                    break
+
+        # Ưu tiên 4: Dùng phiên cấu hình mặc định hoặc từ chối can thiệp an toàn
+        if selected_session is None:
+            c_idx = min(self.connection_index, app.Children.Count - 1) if app.Children.Count > 0 else 0
             conn = app.Children(c_idx)
             if conn.Children.Count == 0:
                 raise RuntimeError("Chưa có Session nào đang mở trong SAP GUI.")
             s_idx = min(self.session_index, conn.Children.Count - 1)
             cand_sess = conn.Children(s_idx)
 
-            # Kiểm tra an toàn: không cướp phiên nếu người dùng đang thao tác
             cand_info = getattr(cand_sess, "Info", None)
             cand_tcode = str(getattr(cand_info, "Transaction", "")).strip().upper() if cand_info else ""
-            if self.strict_session_safety and cand_tcode and cand_tcode not in bot_safe_tcodes:
+            is_busy = False
+            try:
+                is_busy = bool(getattr(cand_sess, "Busy", False))
+            except Exception:
+                pass
+
+            if self.strict_session_safety and (is_busy or (cand_tcode and cand_tcode not in bot_safe_tcodes)):
                 raise RuntimeError(
-                    f"Tất cả các phiên SAP đều đang bận thao tác của người dùng (Session {s_idx} đang ở T-Code '{cand_tcode}'). "
-                    f"Để bảo vệ dữ liệu, Bot từ chối can thiệp. Vui lòng mở thêm 1 phiên mới ở màn hình chính (SESSION_MANAGER)."
+                    f"Tất cả các phiên SAP đều đang bận thao tác của người dùng hoặc chạy tool khác (Session {s_idx} đang ở T-Code '{cand_tcode}', Busy={is_busy}). "
+                    f"Để bảo vệ dữ liệu và tránh xung đột giữa 2 tool, Bot từ chối can thiệp. "
+                    f"Vui lòng đóng bớt 1 tab hoặc mở thêm 1 phiên mới ở màn hình chính (SESSION_MANAGER)."
                 )
 
             selected_session = cand_sess

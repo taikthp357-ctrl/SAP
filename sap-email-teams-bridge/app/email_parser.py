@@ -50,6 +50,11 @@ class SmartCommandParser:
         "CHECK_NVL_MIGO": [
             (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
         ],
+        "ATT_MIGO": [
+            (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 28),
+            (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 22),
+            (r"\b(?:att\s*vat\s*bbbg|att\s*bbbg\s*vat)\b", 30),
+        ],
         "CHECK_PO": [
             (r"\b(?:check\s*po|kiem\s*tra\s*po|tinh\s*trang\s*po|po\s*status|don\s*dat\s*hang|po\s*con\s*no|po\s*da\s*giao)\b", 20),
             (r"\b(?:po\s*45\d{8}|po\s*55\d{8}|me2n\s*po)\b", 22),
@@ -205,6 +210,7 @@ class SmartCommandParser:
             "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
             "CHECK_FG_OB", "DIEN_OB",
             "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
+            "ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO",
             "HELP"
         }
 
@@ -366,6 +372,8 @@ class SmartCommandParser:
                     "expectedQty": expected_q,
                     "refNo": str(json_obj.get("refNo", "") or json_obj.get("ref", "") or json_obj.get("bill", "")).strip(),
                     "materialDocument": str(json_obj.get("materialDocument", "") or json_obj.get("docNo", "")).strip(),
+                    "folderPath": str(json_obj.get("folderPath", "") or json_obj.get("folder", "")).strip(),
+                    "attachmentDocs": json_obj.get("attachmentDocs", []) or json_obj.get("docs", [])
                 }
 
             if raw_text:
@@ -487,6 +495,14 @@ class SmartCommandParser:
         if doc_m:
             mat_doc = doc_m.group(1).strip()
 
+        # Bóc tách đường dẫn thư mục và danh sách chứng từ đính kèm (nếu có lệnh ATT_MIGO)
+        folder_path = ""
+        folder_m = re.search(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", command_text)
+        if folder_m:
+            folder_path = folder_m.group(0).strip()
+
+        att_docs = re.findall(r"\b500\d{7}\b", command_text)
+
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         plant = default_plant
         plant_m = re.search(r"\b(?:plant|nha\s*may|werks)\s*[:=]?\s*(\d{4})\b", norm_text)
@@ -568,6 +584,7 @@ class SmartCommandParser:
                 or (best_intent == "TIM_IB" and (po_no or ref_no))
                 or (best_intent == "CHECK_PO" and po_no)
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
+                or (best_intent == "ATT_MIGO")
             )
         ) or (best_score == 0 and bool(bin_val))
 
@@ -608,7 +625,9 @@ class SmartCommandParser:
             "poItem": po_item,
             "expectedQty": expected_qty,
             "refNo": ref_no,
-            "materialDocument": mat_doc
+            "materialDocument": mat_doc,
+            "folderPath": folder_path,
+            "attachmentDocs": att_docs
         })
         return meta
 
