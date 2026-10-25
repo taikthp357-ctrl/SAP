@@ -69,10 +69,10 @@ def test_parse_sap_float_explicit_formats():
 
 def test_format_qty_display():
     """Kiểm tra định dạng chuỗi hiển thị số lượng."""
-    assert format_qty_display(1000) == "1,000"
-    assert format_qty_display("1,000") == "1,000"
-    assert format_qty_display(1000.5) == "1,000.5"
-    assert format_qty_display("1000.500") == "1,000.5"
+    assert format_qty_display(1000) == "1000"
+    assert format_qty_display("1,000") == "1000"
+    assert format_qty_display(1000.5) == "1000.5"
+    assert format_qty_display("1000.500") == "1000.5"
     assert format_qty_display(0) == "0"
     assert format_qty_display("0.000") == "0"
 

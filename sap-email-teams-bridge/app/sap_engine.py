@@ -614,23 +614,18 @@ class SapEngine:
             except Exception:
                 pass
 
-            # 2. Dòng dữ liệu hợp lệ trong SAP ALV:
-            # Phải có ít nhất một trường định danh chứng từ hoặc vị trí:
+            # 2. DÒNG DỮ LIỆU HỢP LỆ TRONG SAP ALV (ÁP DỤNG CHUNG CHO TẤT CẢ CÁC T-CODE):
+            # Một dòng dữ liệu chi tiết bắt buộc phải có ít nhất một trường định danh cụ thể:
+            # (Kho SLoc, Vị trí Bin, Lô Batch, Số chứng từ, Số Inbound, Số Outbound, Số STO/PO, Dòng Item, Loại GD)
             has_pos_or_doc = bool(
-                item.get("obNo") or item.get("docNo") or item.get("stoNo") or
-                item.get("ibNo") or item.get("wtNo") or item.get("item") or
-                item.get("batch") or item.get("bin") or item.get("sloc") or
-                item.get("refNo") or item.get("mvtType")
+                item.get("sloc") or item.get("bin") or item.get("batch") or
+                item.get("docNo") or item.get("obNo") or item.get("ibNo") or
+                item.get("stoNo") or item.get("poNo") or item.get("wtNo") or
+                item.get("item") or item.get("mvtType") or item.get("refNo") or
+                (item.get("transit") and str(item.get("transit")).strip() not in ("", "0", "0.0", "0,0"))
             )
-            # Nếu mã hàng do forward-fill từ dòng trước mà dòng hiện tại không có bin/batch/sloc/doc -> 100% dòng tổng phụ
-            if is_forward_filled and not has_pos_or_doc:
-                continue
-
-            has_identifying_data = has_pos_or_doc or bool(
-                item.get("unrest") or item.get("transit") or
-                (item.get("product") and (item.get("qty") or item.get("unrest") or item.get("transit")))
-            )
-            if not has_identifying_data:
+            # Bỏ qua hoàn toàn dòng tổng cộng / subtotal của ALV (dòng không có bất kỳ thông tin vị trí/chứng từ nào)
+            if not has_pos_or_doc:
                 continue
 
             records.append(item)
@@ -943,10 +938,11 @@ class SapEngine:
                 item["plant"] = last_plant
 
             has_data = bool(
-                item.get("obNo") or item.get("docNo") or item.get("stoNo") or
-                item.get("batch") or item.get("sloc") or item.get("bin") or
-                item.get("unrest") or item.get("transit") or item.get("qty") or
-                (item.get("product") and (item.get("sloc") or item.get("batch") or item.get("unrest")))
+                item.get("sloc") or item.get("bin") or item.get("batch") or
+                item.get("docNo") or item.get("obNo") or item.get("ibNo") or
+                item.get("stoNo") or item.get("poNo") or item.get("wtNo") or
+                item.get("item") or item.get("mvtType") or item.get("refNo") or
+                (item.get("transit") and str(item.get("transit")).strip() not in ("", "0", "0.0", "0,0"))
             )
             if not has_data:
                 continue
@@ -1390,15 +1386,27 @@ class SapEngine:
                 records = self._extract_alv_grid(alv_grid, col_map, max_rows=max_rows)
                 print(f"[SAP MB52] Đã trích xuất {len(records)} dòng qua COM ALV Grid.")
 
+            # LỌC BỎ TRIỆT ĐỂ DÒNG TỔNG CỘNG TRONG MB52: Bắt buộc phải có Kho (Sloc)
+            records = [r for r in records if str(r.get("sloc", "")).strip()]
+
             if slocs:
                 clean_slocs_set = {s.strip().upper() for s in slocs if s.strip()}
                 records = [r for r in records if str(r.get("sloc", "")).strip().upper() in clean_slocs_set]
                 print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs_set}: còn {len(records)} dòng.")
 
-            def _mb52_sort_key(item):
-                return (parse_sap_float(item.get("unrest", 0.0)), item.get("batch", ""))
+            # Chuẩn hóa định dạng số lượng tồn cho tất cả các dòng
+            for r in records:
+                u_f = parse_sap_float(r.get("unrest", 0.0))
+                r["unrest"] = format_qty_display(u_f)
 
-            records.sort(key=_mb52_sort_key, reverse=True)
+            # SẮP XẾP GOM THEO KHO (SLOC): Các dòng cùng kho đứng cạnh nhau, trong cùng kho thì lượng tồn lớn lên trước
+            def _mb52_sort_key(item):
+                sloc_val = str(item.get("sloc", "")).strip().upper()
+                unrest_f = parse_sap_float(item.get("unrest", 0.0))
+                batch_val = str(item.get("batch", "")).strip().upper()
+                return (sloc_val, -unrest_f, batch_val)
+
+            records.sort(key=_mb52_sort_key)
             return records
         finally:
             self._reset_to_session_manager()

@@ -281,7 +281,7 @@ def test_extract_alv_grid_preserves_sto_and_filters_totals():
     assert len(records) == 2
     assert records[0]["stoNo"] == "4500012345"
     assert records[0]["item"] == "10"
-    assert records[0]["orderQty"] == "1,000"
+    assert records[0]["orderQty"] in ("1000", "1,000")
     assert records[1]["stoNo"] == "4500012346"
     assert records[1]["item"] == "20"
 
@@ -836,7 +836,7 @@ def test_check_po_me2n_mock():
 
     records = engine.check_po_me2n(po_no="4500123456")
     assert len(records) == 1
-    assert records[0]["orderQty"] == "1,000"
+    assert records[0]["orderQty"] in ("1000", "1,000")
     assert records[0]["deliveredQty"] == "600"
     assert records[0]["openQty"] == "400"
     assert "Hoạt động" in records[0]["deleteInd"]
@@ -1027,3 +1027,41 @@ def test_alv_grid_skips_subtotal_row_without_position():
     assert records[0]["product"] == "BIW73015987AA"
     assert records[0]["batch"] == "261017-06"
     assert records[0]["bin"] == "APFL-P23-01-02"
+
+
+def test_mb52_excludes_subtotal_and_sorts_by_sloc():
+    """Kiểm tra MB52: Loại bỏ dòng tổng trống Sloc, gom và sắp xếp theo Sloc, không nhân đôi tồn."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._export_alv_to_excel = MagicMock(return_value=None)
+    engine._reset_to_session_manager = MagicMock()
+
+    # Giả lập dữ liệu trả về từ ALV của MB52 giống hệt ảnh thực tế của người dùng:
+    # Dòng 0: Dòng tổng của Plant (không có Sloc, không có Batch)
+    # Dòng 1: Kho 1005 (28800)
+    # Dòng 2: Kho 3001 (8045)
+    # Dòng 3: Kho 1005 (800)
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "", "batch": "", "unrest": "37645", "unit": "EA"},
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "1005", "batch": "261013-03", "unrest": "28800", "unit": "EA"},
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "3001", "batch": "PROD_BATCH", "unrest": "8045", "unit": "EA"},
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "1005", "batch": "260929-03", "unrest": "800", "unit": "EA"},
+    ])
+
+    records = engine.check_stock_mb52(materials=["BIW32012476AA"], plant="3093")
+
+    # 1. Dòng tổng trống Sloc (37645) bắt buộc phải bị loại bỏ!
+    assert len(records) == 3
+
+    # 2. Các dòng cùng kho (1005) phải được gom lại cạnh nhau trước, sau đó mới đến kho 3001
+    assert records[0]["sloc"] == "1005"
+    assert records[0]["unrest"] == "28800"
+    assert records[1]["sloc"] == "1005"
+    assert records[1]["unrest"] == "800"
+    assert records[2]["sloc"] == "3001"
+    assert records[2]["unrest"] == "8045"

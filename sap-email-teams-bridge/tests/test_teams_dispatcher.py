@@ -151,8 +151,8 @@ def test_kpi_badges_sto_thousand_comma_formatting():
         {"stoNo": "360002", "product": "BIW100", "orderQty": "500", "deliveredQty": "300", "remainingQty": "200", "unit": "PC"}
     ]
     badges = TeamsDispatcher.build_kpi_badges(records, "STO")
-    assert "1,500 PC" in badges
-    assert "1,000 PC" in badges
+    assert "1500 PC" in badges
+    assert "1000 PC" in badges
 
 
 def test_extreme_payload_reduction_under_26kb():
@@ -346,6 +346,6 @@ def test_teams_dispatcher_vitri_kpi_badges_total_avail_held():
         "unit": "EA"
     }]
     badges_html = TeamsDispatcher.build_kpi_badges(records, "VITRI")
-    assert "Tổng tồn: 1,019 EA" in badges_html
+    assert "Tổng tồn: 1019 EA" in badges_html
     assert "Khả dụng: 619 EA" in badges_html
     # removed held badge

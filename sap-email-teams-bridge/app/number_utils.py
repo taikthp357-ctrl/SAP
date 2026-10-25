@@ -113,11 +113,11 @@ def parse_sap_float(val: Any, default: float = 0.0, fmt: Optional[str] = None) -
 
 
 def format_qty_display(val: Union[int, float, str]) -> str:
-    """Định dạng số lượng hiển thị đẹp mắt và nhất quán (ví dụ 1000 -> 1,000)."""
+    """Định dạng số lượng hiển thị đẹp mắt và nhất quán (bỏ dấu . hoặc , phân cách hàng nghìn để thể hiện rõ ràng, tránh nhầm lẫn)."""
     f_val = parse_sap_float(val)
     if f_val.is_integer():
-        return f"{int(f_val):,}"
-    return f"{f_val:,.3f}".rstrip("0").rstrip(".")
+        return str(int(round(f_val)))
+    return f"{f_val:.3f}".rstrip("0").rstrip(".")
 
 
 def parse_sap_datetime_sort_key(d_raw: Any, t_raw: Any) -> tuple[str, str]:
