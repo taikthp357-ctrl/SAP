@@ -82,8 +82,8 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
             if doc in seen_docs:
                 continue
             seen_docs.add(doc)
-            # Lấy phần còn lại làm số phiếu (bỏ số doc, dấu : hoặc -, và các tiền tố lệnh)
-            rem = line_s.replace(doc, "").strip(" :-\t,")
+            # Lấy phần nằm ngay sau số doc làm số phiếu (bảo đảm không bị dính đường dẫn thư mục hay tiền tố lệnh)
+            rem = line_s[doc_m.end():].strip(" :-\t,")
             clean_ticket = rem
             for _ in range(4):
                 clean_ticket = re.sub(
@@ -107,6 +107,10 @@ class MigoAttachmentRunner:
         """Quét và lập chỉ mục toàn bộ file PDF/Ảnh/Email (.msg/.eml) trong thư mục nguồn vào RAM (O(1))."""
         folder = Path(folder_path)
         if not folder.exists() or not folder.is_dir():
+            if str(folder_path).startswith("\\\\"):
+                raise FileNotFoundError(
+                    f"Thư mục chia sẻ mạng UNC '{folder_path}' không tồn tại hoặc máy trạm chưa kết nối mạng nội bộ/VPN (chưa xác thực quyền truy cập Windows)."
+                )
             raise FileNotFoundError(f"Thư mục nguồn không tồn tại hoặc không thể truy cập: {folder_path}")
 
         files_indexed: List[Dict[str, Any]] = []

@@ -502,6 +502,10 @@ class SmartCommandParser:
         folder_m = re.search(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", command_text)
         if folder_m:
             folder_path = folder_m.group(0).strip()
+            # Cắt ngắn nếu đường dẫn bị dính kèm số chứng từ (10 số) ở cùng dòng
+            doc_boundary = re.search(r"[\s\t]+(?=(?:49\d{8}|500\d{7}|\d{10})\b)", folder_path)
+            if doc_boundary:
+                folder_path = folder_path[:doc_boundary.start()].strip()
 
         att_items = []
         try:
@@ -536,7 +540,7 @@ class SmartCommandParser:
             limit_val = 100
 
         batch = ""
-        batch_m = re.search(r"\b(?:batch|so\s*lo|lo|charg)\s*[:=]?\s*([a-z0-9_-]{3,15})\b", norm_text)
+        batch_m = re.search(r"\b(?:batch|so\s*lo|\blo\b|charg)\s*[:=]?\s*([a-z0-9_-]{3,15})\b", norm_text)
         if batch_m:
             cand = batch_m.group(1).upper()
             if cand not in cls.STOP_WORDS:
