@@ -348,4 +348,4 @@ def test_teams_dispatcher_vitri_kpi_badges_total_avail_held():
     badges_html = TeamsDispatcher.build_kpi_badges(records, "VITRI")
     assert "Tổng tồn: 1,019 EA" in badges_html
     assert "Khả dụng: 619 EA" in badges_html
-    assert "Bị OB giữ: 400 EA" in badges_html
+    # removed held badge

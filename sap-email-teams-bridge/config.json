@@ -5,7 +5,7 @@
   "default_plant": "3093",
   "max_alv_rows": 500,
   "keep_alive_idle_seconds": 900,
-  "sap_number_format": "AUTO",
+  "sap_number_format": "EU",
   "strict_session_safety": true,
   "max_webhook_retries": 3,
   "allowed_senders": [],

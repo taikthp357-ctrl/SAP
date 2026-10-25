@@ -100,10 +100,10 @@ def parse_sap_float(val: Any, default: float = 0.0, fmt: Optional[str] = None) -
                 s = s.replace(".", "")
             elif len(parts) == 2:
                 p1, p2 = parts[0], parts[1]
-                # Nếu chuỗi dạng '1.000' và số lượng nguyên trong SAP (p2 == '000' và p1 nguyên > 0)
-                # trong chế độ AUTO, nếu p1 > 0 và p2 == '000', ta giữ nguyên số chấm float(1.000)
-                # trừ khi được chỉ định rõ qua cấu hình US hoặc EU.
-                pass
+                # Nếu chuỗi dạng '2.050', '2.800', '1.019', '17.250', '16.500' (p2 có 3 chữ số và khác '000')
+                # Trong hệ thống SAP EWM/ECC sản xuất (đơn vị EA/PC), đây là dấu phân cách hàng nghìn!
+                if len(p1) <= 3 and len(p2) == 3 and p2.isdigit() and p1.isdigit() and p2 != "000":
+                    s = s.replace(".", "")
 
     try:
         res = float(s)

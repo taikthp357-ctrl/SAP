@@ -109,3 +109,23 @@ def test_parse_sap_datetime_sort_key_comprehensive():
     assert sample[0]["batch"] == "B1"          # Cũ nhất -> FIFO #1
     assert sample[1]["batch"] == "B2"          # Nhập sau -> FIFO #2
     assert sample[2]["batch"] == "B_NO_DATE"   # Không có ngày -> Xếp cuối cùng
+
+
+def test_parse_sap_float_user_production_cases():
+    """Kiểm tra các trường hợp thực tế tại xưởng: 14.000, 2.800, 2.050, 450, 16.500, 17.250."""
+    # 1. Với cấu hình EU (dấu chấm hàng nghìn)
+    assert parse_sap_float("14.000", fmt="EU") == 14000.0
+    assert parse_sap_float("2.050", fmt="EU") == 2050.0
+    assert parse_sap_float("2.800", fmt="EU") == 2800.0
+    assert parse_sap_float("450", fmt="EU") == 450.0
+    assert parse_sap_float("16.500", fmt="EU") == 16500.0
+    assert parse_sap_float("17.250", fmt="EU") == 17250.0
+    assert parse_sap_float("1.019", fmt="EU") == 1019.0
+
+    # 2. Với cấu hình AUTO thông minh
+    assert parse_sap_float("2.050") == 2050.0
+    assert parse_sap_float("2.800") == 2800.0
+    assert parse_sap_float("1.019") == 1019.0
+    assert parse_sap_float("17.250") == 17250.0
+    assert parse_sap_float("16.500") == 16500.0
+    assert parse_sap_float("450") == 450.0

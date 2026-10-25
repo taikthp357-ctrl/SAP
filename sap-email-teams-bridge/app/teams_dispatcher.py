@@ -204,11 +204,6 @@ class TeamsDispatcher:
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
                     f"⚡ Khả dụng: {format_qty_display(tot_avail)} {unit}</span>"
                 )
-                if tot_held > 0:
-                    badges.append(
-                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
-                        f"🔒 Bị OB giữ: {format_qty_display(tot_held)} {unit}</span>"
-                    )
 
             elif any(k in cmd_upper for k in ["TON", "MB52"]):
                 batches = {r.get("batch") for r in records if r.get("batch")}

@@ -329,34 +329,12 @@ def run_bridge():
                         continue
 
                     if not meta or not meta.get("valid"):
-                        if meta and meta.get("needHelpReply") and meta.get("messageId"):
-                            print(f"[COACHING] {req_id} | Người dùng cần hướng dẫn -> Gửi trợ giúp lên Teams...")
-                            help_html = TeamsDispatcher.build_help_html(meta.get("senderName", "Đồng nghiệp"))
-                            payload, data = TeamsDispatcher.prepare_safe_payload(
-                                req_id,
-                                meta,
-                                "INFO",
-                                "Trợ lý SAP: Hướng dẫn tra cứu cú pháp nhanh trên Teams",
-                                [],
-                                {},
-                                custom_html=help_html
-                            )
-                            state_mgr.enqueue_outbox(req_id, webhook_url, payload)
-                            if TeamsDispatcher.send_raw_payload(webhook_url, payload):
-                                state_mgr.record_outbox_success(req_id)
-                            else:
-                                state_mgr.record_outbox_failure(req_id, "Gửi trợ giúp lần đầu thất bại", max_attempts=max_retries)
-
-                            state_mgr.mark_message_processed(msg_id, entry_id, req_id, "HELP", "COACHING")
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_processed(mail, bot_folder)
-                        else:
-                            reason = meta.get("reason", "Không rõ") if meta else "Thư rỗng hoặc không liên quan"
-                            print(f"[SKIP] {req_id} | Bỏ qua thư không hợp lệ: {reason}")
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_failed(mail, bot_folder)
+                        reason = meta.get("reason", "Không rõ") if meta else "Thư rỗng hoặc không liên quan"
+                        print(f"[SKIP] {req_id} | Bỏ qua yêu cầu không có mã hợp lệ: {reason}. Không gửi trợ giúp lên Teams.")
+                        state_mgr.mark_message_processed(msg_id, entry_id, req_id, "SKIP", "INVALID_INPUT")
+                        mail.UnRead = False
+                        mail.Save()
+                        move_mail_to_processed(mail, bot_folder)
                         continue
 
                     cmd = meta["command"]
@@ -418,7 +396,7 @@ def run_bridge():
                             records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
                             headers = {
                                 "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                                "totalQty": "Tổng SL", "availQty": "Khả dụng", "heldQty": "Bị OB giữ",
+                                "totalQty": "Tổng tồn", "availQty": "Khả dụng",
                                 "unit": "ĐVT", "grDate": "Ngày GR", "grTime": "Giờ GR",
                                 "cat": "Trạng thái"
                             }
