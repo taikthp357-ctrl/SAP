@@ -443,7 +443,42 @@ def test_parse_attachment_large_list_111_rows():
     assert items[-1]["ticket_no"] == "Thành Công in 3874"
 
 
+def test_parse_attachment_power_automate_wrapped_text():
+    """Kiểm tra xử lý văn bản bị ngắt dòng bởi Power Automate / Outlook ở cột 80 ký tự không bị cắt cụt số phiếu."""
+    wrapped_text = """RAW_TEXT: SAP att mail  5007136566 thành đạt in - 6461 5007136565 thành đạt in - 6461
+5007136564 thành
+đạt in - 6461 5007136563 thành đạt in - 6461 5007136619 thành đạt in - 6461
+5007136634 thành đạt in - 6461 5007136633 thành đạt in - 6461 5007136632 thành
+đạt in - 6461 5007136621 thành đạt in - 6461 5007136612 thành đạt in - 6461
+5007136630 thành đạt in - 6461 5007136620 thành đạt in - 6461 5007136631 thành
+đạt in - 6461 5007136589 thành đạt in - 6461 5007136599 thành đạt in - 6461
+5007133359 Thành Đạt in - 6449 5007133223 Thành Đạt in - 6449 5007133301 Thành
+Đạt in - 6449 5007133292 Thành Đạt in - 6449 5007133293 Thành Đạt in -
+6449 5007133257 Thành Đạt in - 6449"""
+    items = parse_attachment_items_from_text(wrapped_text)
+    item_map = {it["doc"]: it["ticket_no"] for it in items}
+
+    # Các chứng từ từng bị cắt thành 'thành' do ngắt dòng nay phải được ghép hoàn chỉnh
+    assert item_map["5007136564"] == "thành đạt in - 6461"
+    assert item_map["5007136632"] == "thành đạt in - 6461"
+    assert item_map["5007136631"] == "thành đạt in - 6461"
+    assert item_map["5007133301"] == "Thành Đạt in - 6449"
+    assert item_map["5007133293"] == "Thành Đạt in - 6449"
+    assert item_map["5007133257"] == "Thành Đạt in - 6449"
+
+
+def test_parse_attachment_last_item_with_signature():
+    """Kiểm tra chứng từ cuối cùng có chữ ký email phía sau thì không lấy nhầm chữ ký vào số phiếu."""
+    text = """5006458947 Thành Công in 3874
+Người yêu cầu: Phạm Tiến Tài (FVN-KSX-NMVFHP)"""
+    items = parse_attachment_items_from_text(text)
+    assert len(items) == 1
+    assert items[0]["doc"] == "5006458947"
+    assert items[0]["ticket_no"] == "Thành Công in 3874"
+
+
 def test_check_existing_sap_attachments():
+
     """Kiểm tra đối chiếu các file đính kèm đã có trên SAP MIGO với số phiếu."""
     titles = [
         "3874 BB",

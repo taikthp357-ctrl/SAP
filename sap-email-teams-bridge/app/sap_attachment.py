@@ -167,12 +167,17 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
             raw_cand = clean_text[start_pos:doc_matches[idx + 1].start()]
         else:
             raw_cand = clean_text[start_pos:]
+            # Nếu là phần tử cuối cùng, loại bỏ phần chữ ký / footer email nếu có
+            sig_match = re.search(
+                r"(?i)\n\s*(?:người yêu cầu|người gửi|trân trọng|thân ái|regards|best regards|thanks|sent from|sender_|from:|to:|subject:|date:|\-{3,}|\_{3,})",
+                raw_cand
+            )
+            if sig_match:
+                raw_cand = raw_cand[:sig_match.start()]
 
-        # Nếu có dấu xuống dòng trong candidate, số phiếu chỉ lấy trên dòng hiện tại
-        if "\n" in raw_cand:
-            raw_cand = raw_cand.split("\n")[0]
-
-        clean_ticket = raw_cand.strip(" :-\t,|\\/")
+        # Outlook / Power Automate thường tự động ngắt dòng ở cột 76-80 ký tự (hard wrap)
+        # Nối tất cả các dòng bị ngắt giữa doc[i] và doc[i+1] thành một chuỗi liên tục
+        clean_ticket = " ".join(raw_cand.split()).strip(" :-\t,|\\/")
         for _ in range(4):
             clean_ticket = re.sub(
                 r"^(?:SAP|BOT|LENH|LỆNH|ĐIỀN\s*SỐ\s*PHIẾU|DIEN\s*SO\s*PHIEU|ĐIỀN\s*PHIẾU|DIEN\s*PHIEU|SỐ\s*PHIẾU|SO\s*PHIEU|PHIẾU|PHIEU|HEADTEXT|BKTXT|ATTACH|ATT|MAIL|EMAIL)\s*[:=]?\s*",
