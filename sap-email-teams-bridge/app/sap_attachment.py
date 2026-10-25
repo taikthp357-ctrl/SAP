@@ -46,6 +46,45 @@ def clean_folder_path(raw_path: str) -> str:
     return p
 
 
+def extract_folder_path_multiline(text: str) -> str:
+    """Bóc tách đường dẫn thư mục UNC hoặc Local Drive, tự động ghép các dòng bị ngắt bởi Outlook/Teams."""
+    if not text:
+        return ""
+    m = re.search(r"(?:\\\\|[A-Za-z]:\\)", text)
+    if not m:
+        return ""
+    start_pos = m.start()
+    remaining = text[start_pos:]
+    lines = remaining.splitlines()
+    segments = []
+    for line in lines:
+        l = line.strip(" \t\r\n\"\'<>|")
+        if not l:
+            break
+        # Dừng nếu dòng bắt đầu bằng 10 chữ số chứng từ (bước sang danh sách)
+        if re.match(r"^(?:49\d{8}|500\d{7}|\d{10})\b", l):
+            break
+        # Cắt nếu trên cùng dòng có số chứng từ ở phía sau
+        doc_b = re.search(r"[\s\t]+(?=(?:49\d{8}|500\d{7}|\d{10})\b)", l)
+        if doc_b:
+            segments.append(l[:doc_b.start()].strip(" \t\r\n\"\'<>|"))
+            break
+        segments.append(l)
+        if len(segments) >= 15:
+            break
+
+    if not segments:
+        return ""
+
+    full = segments[0]
+    for seg in segments[1:]:
+        if seg.startswith("\\") or full.endswith("\\"):
+            full = full.rstrip("\\") + "\\" + seg.lstrip("\\")
+        else:
+            full = full + " " + seg
+    return full
+
+
 def normalize_text(text: str) -> str:
     """Chuẩn hóa chuỗi văn bản: bỏ dấu tiếng Việt, chuyển chữ thường, loại bỏ ký tự lạ."""
     if not text:
@@ -133,14 +172,14 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
         if "\n" in raw_cand:
             raw_cand = raw_cand.split("\n")[0]
 
-        clean_ticket = raw_cand.strip(" :-\t,|")
+        clean_ticket = raw_cand.strip(" :-\t,|\\/")
         for _ in range(4):
             clean_ticket = re.sub(
                 r"^(?:SAP|BOT|LENH|LỆNH|ĐIỀN\s*SỐ\s*PHIẾU|DIEN\s*SO\s*PHIEU|ĐIỀN\s*PHIẾU|DIEN\s*PHIEU|SỐ\s*PHIẾU|SO\s*PHIEU|PHIẾU|PHIEU|HEADTEXT|BKTXT|ATTACH|ATT|MAIL|EMAIL)\s*[:=]?\s*",
                 "",
                 clean_ticket,
                 flags=re.I
-            ).strip(" :-\t,|")
+            ).strip(" :-\t,|\\/")
 
         items.append({"doc": doc, "ticket_no": clean_ticket})
 

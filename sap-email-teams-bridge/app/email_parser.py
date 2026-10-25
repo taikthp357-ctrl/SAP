@@ -506,27 +506,15 @@ class SmartCommandParser:
             mat_doc = doc_m.group(1).strip()
 
         # Bóc tách đường dẫn thư mục và danh sách chứng từ đính kèm (nếu có lệnh ATT_MIGO)
+        from app.sap_attachment import clean_folder_path, extract_folder_path_multiline, DEFAULT_MIGO_ATT_FOLDER
+        raw_folder = extract_folder_path_multiline(command_text)
         folder_path = ""
-        folder_m = re.search(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", command_text)
-        if folder_m:
-            raw_folder = folder_m.group(0).strip()
-            # Cắt ngắn nếu đường dẫn bị dính kèm số chứng từ (10 số) ở cùng dòng
-            doc_boundary = re.search(r"[\s\t]+(?=(?:49\d{8}|500\d{7}|\d{10})\b)", raw_folder)
-            if doc_boundary:
-                raw_folder = raw_folder[:doc_boundary.start()].strip()
-            try:
-                from app.sap_attachment import clean_folder_path
-                folder_path = clean_folder_path(raw_folder)
-            except Exception:
-                folder_path = raw_folder
+        if raw_folder:
+            folder_path = clean_folder_path(raw_folder)
         elif re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail|att)\b", norm_text):
             # Nếu người dùng gửi lệnh đính kèm 'SAP att mail' mà không dán link dài:
             # Tự động lấy thư mục mặc định từ ô B3 của file 261002_MIGO_ATT_V3_4_3.xlsm
-            try:
-                from app.sap_attachment import DEFAULT_MIGO_ATT_FOLDER
-                folder_path = DEFAULT_MIGO_ATT_FOLDER
-            except Exception:
-                folder_path = ""
+            folder_path = DEFAULT_MIGO_ATT_FOLDER
 
         att_items = []
         try:
