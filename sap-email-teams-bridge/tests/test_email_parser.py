@@ -532,3 +532,17 @@ def test_parse_check_nvl_migo_natural_and_json():
     res_j2 = EmailCommandParser.parse(json_cmd2)
     assert res_j2["valid"] is True
     assert res_j2["command"] == "CHECK_NVL_MIGO"
+
+
+def test_loop_guard_detects_and_drops_bot_echo():
+    """Kiểm tra Loop Guard: Phát hiện và drop ngay lập tức các tin nhắn phản hồi của Bot."""
+    bot_reply_body = (
+        "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇\n"
+        "Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: BIW73015987AA\n"
+        "Mã tham chiếu: SAP-072101-01"
+    )
+    res = EmailCommandParser.parse(bot_reply_body)
+    assert res is not None
+    assert res.get("valid") is False
+    assert res.get("isBotEcho") is True
+    assert res.get("command") == "LOOP_GUARD"

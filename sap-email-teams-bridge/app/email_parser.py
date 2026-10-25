@@ -144,6 +144,32 @@ class SmartCommandParser:
             if not cleaned and not subject:
                 return None
 
+        # LOOP GUARD: Phát hiện và chặn đứng tin nhắn vòng lặp từ Bot tự phản hồi
+        bot_echo_markers = [
+            "sếp ơi, em tra được rồi",
+            "sep oi, em tra duoc roi",
+            "kết quả của sếp đây",
+            "ket qua cua sep day",
+            "vị trí lưu kho & giờ gr",
+            "vi tri luu kho & gio gr",
+            "mã tham chiếu:",
+            "ma tham chieu:",
+            "trợ lý sap:",
+            "tro ly sap:",
+            "kết quả tra cứu",
+            "ket qua tra cuu"
+        ]
+        norm_check = cls.remove_accents(str(cleaned or "") + " " + str(subject or "")).lower()
+        if any(m in norm_check for m in bot_echo_markers):
+            return {
+                "valid": False,
+                "isBotEcho": True,
+                "command": "LOOP_GUARD",
+                "detectedIntent": "BOT_ECHO",
+                "messageId": "",
+                "reason": "Phát hiện tin nhắn phản hồi của Bot (Loop Guard). Bỏ qua để chống vòng lặp vô hạn."
+            }
+
         # 1. Hỗ trợ bóc tách JSON trực tiếp từ email (cả dạng thuần JSON lẫn có marker)
         marker_m = re.search(r"SAP_REQUEST_BEGIN\s*(\{.*?\})\s*SAP_REQUEST_END", cleaned, re.DOTALL | re.IGNORECASE)
         if marker_m:

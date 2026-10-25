@@ -988,3 +988,42 @@ def test_check_fg_ob_both_fail_raises_sap_execution_error():
     with pytest.raises(SapExecutionError) as exc_info:
         engine.check_fg_ob_status(["BIW32013765AA"], plant="3093")
     assert "Lỗi truy vấn điều độ FG/OB" in str(exc_info.value)
+
+
+def test_alv_grid_skips_subtotal_row_without_position():
+    """Kiểm tra loại bỏ dòng tổng ALV (vàng) khi không có bin/batch."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.max_alv_rows = 500
+
+    class MockAlvWithSubtotal:
+        RowCount = 2
+        firstVisibleRow = 0
+        ColumnOrder = FakeColumnCollection(["PRODUCT", "CHARG", "LGPLA", "AQUAN", "GESME", "MEINS"])
+        def GetCellValue(self, row, col_id):
+            if row == 0:
+                # Dòng 0: Dữ liệu thật
+                mapping = {"PRODUCT": "BIW73015987AA", "CHARG": "261017-06", "LGPLA": "APFL-P23-01-02", "AQUAN": "619", "GESME": "1.019", "MEINS": "EA"}
+                return mapping.get(col_id, "")
+            else:
+                # Dòng 1: Dòng tổng cộng (subtotal) - Product trống, Batch trống, Bin trống
+                mapping = {"PRODUCT": "", "CHARG": "", "LGPLA": "", "AQUAN": "619", "GESME": "1.019", "MEINS": "EA"}
+                return mapping.get(col_id, "")
+        def GetColumnTitles(self):
+            return ["PRODUCT", "CHARG", "LGPLA", "AQUAN", "GESME", "MEINS"]
+        def GetRowType(self, row):
+            return "&TOTAL" if row == 1 else ""
+
+    col_map = {
+        "product": ["PRODUCT"],
+        "batch": ["CHARG"],
+        "bin": ["LGPLA"],
+        "availQty": ["AQUAN"],
+        "totalQty": ["GESME"],
+        "unit": ["MEINS"]
+    }
+    records = engine._extract_alv_grid(MockAlvWithSubtotal(), col_map)
+    # Phải chỉ trích xuất đúng 1 dòng dữ liệu thật, dòng tổng cộng bị bỏ qua
+    assert len(records) == 1
+    assert records[0]["product"] == "BIW73015987AA"
+    assert records[0]["batch"] == "261017-06"
+    assert records[0]["bin"] == "APFL-P23-01-02"

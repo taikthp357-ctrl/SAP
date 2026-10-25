@@ -593,10 +593,12 @@ class SapEngine:
 
             # Forward-fill Product nếu ô bị gộp hiển thị trống
             curr_prod = item.get("product", "")
+            is_forward_filled = False
             if curr_prod:
                 last_product = curr_prod
             elif last_product and "product" in item:
                 item["product"] = last_product
+                is_forward_filled = True
 
             # LỌC BỎ DÒNG TỔNG CỘNG / DÒNG RỖNG / TIÊU ĐỀ PHỤ:
             # 1. Bỏ qua các dòng tổng cộng / wildcard trong ALV:
@@ -604,15 +606,27 @@ class SapEngine:
             if p_val == "*" or p_val.lower().startswith("total") or p_val.lower().startswith("tổng"):
                 continue
 
+            # Bỏ qua dòng subtotal/total dựa trên GetRowType nếu ALV hỗ trợ
+            try:
+                row_type = str(alv_obj.GetRowType(r)).strip().upper()
+                if row_type and ("TOTAL" in row_type or row_type in ("1", "2")):
+                    continue
+            except Exception:
+                pass
+
             # 2. Dòng dữ liệu hợp lệ trong SAP ALV:
             # Phải có ít nhất một trường định danh chứng từ hoặc vị trí:
-            # (obNo, docNo, stoNo, ibNo, wtNo, item, batch, bin, sloc, refNo, mvtType)
-            # HOẶC có mã hàng (product) kèm số lượng (qty, unrest, transit) hợp lệ
-            has_identifying_data = bool(
+            has_pos_or_doc = bool(
                 item.get("obNo") or item.get("docNo") or item.get("stoNo") or
                 item.get("ibNo") or item.get("wtNo") or item.get("item") or
                 item.get("batch") or item.get("bin") or item.get("sloc") or
-                item.get("refNo") or item.get("mvtType") or
+                item.get("refNo") or item.get("mvtType")
+            )
+            # Nếu mã hàng do forward-fill từ dòng trước mà dòng hiện tại không có bin/batch/sloc/doc -> 100% dòng tổng phụ
+            if is_forward_filled and not has_pos_or_doc:
+                continue
+
+            has_identifying_data = has_pos_or_doc or bool(
                 item.get("unrest") or item.get("transit") or
                 (item.get("product") and (item.get("qty") or item.get("unrest") or item.get("transit")))
             )
@@ -1143,17 +1157,37 @@ class SapEngine:
 
             # 9. Trích xuất các cột với danh mục định danh tương thích tuyệt đối cả SAP ID và Caption
             col_map = {
-                "product": ["MATNR", "PRODUCT", "MATERIAL", "MATNR_EXT"],
-                "batch":   ["CHARG", "BATCH", "DEST.BATCH", "DEST BATCH"],
-                "bin":     ["LGPLA", "VLPLA", "NLPLA", "SOURCE STORAGE BIN", "SOURCE BIN", "STORAGE BIN", "BIN"],
-                "qty":     ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "QUAN", "TOTAL STK", "TOTAL STOCK", "GESME"],
-                "unit":    ["MEINS", "ALTME", "UNIT", "UOM"],
-                "cat":     ["CAT", "TST", "STOCK TYPE", "ST", "TO_CAT"],
-                "grDate":  ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
-                "grTime":  ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"]
+                "product":  ["MATNR", "PRODUCT", "MATERIAL", "MATNR_EXT"],
+                "batch":    ["CHARG", "BATCH", "DEST.BATCH", "DEST BATCH"],
+                "bin":      ["LGPLA", "VLPLA", "NLPLA", "SOURCE STORAGE BIN", "SOURCE BIN", "STORAGE BIN", "BIN"],
+                "totalQty": ["TOTAL STK", "TOTAL STOCK", "GESME", "TOTAL_STK"],
+                "availQty": ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY"],
+                "qty":      ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "TOTAL STK", "TOTAL STOCK", "GESME", "QUAN"],
+                "unit":     ["MEINS", "ALTME", "UNIT", "UOM"],
+                "cat":      ["CAT", "TST", "STOCK TYPE", "ST", "TO_CAT"],
+                "grDate":   ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
+                "grTime":   ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"]
             }
-            records = self._extract_alv_grid(alv_grid, col_map)
-            print(f"[SAP POST] Đã trích xuất {len(records)} dòng từ /SCWM/POST.")
+            raw_records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP POST] Đã trích xuất {len(raw_records)} dòng từ /SCWM/POST.")
+
+            # LỌC BỎ DÒNG TỔNG CỘNG ALV: Vị trí kho thực tế bắt buộc phải có Vị trí Bin hoặc Lô Batch
+            records = [r for r in raw_records if r.get("bin") or r.get("batch")]
+
+            # Chuẩn hóa hai cột số lượng: Tổng tồn (totalQty) và Khả dụng (availQty), tính SL bị OB giữ (heldQty)
+            for r in records:
+                t_val = parse_sap_float(r.get("totalQty", 0.0))
+                a_val = parse_sap_float(r.get("availQty", 0.0) or r.get("qty", 0.0))
+                if t_val == 0.0 and a_val > 0.0:
+                    t_val = a_val
+                if a_val == 0.0 and t_val > 0.0 and not r.get("availQty"):
+                    a_val = t_val
+                held_val = max(0.0, t_val - a_val)
+
+                r["totalQty"] = format_qty_display(t_val)
+                r["availQty"] = format_qty_display(a_val)
+                r["heldQty"] = format_qty_display(held_val)
+                r["qty"] = r["availQty"]
 
             # 10. SẮP XẾP ƯU TIÊN DỮ LIỆU GẦN NHẤT (Ngày GR & Giờ GR mới nhất lên đầu)
             def _gr_sort_key(item):

@@ -176,10 +176,14 @@ class TeamsDispatcher:
             elif any(k in cmd_upper for k in ["VITRI", "BIN", "POST"]):
                 bins = {r.get("bin") for r in records if r.get("bin")}
                 batches = {r.get("batch") for r in records if r.get("batch")}
-                total_qty = 0.0
+                tot_avail = 0.0
+                tot_stk = 0.0
+                tot_held = 0.0
                 unit = ""
                 for r in records:
-                    total_qty += parse_sap_float(r.get("qty"))
+                    tot_avail += parse_sap_float(r.get("availQty") or r.get("qty"))
+                    tot_stk += parse_sap_float(r.get("totalQty") or r.get("availQty") or r.get("qty"))
+                    tot_held += parse_sap_float(r.get("heldQty", 0.0))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
@@ -191,10 +195,19 @@ class TeamsDispatcher:
                     f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
                     f"🏷️ {len(batches)} Lô (Batch)</span>"
                 )
-                if total_qty > 0:
+                if tot_stk > 0:
                     badges.append(
-                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                        f"📦 Tổng: {format_qty_display(total_qty)} {unit}</span>"
+                        f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                        f"📦 Tổng tồn: {format_qty_display(tot_stk)} {unit}</span>"
+                    )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"⚡ Khả dụng: {format_qty_display(tot_avail)} {unit}</span>"
+                )
+                if tot_held > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"🔒 Bị OB giữ: {format_qty_display(tot_held)} {unit}</span>"
                     )
 
             elif any(k in cmd_upper for k in ["TON", "MB52"]):

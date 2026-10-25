@@ -331,3 +331,21 @@ def test_teams_dispatcher_nvl_qc_only_shows_zero_available():
     # Phải có badge báo chờ QC
     assert "1 Lô chờ QC" in pl["table_html"]
     assert "Không có tồn khả dụng (Chờ QC/Khóa)" in pl["table_html"]
+
+
+def test_teams_dispatcher_vitri_kpi_badges_total_avail_held():
+    """Kiểm tra hiển thị đầy đủ Tổng tồn, Khả dụng và Bị OB giữ trên thẻ Teams."""
+    records = [{
+        "product": "BIW73015987AA",
+        "batch": "261017-06",
+        "bin": "APFL-P23-01-02",
+        "totalQty": "1,019",
+        "availQty": "619",
+        "heldQty": "400",
+        "qty": "619",
+        "unit": "EA"
+    }]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "VITRI")
+    assert "Tổng tồn: 1,019 EA" in badges_html
+    assert "Khả dụng: 619 EA" in badges_html
+    assert "Bị OB giữ: 400 EA" in badges_html

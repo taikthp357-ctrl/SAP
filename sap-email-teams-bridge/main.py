@@ -258,10 +258,27 @@ def run_bridge():
                 pass
 
             mail_candidates = []
-            for item in list(folder_items):
+            # 1. Quét thư mục bot_folder (SAP_BOT)
+            try:
+                for item in list(folder_items):
+                    try:
+                        if getattr(item, "Class", 0) == 43 or hasattr(item, "Subject"):
+                            mail_candidates.append(item)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 2. TỐC ĐỘ CAO: Quét trực tiếp Inbox để nhặt ngay lập tức các thư [SAP-REQUEST] mới đến mà chưa kịp chuyển rule
+            if inbox and inbox != bot_folder:
                 try:
-                    if getattr(item, "Class", 0) == 43 or hasattr(item, "Subject"):
-                        mail_candidates.append(item)
+                    for item in list(inbox.Items):
+                        try:
+                            subj = str(getattr(item, "Subject", "") or "")
+                            if "[SAP-REQUEST]" in subj or "SAP_REQUEST" in subj:
+                                mail_candidates.append(item)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
@@ -273,7 +290,7 @@ def run_bridge():
                     move_mail_to_processed(mail, bot_folder)
                     continue
 
-                req_id = f"SAP-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
+                req_id = f"REF-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
                 seq_counter += 1
 
                 # Cô lập hoàn toàn lỗi từng thư để không chặn luồng
@@ -293,6 +310,14 @@ def run_bridge():
                     subject = getattr(mail, "Subject", "")
 
                     meta = NaturalCommandParser.parse(raw_body, html_body=html_body, subject=subject, default_plant=def_plant)
+
+                    # LOOP GUARD: Nếu phát hiện tin nhắn Bot tự trả lời -> Bỏ qua ngay lập tức
+                    if meta and meta.get("isBotEcho"):
+                        print(f"[LOOP GUARD] {req_id} | Phát hiện tin nhắn phản hồi của Bot. Bỏ qua ngay lập tức để chống lặp!")
+                        mail.UnRead = False
+                        mail.Save()
+                        move_mail_to_processed(mail, bot_folder)
+                        continue
 
                     # Kiểm tra trùng lặp qua SQLite
                     msg_id = meta.get("messageId", "") if meta else ""
@@ -393,8 +418,8 @@ def run_bridge():
                             records = sap.check_position_posting_change(resolved_mats, batch, plant=plant)
                             headers = {
                                 "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                                "qty": "Số lượng", "unit": "ĐVT",
-                                "grDate": "Ngày GR", "grTime": "Giờ GR",
+                                "totalQty": "Tổng SL", "availQty": "Khả dụng", "heldQty": "Bị OB giữ",
+                                "unit": "ĐVT", "grDate": "Ngày GR", "grTime": "Giờ GR",
                                 "cat": "Trạng thái"
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
