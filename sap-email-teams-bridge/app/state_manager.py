@@ -51,6 +51,20 @@ class StateManager:
                     status TEXT DEFAULT 'PENDING'
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    req_id TEXT,
+                    action_type TEXT,
+                    user_id TEXT,
+                    user_name TEXT,
+                    target_doc TEXT,
+                    status TEXT,
+                    payload_json TEXT,
+                    message TEXT,
+                    created_at TEXT
+                )
+            """)
             conn.commit()
 
     def is_message_processed(self, message_id: str, entry_id: Optional[str] = None) -> bool:
@@ -158,3 +172,72 @@ class StateManager:
         with self._get_connection() as conn:
             conn.execute("DELETE FROM processed_messages WHERE processed_at < ?", (cutoff,))
             conn.commit()
+
+    def log_audit(
+        self,
+        req_id: str,
+        action_type: str,
+        status: str,
+        target_doc: str = "",
+        user_id: str = "",
+        user_name: str = "",
+        payload: Optional[Dict[str, Any]] = None,
+        message: str = ""
+    ) -> int:
+        """Ghi nhận nhật ký kiểm toán bất biến (Audit Ledger) cho các thao tác tác động hệ thống."""
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        pl_str = json.dumps(payload, ensure_ascii=False) if payload else ""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO audit_logs
+                (req_id, action_type, user_id, user_name, target_doc, status, payload_json, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (req_id, action_type, user_id, user_name, target_doc, status, pl_str, message, now_str))
+            conn.commit()
+            return cur.lastrowid
+
+    def query_audit_logs(
+        self,
+        req_id: Optional[str] = None,
+        action_type: Optional[str] = None,
+        target_doc: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Truy vấn sổ cái kiểm toán theo điều kiện lọc."""
+        query = "SELECT * FROM audit_logs WHERE 1=1"
+        params: List[Any] = []
+        if req_id:
+            query += " AND req_id = ?"
+            params.append(req_id)
+        if action_type:
+            query += " AND action_type = ?"
+            params.append(action_type)
+        if target_doc:
+            query += " AND target_doc = ?"
+            params.append(target_doc)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        results = []
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(query, tuple(params))
+            for r in cur.fetchall():
+                try:
+                    pl = json.loads(r["payload_json"]) if r["payload_json"] else {}
+                except Exception:
+                    pl = {}
+                results.append({
+                    "id": r["id"],
+                    "req_id": r["req_id"],
+                    "action_type": r["action_type"],
+                    "user_id": r["user_id"],
+                    "user_name": r["user_name"],
+                    "target_doc": r["target_doc"],
+                    "status": r["status"],
+                    "payload": pl,
+                    "message": r["message"],
+                    "created_at": r["created_at"]
+                })
+        return results

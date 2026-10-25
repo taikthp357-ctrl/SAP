@@ -34,6 +34,10 @@ from app.sap_engine import SapEngine, SapExecutionError
 from app.state_manager import StateManager
 from app.number_utils import set_global_sap_number_format
 from app.sap_attachment import MigoAttachmentRunner
+from app.bbbg_service import BbbgService
+from app.nvl_service import NvlService
+from app.ob_service import ObService
+from app.extended_query_service import ExtendedQueryService
 
 
 def run_self_test():
@@ -686,6 +690,69 @@ def run_bridge():
                                     "overall_status": "Trạng thái"
                                 }
                                 summary = f"Đính kèm VAT, BBBG & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+
+                        elif cmd in ["TAO_BBBG", "XEM_BBBG", "BBBG_FG"]:
+                            days_cnt = meta.get("days", 1)
+                            mb51_rows = sap.check_history_mb51(resolved_mats, days=days_cnt, plant=plant, explicit_plant=True)
+                            vl06i_rows = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
+                            recon = BbbgService.reconcile(mb51_rows, vl06i_rows)
+                            if cmd == "TAO_BBBG":
+                                file_path = BbbgService.export_excel(recon, meta_header={"shop": meta.get("shop", "BODY")})
+                                state_mgr.log_audit(req_id, "TAO_BBBG", "SUCCESS", target_doc=recon.get("batch_id"), user_name=meta.get("senderName"), message=f"Đã xuất file BBBG: {file_path}")
+                                summary = f"Biên bản giao nhận Thành phẩm (BBBG FG) - {recon['matched_count']}/{recon['total_items']} khớp 100% (File: {Path(file_path).name})"
+                            else:
+                                preview = BbbgService.generate_mail_preview(recon, shop_key=meta.get("shop", "BODY"))
+                                custom_html = preview["html_preview"]
+                                summary = f"Xem trước BBBG FG ({recon['matched_count']}/{recon['total_items']} khớp 100%)"
+                            records = recon.get("items", [])
+                            headers = {
+                                "material": "Mã hàng", "batch": "Số lô", "doc_no": "Inbound / Doc",
+                                "handover_qty": "SL Bàn giao", "received_qty": "SL Nhận", "diff_qty": "Chênh lệch",
+                                "gr_status": "Trạng thái", "note": "Ghi chú"
+                            }
+
+                        elif cmd in ["RA_DON_NVL", "KE_HOACH_NVL"]:
+                            orders = [{"material": m, "qty": meta.get("qty", 100), "station": meta.get("station", "OP10")} for m in resolved_mats]
+                            stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant or "3093")
+                            plan = NvlService.allocate_orders(orders, stock_records, source_plant=plant or "3093")
+                            plan_id = NvlService.save_plan_and_reserve(plan, created_by=meta.get("senderName") or "BOT")
+                            state_mgr.log_audit(req_id, "RA_DON_NVL", "SUCCESS", target_doc=plan_id, user_name=meta.get("senderName"), message=f"Đã lập kế hoạch NVL: {plan['total_allocated']}/{plan['total_ordered']}")
+                            records = plan.get("allocated_items", [])
+                            headers = {
+                                "material": "Mã hàng", "station": "Trạm", "bin": "Bin", "batch": "Số lô",
+                                "allocated_qty": "SL Phân bổ", "unit": "ĐVT", "hsd": "HSD", "gr_date": "Ngày GR"
+                            }
+                            summary = f"Kế hoạch ra đơn NVL V31 Zone ({plan_id}): Cấp phát {plan['total_allocated']}/{plan['total_ordered']}"
+
+                        elif cmd in ["DIEU_PHOI_OB", "RC65", "XAC_NHAN_OB"]:
+                            ob_no = meta.get("obNo", "")
+                            ob_items = sap.check_open_ob_vl06o(resolved_mats, ob_no=ob_no, plant=plant)
+                            stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant or "3093")
+                            gate_eval = ObService.validate_whole_batch_gate(ob_no or "BATCH", ob_items, stock_records)
+                            if gate_eval["gate_passed"]:
+                                disp = ObService.dispatch_outbound_simulated(ob_no or "BATCH", plant or "3001", gate_eval)
+                                state_mgr.log_audit(req_id, "DIEU_PHOI_OB", "DISPATCHED", target_doc=ob_no, user_name=meta.get("senderName"), message=disp["action"])
+                                summary = f"Điều phối Outbound ({ob_no or 'Lô'}): {disp['action']} (Trạng thái: {disp['readback_status']})"
+                            else:
+                                state_mgr.log_audit(req_id, "DIEU_PHOI_OB", "BLOCKED", target_doc=ob_no, user_name=meta.get("senderName"), message="Chặn cổng do thiếu tồn")
+                                summary = f"Chặn điều phối Outbound ({ob_no or 'Lô'}): {gate_eval['action_advice']}"
+                            records = gate_eval.get("items", [])
+                            headers = {
+                                "item_no": "Item", "material": "Mã hàng", "batch": "Số lô",
+                                "required_qty": "SL Yêu cầu", "available_qty": "SL Khả dụng",
+                                "deficit_qty": "Thâm hụt", "status": "Trạng thái Cổng"
+                            }
+
+                        elif cmd in ["TRA_CUU_ASN", "ASN"]:
+                            inbound_no = meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
+                            raw_asn = sap.find_inbound_vl06i(materials=resolved_mats, plant=plant)
+                            asn_res = ExtendedQueryService.track_asn_provenance(inbound_no, raw_asn)
+                            records = asn_res.get("items", [])
+                            headers = {
+                                "material": "Mã hàng", "batch": "Số lô", "qty": "SL giao",
+                                "unit": "ĐVT", "po_no": "Số PO", "status": "Trạng thái"
+                            }
+                            summary = f"Hồ sơ xuất xứ ASN {inbound_no} (Cont: {asn_res['container_no']} | Vận đơn: {asn_res['bill_of_lading']})"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

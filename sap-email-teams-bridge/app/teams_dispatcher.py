@@ -387,6 +387,54 @@ class TeamsDispatcher:
                         f"⚠️ Không có BOM</span>"
                     )
 
+            elif any(k in cmd_upper for k in ["TAO_BBBG", "XEM_BBBG", "BBBG"]):
+                tot = len(records)
+                matched = sum(1 for r in records if r.get("status") == "MATCHED")
+                mismatch = sum(1 for r in records if r.get("status") == "MISMATCH_QTY")
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📑 Đối soát BBBG FG: {tot} dòng</span>"
+                )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"✅ Khớp 100%: {matched}</span>"
+                )
+                if mismatch > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⚠️ Lệch SL: {mismatch}</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["RA_DON_NVL", "KE_HOACH_NVL"]):
+                tot_items = len(records)
+                tot_qty = sum(parse_sap_float(r.get("allocated_qty", 0.0)) for r in records)
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🏭 Ra đơn NVL V31 Zone: {tot_items} dòng</span>"
+                )
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"📦 Phân bổ: {format_qty_display(tot_qty)}</span>"
+                )
+
+            elif any(k in cmd_upper for k in ["DIEU_PHOI_OB", "RC65"]):
+                tot_items = len(records)
+                deficits = sum(1 for r in records if r.get("status") == "DEFICIT")
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"🚚 Điều phối Outbound RC65: {tot_items} items</span>"
+                )
+                if deficits > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"⛔ CHẶN CỔNG: {deficits} dòng thiếu tồn</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ CỔNG ĐẠT: Sẵn sàng xuất kho</span>"
+                    )
+
             elif any(k in cmd_upper for k in ["CHECK_QUEUE", "QUEUE"]):
                 badges.append(
                     f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"

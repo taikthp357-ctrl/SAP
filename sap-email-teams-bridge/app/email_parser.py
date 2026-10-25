@@ -91,6 +91,21 @@ class SmartCommandParser:
             (r"\b(?:chua\s*gr|chua\s*nhap|hang\s*chua\s*ve|cho\s*nhap|treo)\b", 9),
             (r"\b(?:ib)\b", 6),
         ],
+        "TAO_BBBG": [
+            (r"\b(?:tao\s*bbbg|doi\s*soat\s*bbbg|xuat\s*bbbg|bbbg\s*fg|tao\s*bien\s*ban\s*ban\s*giao|bbbg\s*new|lap\s*bbbg)\b", 26),
+        ],
+        "XEM_BBBG": [
+            (r"\b(?:xem\s*bbbg|preview\s*bbbg|xem\s*truoc\s*bbbg|xac\s*nhan\s*gui\s*bbbg)\b", 26),
+        ],
+        "RA_DON_NVL": [
+            (r"\b(?:ra\s*don\s*nvl|phan\s*bo\s*nvl|ke\s*hoach\s*nvl|nvl\s*v31|nvl\s*zone|len\s*don\s*nvl)\b", 26),
+        ],
+        "DIEU_PHOI_OB": [
+            (r"\b(?:dieu\s*phoi\s*ob|rc65|ob\s*tool|xuat\s*don\s*ob|gate\s*ob|whole\s*batch)\b", 26),
+        ],
+        "TRA_CUU_ASN": [
+            (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 24),
+        ],
         "STO": [
             (r"\b(?:sto|stock\s*transport|me2n|check\s*sto|dieu\s*chuyen)\b", 12),
             (r"\b(?:hang\s*di\s*duong|di\s*duong|mb5t)\b", 9),
@@ -231,6 +246,8 @@ class SmartCommandParser:
             "CHECK_FG_OB", "DIEN_OB",
             "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
             "ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO",
+            "TAO_BBBG", "XEM_BBBG", "RA_DON_NVL", "KE_HOACH_NVL", "XAC_NHAN_NVL",
+            "DIEU_PHOI_OB", "XAC_NHAN_OB", "TRA_CUU_ASN",
             "HELP"
         }
 
@@ -658,6 +675,7 @@ class SmartCommandParser:
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
+                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN"))
             )
         ) or (best_score == 0 and bool(bin_val))
 

@@ -650,3 +650,33 @@ def test_parse_check_queue():
     assert res is not None
     assert res["valid"] is True
     assert res["command"] == "CHECK_QUEUE"
+
+
+def test_parse_tao_bbbg_natural():
+    res = EmailCommandParser.parse("tạo bbbg fg xưởng hàn plant 3093")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TAO_BBBG"
+    assert res["plant"] == "3093"
+
+
+def test_parse_ra_don_nvl_natural():
+    res = EmailCommandParser.parse("ra đơn nvl v31 zone mã BIW32013765AA số lượng 100")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "RA_DON_NVL"
+    assert "BIW32013765AA" in res["materials"]
+
+
+def test_parse_dieu_phoi_ob_natural():
+    res = EmailCommandParser.parse("điều phối ob rc65 đơn 8000123456")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "DIEU_PHOI_OB"
+
+
+def test_parse_tra_cuu_asn_natural():
+    res = EmailCommandParser.parse("tra cứu asn xuất xứ container TCLU1234567")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TRA_CUU_ASN"
