@@ -609,16 +609,26 @@ def run_bridge():
                                 folder_path, items_to_att, fill_headtext=True, dry_run=meta.get("dryRun", False)
                             )
                             records = att_summary["results"]
-                            headers = {
-                                "doc": "Số DOC", "ticket_no": "Số phiếu",
-                                "headtext_status": "Điền HeadText",
-                                "bbbg_status": "BBBG", "vat_status": "VAT",
-                                "mail_status": "Email (.msg)",
-                                "overall_status": "Trạng thái", "match_notes": "Chi tiết"
-                            }
                             if not folder_path:
+                                headers = {
+                                    "doc": "Số DOC",
+                                    "ticket_no": "Số phiếu",
+                                    "headtext_status": "Điền HeadText",
+                                    "overall_status": "Trạng thái",
+                                    "headtext_msg": "Chi tiết"
+                                }
                                 summary = f"Điền số phiếu HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
                             else:
+                                headers = {
+                                    "doc": "Số DOC",
+                                    "ticket_no": "Số phiếu",
+                                    "headtext_status": "Điền HeadText",
+                                    "bbbg_status": "BBBG",
+                                    "vat_status": "VAT",
+                                    "mail_status": "Email (.msg)",
+                                    "overall_status": "Trạng thái",
+                                    "match_notes": "Chi tiết"
+                                }
                                 summary = f"Đính kèm VAT, BBBG, Mail & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox

@@ -215,3 +215,38 @@ def test_process_attachment_batch_headtext_only():
     assert res0["headtext_status"] == "HEADTEXT_DONE"
     assert res0["bbbg_status"] == "SKIP_NO_ATTACH"
     assert "Thành Công OUT_P1_23581" in res0["overall_status"]
+
+
+def test_parse_attachment_multi_row_list_and_table():
+    """Kiểm tra bóc tách nhiều dòng chứng từ và số phiếu từ tin nhắn Teams (bảng / list dài)."""
+    text_teams = """
+    SAP điền số phiếu
+
+    4995880054 | OUT_P1_23581
+    4995877314 | OUT_P1_23582
+    4904351086 | OUT_P1_23583
+    """
+    items = parse_attachment_items_from_text(text_teams)
+    assert len(items) == 3
+    assert items[0] == {"doc": "4995880054", "ticket_no": "OUT_P1_23581"}
+    assert items[1] == {"doc": "4995877314", "ticket_no": "OUT_P1_23582"}
+    assert items[2] == {"doc": "4904351086", "ticket_no": "OUT_P1_23583"}
+
+    # Test trường hợp chuỗi bị dồn thành 1 dòng (space separated)
+    text_single_line = "4995880054 OUT_P1_23581 4995877314 OUT_P1_23582 4904351086 OUT_P1_23583"
+    items_sl = parse_attachment_items_from_text(text_single_line)
+    assert len(items_sl) == 3
+    assert items_sl[0]["doc"] == "4995880054"
+    assert items_sl[0]["ticket_no"] == "OUT_P1_23581"
+    assert items_sl[1]["doc"] == "4995877314"
+    assert items_sl[1]["ticket_no"] == "OUT_P1_23582"
+    assert items_sl[2]["doc"] == "4904351086"
+    assert items_sl[2]["ticket_no"] == "OUT_P1_23583"
+
+    # Test trường hợp HTML table từ Teams/Outlook
+    text_html = "<table><tr><td>4995880054</td><td>OUT_P1_23581</td></tr><tr><td>4995877314</td><td>OUT_P1_23582</td></tr></table>"
+    items_html = parse_attachment_items_from_text(text_html)
+    assert len(items_html) == 2
+    assert items_html[0] == {"doc": "4995880054", "ticket_no": "OUT_P1_23581"}
+    assert items_html[1] == {"doc": "4995877314", "ticket_no": "OUT_P1_23582"}
+

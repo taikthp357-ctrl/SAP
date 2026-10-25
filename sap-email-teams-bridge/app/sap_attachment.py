@@ -62,37 +62,60 @@ def format_status_label(ticket_no: str, is_success: bool) -> str:
 def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
     """Bóc tách danh sách chứng từ và số phiếu từ nội dung email hoặc tin nhắn Teams.
     
-    Hỗ trợ các định dạng:
-    - '5006995954: Thành Công in 5794'
-    - '5006995954 in 5794'
-    - '5007072362 Thành Đạt in 6157'
-    - Bảng copy-paste từ Excel (phân cách bằng tab hoặc dấu phẩy)
+    Hỗ trợ mọi trường hợp:
+    - Danh sách nhiều dòng từ Teams / Outlook
+    - Bảng copy-paste từ Excel (phân cách bằng tab, dấu cách, hoặc dấu gạch |)
+    - Định dạng nhiều cặp chứng từ trên cùng một dòng hoặc toàn bộ chuỗi
+    - Bảng HTML từ Teams/Outlook
     """
+    if not text:
+        return []
+
+    # 1. Làm sạch tag HTML nếu có
+    clean_text = re.sub(r"</?(?:tr|div|p|br\s*/?|li)>", "\n", str(text), flags=re.I)
+    clean_text = re.sub(r"</td>", "\t", clean_text, flags=re.I)
+    clean_text = re.sub(r"<[^>]+>", " ", clean_text)
+
+    # 2. Xóa các đường dẫn UNC hoặc thư mục cục bộ để số trong đường dẫn không bị nhận nhầm thành số DOC
+    clean_text = re.sub(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", " ", clean_text)
+    clean_text = re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", " ", clean_text)
+
+    # 3. Quét tất cả các số chứng từ 10 số (bắt đầu bằng 49, 500 hoặc 10 chữ số)
+    doc_matches = list(re.finditer(r"\b(49\d{8}|500\d{7}|\d{10})\b", clean_text))
+    if not doc_matches:
+        return []
+
     items = []
-    lines = str(text).splitlines()
     seen_docs = set()
-    for line in lines:
-        line_s = line.strip()
-        if not line_s:
+
+    for idx, m in enumerate(doc_matches):
+        doc = m.group(1)
+        if doc in seen_docs:
             continue
-        # Bắt số chứng từ 10 chữ số (bắt đầu bằng 49, 500 hoặc bất kỳ 10 số nào)
-        doc_m = re.search(r"\b(49\d{8}|500\d{7}|\d{10})\b", line_s)
-        if doc_m:
-            doc = doc_m.group(1)
-            if doc in seen_docs:
-                continue
-            seen_docs.add(doc)
-            # Lấy phần nằm ngay sau số doc làm số phiếu (bảo đảm không bị dính đường dẫn thư mục hay tiền tố lệnh)
-            rem = line_s[doc_m.end():].strip(" :-\t,")
-            clean_ticket = rem
-            for _ in range(4):
-                clean_ticket = re.sub(
-                    r"^(?:SAP|BOT|LENH|LỆNH|ĐIỀN\s*SỐ\s*PHIẾU|DIEN\s*SO\s*PHIEU|ĐIỀN\s*PHIẾU|DIEN\s*PHIEU|SỐ\s*PHIẾU|SO\s*PHIEU|PHIẾU|PHIEU|HEADTEXT|BKTXT|ATTACH|ATT|MAIL|EMAIL)\s*[:=]?\s*",
-                    "",
-                    clean_ticket,
-                    flags=re.I
-                ).strip(" :-\t,")
-            items.append({"doc": doc, "ticket_no": clean_ticket or rem})
+        seen_docs.add(doc)
+
+        start_pos = m.end()
+        # Số phiếu của chứng từ này nằm từ sau doc hiện tại tới vị trí bắt đầu doc tiếp theo
+        if idx + 1 < len(doc_matches):
+            raw_cand = clean_text[start_pos:doc_matches[idx + 1].start()]
+        else:
+            raw_cand = clean_text[start_pos:]
+
+        # Nếu có dấu xuống dòng trong candidate, số phiếu chỉ lấy trên dòng hiện tại
+        if "\n" in raw_cand:
+            raw_cand = raw_cand.split("\n")[0]
+
+        clean_ticket = raw_cand.strip(" :-\t,|")
+        for _ in range(4):
+            clean_ticket = re.sub(
+                r"^(?:SAP|BOT|LENH|LỆNH|ĐIỀN\s*SỐ\s*PHIẾU|DIEN\s*SO\s*PHIEU|ĐIỀN\s*PHIẾU|DIEN\s*PHIEU|SỐ\s*PHIẾU|SO\s*PHIEU|PHIẾU|PHIEU|HEADTEXT|BKTXT|ATTACH|ATT|MAIL|EMAIL)\s*[:=]?\s*",
+                "",
+                clean_ticket,
+                flags=re.I
+            ).strip(" :-\t,|")
+
+        items.append({"doc": doc, "ticket_no": clean_ticket})
+
     return items
 
 
@@ -240,22 +263,28 @@ class MigoAttachmentRunner:
             # 1. Bảo đảm phần Header MIGO được mở
             try:
                 session.SendCommand("MIGO_OK_HEADER_OPEN")
+                time.sleep(0.3)
             except Exception:
                 pass
 
-            # 2. Tìm trường GOHEAD-BKTXT
+            # 2. Tìm trường GOHEAD-BKTXT (findByName trước, sau đó thử các fallback ID)
             head_field = None
             try:
                 head_field = session.findById("wnd[0]").findByName("GOHEAD-BKTXT", "GuiTextField")
             except Exception:
-                try:
-                    head_field = session.findById(
-                        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_HEADER:SAPLMIGO:0101/"
-                        "subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/"
-                        "ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT"
-                    )
-                except Exception:
-                    pass
+                pass
+            if head_field is None:
+                for cand_id in [
+                    "wnd[0]/usr/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
+                    "wnd[0]/usr/txtGOHEAD-BKTXT"
+                ]:
+                    try:
+                        head_field = session.findById(cand_id)
+                        if head_field:
+                            break
+                    except Exception:
+                        pass
 
             if head_field is None:
                 return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT trên MIGO"
@@ -267,21 +296,21 @@ class MigoAttachmentRunner:
                 curr_tokens, curr_compact = extract_search_tokens(current_text)
                 tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
                 if curr_compact == tick_compact or (curr_tokens and set(curr_tokens).intersection(set(tick_tokens))):
-                    return "HEADTEXT_OK", f"Đã có sẵn số phiếu trùng khớp ('{current_text}')"
+                    return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
                 else:
-                    return "HEADTEXT_DIFF", f"HeadText SAP ('{current_text}') khác số phiếu ('{ticket_clean}')"
+                    return "HEADTEXT_DIFF", f"SAP đã có HeadText khác: '{current_text}'"
 
             # Trường hợp 2: HeadText đang rỗng -> Điền mới và bấm Lưu (Save / vKey 11)
             try:
                 head_field.Text = ticket_clean
                 session.findById("wnd[0]").SendVKey(11)  # Ctrl+S / Save
-                time.sleep(0.5)
+                time.sleep(0.6)
 
                 sbar = session.findById("wnd[0]/sbar")
                 s_type = getattr(sbar, "MessageType", "")
                 s_msg = getattr(sbar, "Text", "")
-                if s_type == "E":
-                    return "HEADTEXT_FAIL", f"Lỗi lưu HeadText: {s_msg}"
+                if s_type in ("E", "A"):
+                    return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
                 return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}'"
             except Exception as write_err:
                 return "HEADTEXT_WRITE_ERROR", str(write_err)
@@ -300,7 +329,18 @@ class MigoAttachmentRunner:
 
         try:
             # 1. Nhấn nút GOS Toolbox
-            shell = session.findById("wnd[0]/titl/shellcont/shell")
+            shell = None
+            for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
+                try:
+                    shell = session.findById(shell_id)
+                    if shell:
+                        break
+                except Exception:
+                    pass
+
+            if shell is None:
+                return False, "GOS_SHELL_NOT_FOUND"
+
             try:
                 shell.PressContextButton("%GOS_TOOLBOX")
             except Exception:
@@ -343,41 +383,149 @@ class MigoAttachmentRunner:
         except Exception as e:
             return False, f"GOS_EXCEPTION: {e}"
 
-    def open_migo_document(self, session, doc: str, year: str = "2026") -> Tuple[bool, str]:
-        """Điều hướng SAP tới chứng từ MIGO cần xem (A04 Display, R02 Material Document)."""
+    def open_migo_document(self, session, doc: str, year: str = "2026", mode: str = "DISPLAY") -> Tuple[bool, str]:
+        """Điều hướng SAP tới chứng từ MIGO cần xem (A04 Display) hoặc sửa (A12 Change), R02 Material Document."""
         try:
-            session.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
-            session.findById("wnd[0]").SendVKey(0)
-            time.sleep(0.5)
-
             try:
-                session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-ACTION").Key = "A04"
+                session.findById("wnd[0]").maximize()
             except Exception:
                 pass
 
+            wnd_text = getattr(session.findById("wnd[0]"), "Text", "")
+            if "Material Document" in wnd_text or "MIGO" in wnd_text:
+                try:
+                    session.findById("wnd[0]").SendVKey(12)  # F12 Cancel/Back để đóng chứng từ cũ
+                    time.sleep(0.3)
+                except Exception:
+                    pass
+            else:
+                session.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
+                session.findById("wnd[0]").SendVKey(0)
+                time.sleep(0.5)
+
+            # 1. Thiết lập ACTION (A12 Change / A04 Display)
+            target_act = "A12" if mode == "CHANGE" else "A04"
+            act_cb = None
             try:
-                session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-REFDOC").Key = "R02"
+                act_cb = session.findById("wnd[0]").findByName("GODYNPRO-ACTION", "GuiComboBox")
             except Exception:
                 pass
+            if act_cb is None:
+                for cand_id in [
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-ACTION",
+                    "wnd[0]/usr/cmbGODYNPRO-ACTION"
+                ]:
+                    try:
+                        act_cb = session.findById(cand_id)
+                        if act_cb:
+                            break
+                    except Exception:
+                        pass
+            if act_cb:
+                try:
+                    if getattr(act_cb, "Key", "") != target_act:
+                        act_cb.Key = target_act
+                        time.sleep(0.3)
+                except Exception:
+                    if mode == "CHANGE":
+                        try:
+                            act_cb.Key = "A02"
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
 
+            # 2. Thiết lập REFDOC (R02 Material Document)
+            ref_cb = None
             try:
-                session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-MAT_DOC").Text = str(doc).strip()
-            except Exception:
-                session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-MAT_DOC").Text = str(doc).strip()
-
-            try:
-                session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-DOC_YEAR").Text = str(year).strip()
+                ref_cb = session.findById("wnd[0]").findByName("GODYNPRO-REFDOC", "GuiComboBox")
             except Exception:
                 pass
+            if ref_cb is None:
+                for cand_id in [
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-REFDOC",
+                    "wnd[0]/usr/cmbGODYNPRO-REFDOC"
+                ]:
+                    try:
+                        ref_cb = session.findById(cand_id)
+                        if ref_cb:
+                            break
+                    except Exception:
+                        pass
+            if ref_cb:
+                try:
+                    if getattr(ref_cb, "Key", "") != "R02":
+                        ref_cb.Key = "R02"
+                        time.sleep(0.3)
+                except Exception:
+                    pass
 
+            # 3. Điền số chứng từ vào GODYNPRO-MAT_DOC
+            doc_fld = None
+            try:
+                doc_fld = session.findById("wnd[0]").findByName("GODYNPRO-MAT_DOC")
+            except Exception:
+                pass
+            if doc_fld is None:
+                for cand_id in [
+                    "wnd[0]/usr/ctxtGODYNPRO-MAT_DOC",
+                    "wnd[0]/usr/txtGODYNPRO-MAT_DOC",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-MAT_DOC",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-MAT_DOC"
+                ]:
+                    try:
+                        doc_fld = session.findById(cand_id)
+                        if doc_fld:
+                            break
+                    except Exception:
+                        pass
+
+            if doc_fld is None:
+                return False, "CONTROL_NOT_FOUND: Không tìm thấy ô nhập số chứng từ GODYNPRO-MAT_DOC trên MIGO"
+
+            try:
+                doc_fld.SetFocus()
+            except Exception:
+                pass
+            doc_fld.Text = str(doc).strip()
+
+            # 4. Điền DOC_YEAR nếu có
+            if year:
+                yr_fld = None
+                try:
+                    yr_fld = session.findById("wnd[0]").findByName("GODYNPRO-DOC_YEAR")
+                except Exception:
+                    pass
+                if yr_fld is None:
+                    for cand_id in [
+                        "wnd[0]/usr/ctxtGODYNPRO-DOC_YEAR",
+                        "wnd[0]/usr/txtGODYNPRO-DOC_YEAR",
+                        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-DOC_YEAR"
+                    ]:
+                        try:
+                            yr_fld = session.findById(cand_id)
+                            if yr_fld:
+                                break
+                        except Exception:
+                            pass
+                if yr_fld:
+                    try:
+                        yr_fld.Text = str(year).strip()
+                    except Exception:
+                        pass
+
+            # 5. Gửi phím Enter (VKey 0) để mở chứng từ
             session.findById("wnd[0]").SendVKey(0)
             time.sleep(0.6)
 
-            sbar = session.findById("wnd[0]/sbar")
-            msg = getattr(sbar, "Text", "")
-            msg_type = getattr(sbar, "MessageType", "")
-            if msg_type == "E":
-                return False, f"DOC_NOT_FOUND: {msg}"
+            # 6. Kiểm tra thông báo trạng thái
+            try:
+                sbar = session.findById("wnd[0]/sbar")
+                msg = getattr(sbar, "Text", "")
+                msg_type = getattr(sbar, "MessageType", "")
+                if msg_type in ("E", "A"):
+                    return False, f"DOC_NOT_FOUND: {msg}"
+            except Exception:
+                pass
 
             return True, "LOADED_OK"
         except Exception as e:
@@ -392,12 +540,13 @@ class MigoAttachmentRunner:
         dry_run: bool = False
     ) -> Dict[str, Any]:
         """Xử lý hàng loạt danh sách chứng từ: Điền số phiếu vào HeadText và Đính kèm file BBBG/VAT/Mail."""
-        if folder_path and Path(folder_path).exists() and Path(folder_path).is_dir():
+        has_folder = bool(folder_path and Path(folder_path).exists() and Path(folder_path).is_dir())
+        if has_folder:
             index_data = self.index_source_folder(folder_path, recursive=True)
             print(f"[ATT RUNNER] Đã quét thư mục '{folder_path}': Tìm thấy {index_data['total_files']} files hợp lệ.")
         else:
             index_data = {"total_files": 0, "files": [], "token_map": {}}
-            print(f"[ATT RUNNER] Không có thư mục đính kèm (hoặc chỉ thực hiện kiểm tra và điền số phiếu HeadText).")
+            print(f"[ATT RUNNER] Chế độ điền số phiếu HeadText (Không đính kèm file).")
 
         session = None
         if not dry_run and self.sap_engine:
@@ -413,6 +562,66 @@ class MigoAttachmentRunner:
             if not doc:
                 continue
 
+            # =========================================================================
+            # NHÁNH 1: CHỈ ĐIỀN SỐ PHIẾU HEADTEXT (Không có thư mục / link đính kèm)
+            # =========================================================================
+            if not has_folder:
+                headtext_res = "SKIP"
+                headtext_msg = "Không có số phiếu cần điền"
+                overall_status = "CHƯA_XỬ_LÝ"
+
+                if dry_run or session is None:
+                    if fill_headtext and ticket_no:
+                        headtext_res = "HEADTEXT_DONE"
+                        headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
+                        overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                        total_success += 1
+                    else:
+                        headtext_res = "SKIP_NO_TICKET"
+                        headtext_msg = "Thiếu số phiếu"
+                        overall_status = "THIẾU_SỐ_PHIẾU"
+                        total_missing += 1
+                else:
+                    loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
+                    if not loaded_ok:
+                        headtext_res = "OPEN_FAIL"
+                        headtext_msg = nav_msg
+                        overall_status = f"Lỗi mở DOC: {nav_msg}"
+                        total_missing += 1
+                    else:
+                        if fill_headtext and ticket_no:
+                            headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+                            if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
+                                overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                                total_success += 1
+                            else:
+                                overall_status = f"Lỗi HeadText: {headtext_res}"
+                                total_missing += 1
+                        else:
+                            headtext_res = "SKIP_NO_TICKET"
+                            headtext_msg = "Không có số phiếu để điền"
+                            overall_status = "THIẾU_SỐ_PHIẾU"
+                            total_missing += 1
+
+                results.append({
+                    "doc": doc,
+                    "ticket_no": ticket_no,
+                    "headtext_status": headtext_res,
+                    "headtext_msg": headtext_msg,
+                    "overall_status": overall_status,
+                    "bbbg_status": "SKIP_NO_ATTACH",
+                    "vat_status": "SKIP_NO_ATTACH",
+                    "mail_status": "SKIP_NO_ATTACH",
+                    "bbbg_file": None,
+                    "vat_file": None,
+                    "mail_file": None,
+                    "match_notes": headtext_msg
+                })
+                continue
+
+            # =========================================================================
+            # NHÁNH 2: ĐÍNH KÈM FILE (BBBG, VAT, Mail) VÀ ĐIỀN SỐ PHIẾU MIGO
+            # =========================================================================
             bbbg_path, vat_path, mail_path, match_notes = self.match_files(doc, ticket_no, index_data)
 
             headtext_res = "SKIP"
@@ -423,7 +632,6 @@ class MigoAttachmentRunner:
             overall_status = "FILE_NOT_FOUND"
 
             if dry_run or session is None:
-                # Chế độ mô phỏng / kiểm tra khớp file trước
                 if fill_headtext and ticket_no:
                     headtext_res = "HEADTEXT_DONE"
                     headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
@@ -431,27 +639,21 @@ class MigoAttachmentRunner:
                 vat_res = format_status_label(ticket_no, bool(vat_path))
                 if mail_path:
                     mail_res = format_status_label(ticket_no, True)
-                if not folder_path and (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
-                    overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
-                    bbbg_res = "SKIP_NO_ATTACH"
-                    vat_res = "SKIP_NO_ATTACH"
-                    total_success += 1
-                elif bbbg_path or vat_path or mail_path:
+                if bbbg_path or vat_path or mail_path:
                     overall_status = format_status_label(ticket_no, True)
                     total_success += 1
                 else:
                     overall_status = "FILE_NOT_FOUND"
                     total_missing += 1
             else:
-                # Thực hiện thao tác thật trên SAP GUI
-                loaded_ok, nav_msg = self.open_migo_document(session, doc, year)
+                loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="DISPLAY")
                 if not loaded_ok:
                     bbbg_res = nav_msg
                     vat_res = nav_msg
                     overall_status = nav_msg
                     total_missing += 1
                 else:
-                    # 1. Nghiệp vụ: Điền số phiếu vào Header Text nếu được yêu cầu
+                    # 1. Điền số phiếu vào Header Text nếu được yêu cầu
                     if fill_headtext and ticket_no:
                         headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
 
@@ -477,12 +679,7 @@ class MigoAttachmentRunner:
                         m_ok, m_msg = self.attach_file_to_current_migo(session, mail_path)
                         mail_res = format_status_label(ticket_no, m_ok) if m_ok else f"Lỗi: {m_msg}"
 
-                    if not folder_path and (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
-                        overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
-                        bbbg_res = "SKIP_NO_ATTACH"
-                        vat_res = "SKIP_NO_ATTACH"
-                        total_success += 1
-                    elif b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
+                    if b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
                         overall_status = format_status_label(ticket_no, True)
                         total_success += 1
                     else:
@@ -505,7 +702,7 @@ class MigoAttachmentRunner:
             })
 
         return {
-            "folder_path": folder_path,
+            "folder_path": folder_path if has_folder else "",
             "total_items": len(items),
             "total_success": total_success,
             "total_missing": total_missing,
@@ -519,30 +716,44 @@ class MigoAttachmentRunner:
         total = batch_summary.get("total_items", len(results))
         success = batch_summary.get("total_success", 0)
         missing = batch_summary.get("total_missing", 0)
+        folder_path = batch_summary.get("folder_path", "")
 
         lines = []
-        lines.append(f"📎 **KẾT QUẢ ĐÍNH KÈM VAT, BBBG, MAIL & ĐIỀN SỐ PHIẾU MIGO**")
-        lines.append(f"• Thư mục nguồn: `{batch_summary.get('folder_path', '')}`")
-        lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Thiếu/Lỗi: {missing})")
-        lines.append("")
-        lines.append("**Danh sách trạng thái từng chứng từ (Theo chuẩn MIGO ATT):**")
+        if not folder_path:
+            lines.append(f"📝 **KẾT QUẢ ĐIỀN SỐ PHIẾU HEADTEXT MIGO**")
+            lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Lỗi: {missing})")
+            lines.append("")
+            lines.append("| DOC | Số phiếu | Điền HeadText | Trạng thái | Chi tiết |")
+            lines.append("| :--- | :--- | :--- | :--- | :--- |")
+            for r in results:
+                doc = r["doc"]
+                ticket = r["ticket_no"] or "-"
+                head = r.get("headtext_status", "-")
+                status = r.get("overall_status", "-")
+                msg = r.get("headtext_msg", "")
+                lines.append(f"| {doc} | {ticket} | {head} | {status} | {msg} |")
+        else:
+            lines.append(f"📎 **KẾT QUẢ ĐÍNH KÈM VAT, BBBG, MAIL & ĐIỀN SỐ PHIẾU MIGO**")
+            lines.append(f"• Thư mục nguồn: `{folder_path}`")
+            lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Thiếu/Lỗi: {missing})")
+            lines.append("")
+            lines.append("**Danh sách trạng thái từng chứng từ (Theo chuẩn MIGO ATT):**")
+            for r in results:
+                doc = r["doc"]
+                status = r["overall_status"]
+                lines.append(f"- `{doc}`: {status}")
 
-        for r in results:
-            doc = r["doc"]
-            status = r["overall_status"]
-            lines.append(f"- `{doc}`: {status}")
-
-        lines.append("")
-        lines.append("| DOC | Số phiếu | HeadText SAP | BBBG | VAT | Mail (.msg) | Trạng thái chi tiết |")
-        lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
-        for r in results:
-            doc = r["doc"]
-            ticket = r["ticket_no"] or "-"
-            head = r.get("headtext_status", "-")
-            bbbg = r["bbbg_status"]
-            vat = r["vat_status"]
-            mail_st = r.get("mail_status") or "-"
-            notes = r["match_notes"]
-            lines.append(f"| {doc} | {ticket} | {head} | {bbbg} | {vat} | {mail_st} | {notes} |")
+            lines.append("")
+            lines.append("| DOC | Số phiếu | HeadText SAP | BBBG | VAT | Mail (.msg) | Trạng thái chi tiết |")
+            lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for r in results:
+                doc = r["doc"]
+                ticket = r["ticket_no"] or "-"
+                head = r.get("headtext_status", "-")
+                bbbg = r.get("bbbg_status", "-")
+                vat = r.get("vat_status", "-")
+                mail_st = r.get("mail_status") or "-"
+                notes = r.get("match_notes", "")
+                lines.append(f"| {doc} | {ticket} | {head} | {bbbg} | {vat} | {mail_st} | {notes} |")
 
         return "\n".join(lines)

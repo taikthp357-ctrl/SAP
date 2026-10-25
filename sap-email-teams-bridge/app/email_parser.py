@@ -120,8 +120,13 @@ class SmartCommandParser:
     @classmethod
     def clean_v3_email(cls, raw_body: str, html_body: str = "") -> str:
         """Làm sạch email từ Mail V3, giữ lại cấu trúc dòng và cắt bỏ Footer quảng cáo."""
-        source = html_body if (not raw_body or len(raw_body.strip()) < 5) else raw_body
+        if html_body and ("<table" in html_body.lower() or "<tr" in html_body.lower()):
+            source = html_body
+        else:
+            source = html_body if (not raw_body or len(raw_body.strip()) < 5) else raw_body
+
         text = re.sub(r"<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", source, flags=re.IGNORECASE)
+        text = re.sub(r"</td>", "\t", text, flags=re.IGNORECASE)
         text = re.sub(r"<at[^>]*>.*?</at>", " ", text, flags=re.IGNORECASE | re.DOTALL)
         text = re.sub(r"<[^>]+>", " ", text)
 
