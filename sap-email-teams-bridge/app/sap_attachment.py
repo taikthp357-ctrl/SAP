@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Set, Callable
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
 
 try:
     import pythoncom
@@ -180,59 +181,71 @@ def find_control_recursive(root, target_name: str, depth: int = 0, max_depth: in
     return None
 
 
-def smart_find(session, element_name: str, element_type: Optional[str] = None):
+def smart_find(session, element_name: str, element_type: Optional[str] = None, window: str = "wnd[0]"):
     """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
-    và bất chấp người dùng đóng hay mở khung Tree / Detail của MIGO.
+    kết hợp bộ nhớ đệm tự học (UI_CACHE / data/sap_ui_cache.json).
     """
     if session is None:
         return None
     try:
-        w0 = safe_find_by_id(session, "wnd[0]")
+        # 1. Thử qua bộ nhớ đệm tự thích nghi (AdaptiveConfigCache)
+        obj = UI_CACHE.resolve_element(session, key_alias=element_name, field_name=element_name, element_type=element_type, window=window)
+        if obj is not None:
+            return obj
+    except Exception:
+        pass
+
+    try:
+        w0 = safe_find_by_id(session, window)
         if w0 is None:
             return None
 
-        usr = safe_find_by_id(session, "wnd[0]/usr")
+        usr = safe_find_by_id(session, f"{window}/usr")
         search_roots = [usr, w0] if usr is not None else [w0]
 
         for root in search_roots:
             if element_type:
-                try:
-                    obj = root.findByName(element_name, element_type)
-                    if obj is not None:
-                        return obj
-                except Exception:
-                    pass
-                try:
-                    obj = root.FindByName(element_name, element_type)
-                    if obj is not None:
-                        return obj
-                except Exception:
-                    pass
+                for fn in ("findByName", "FindByName"):
+                    try:
+                        obj = getattr(root, fn)(element_name, element_type)
+                        if obj is not None:
+                            el_id = getattr(obj, "Id", getattr(obj, "id", ""))
+                            if el_id:
+                                UI_CACHE.set_cached_id(session, element_name, el_id)
+                            return obj
+                    except Exception:
+                        pass
             else:
                 for ctrl_type in ("GuiCTextField", "GuiTextField", "GuiComboBox", "GuiButton", "GuiTab"):
-                    try:
-                        obj = root.findByName(element_name, ctrl_type)
-                        if obj is not None:
-                            return obj
-                    except Exception:
-                        pass
-                    try:
-                        obj = root.FindByName(element_name, ctrl_type)
-                        if obj is not None:
-                            return obj
-                    except Exception:
-                        pass
+                    for fn in ("findByName", "FindByName"):
+                        try:
+                            obj = getattr(root, fn)(element_name, ctrl_type)
+                            if obj is not None:
+                                el_id = getattr(obj, "Id", getattr(obj, "id", ""))
+                                if el_id:
+                                    UI_CACHE.set_cached_id(session, element_name, el_id)
+                                return obj
+                        except Exception:
+                            pass
 
         if element_name in RECORDED_MIGO_IDS:
             for cid in RECORDED_MIGO_IDS[element_name]:
                 try:
                     obj = safe_find_by_id(session, cid)
                     if obj is not None:
+                        el_id = getattr(obj, "Id", getattr(obj, "id", ""))
+                        if el_id:
+                            UI_CACHE.set_cached_id(session, element_name, el_id)
                         return obj
                 except Exception:
                     pass
 
-        return find_control_recursive(w0, element_name)
+        found = find_control_recursive(w0, element_name)
+        if found is not None:
+            el_id = getattr(found, "Id", getattr(found, "id", ""))
+            if el_id:
+                UI_CACHE.set_cached_id(session, element_name, el_id)
+        return found
     except Exception:
         return None
 
@@ -737,9 +750,13 @@ class MigoAttachmentRunner:
             try:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
-                    head_field = w0.findByName("GOHEAD-BKTXT", "GuiTextField")
+                    fn = getattr(w0, "findByName", getattr(w0, "FindByName", None))
+                    if fn:
+                        head_field = fn("GOHEAD-BKTXT", "GuiTextField")
             except Exception:
                 pass
+            if head_field is None:
+                head_field = smart_find(session, "GOHEAD-BKTXT", "GuiTextField")
             if head_field is None:
                 head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=2.0)
 
@@ -948,10 +965,24 @@ class MigoAttachmentRunner:
 
                     time.sleep(0.4)
 
-                    # Điền đường dẫn và nhấn nút Open/btn[0]
-                    session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
-                    session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
-                    session.findById("wnd[1]/tbar[0]/btn[0]").Press()
+                    # Điền đường dẫn và nhấn nút Open/btn[0] với hỗ trợ AdaptiveConfigCache
+                    path_ctl = UI_CACHE.resolve_element(session, "gos_path", "DY_PATH", window="wnd[1]")
+                    if path_ctl is not None:
+                        path_ctl.Text = parent_folder
+                    else:
+                        session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
+
+                    file_ctl = UI_CACHE.resolve_element(session, "gos_fname", "DY_FILENAME", window="wnd[1]")
+                    if file_ctl is not None:
+                        file_ctl.Text = filename
+                    else:
+                        session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
+
+                    btn_open = UI_CACHE.resolve_element(session, "gos_btn_open", "btn[0]", window="wnd[1]")
+                    if btn_open is not None:
+                        btn_open.Press()
+                    else:
+                        session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
                 sap_com_retry(_trigger_gos_and_fill, retries=4, delay=0.08)
                 # Vừa nhấn btn[0] xong là wnd[1] bắt đầu đóng -> nhả POPUP_LOCK ngay cho Tab kia!
@@ -1049,13 +1080,13 @@ class MigoAttachmentRunner:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
                     try:
-                        w0.SendVKey(3)  # F3 Back để đóng chứng từ cũ
+                        w0.SendVKey(12)  # Esc (Cancel) để hủy/thoát chứng từ cũ thay vì F3
                         time.sleep(0.2)
                     except Exception:
                         pass
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
-            # Nếu sau F3 vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
+            # Nếu sau Esc vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
             if doc_fld is None or not getattr(doc_fld, "Changeable", True):
                 self.prepare_migo_session(session, mode=mode)
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
@@ -1097,7 +1128,7 @@ class MigoAttachmentRunner:
                 if s_type in ("E", "A"):
                     if w0:
                         try:
-                            w0.SendVKey(3)
+                            w0.SendVKey(12)  # Esc thoát chứng từ khi báo lỗi
                         except Exception:
                             pass
                     return False, f"DOC_NOT_FOUND: {s_msg}"
@@ -1107,7 +1138,7 @@ class MigoAttachmentRunner:
             try:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
-                    w0.SendVKey(3)
+                    w0.SendVKey(12)  # Esc thoát chứng từ khi gặp ngoại lệ
             except Exception:
                 pass
             return False, f"NAV_ERROR: {e}"
@@ -1173,7 +1204,7 @@ class MigoAttachmentRunner:
                 try:
                     w0 = safe_find_by_id(session, "wnd[0]")
                     if w0:
-                        w0.SendVKey(3)
+                        w0.SendVKey(12)  # Esc thoát chứng từ
                         time.sleep(0.2)
                 except Exception:
                     pass
@@ -1190,7 +1221,8 @@ class MigoAttachmentRunner:
                 "bbbg_file": None,
                 "vat_file": None,
                 "mail_file": None,
-                "match_notes": headtext_msg
+                "match_notes": headtext_msg,
+                "is_succ": is_succ
             }, is_succ
 
         # =========================================================================
@@ -1216,8 +1248,10 @@ class MigoAttachmentRunner:
             vat_res = "LỖI_THƯ_MỤC"
             if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
                 overall_status = f"{format_status_label(ticket_no, True)} (Lỗi link thư mục)"
+                is_succ = True
             else:
                 overall_status = "LỖI_THƯ_MỤC"
+                is_succ = False
 
             return {
                 "doc": doc,
@@ -1231,8 +1265,9 @@ class MigoAttachmentRunner:
                 "vat_status": vat_res,
                 "mail_status": "LỖI_THƯ_MỤC",
                 "overall_status": overall_status,
-                "match_notes": folder_error or "Không thể truy cập thư mục đính kèm"
-            }, False
+                "match_notes": folder_error or "Không thể truy cập thư mục đính kèm",
+                "is_succ": is_succ
+            }, is_succ
 
         # =========================================================================
         # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
@@ -1352,12 +1387,12 @@ class MigoAttachmentRunner:
                 else:
                     overall_status = "INCOMPLETE"
 
-        # Sau khi xử lý xong chứng từ, gửi F3 để MIGO trở về màn hình ô vàng cho chứng từ tiếp theo
+        # Sau khi xử lý xong chứng từ, gửi Esc (SendVKey 12) để MIGO trở về màn hình ô vàng cho chứng từ tiếp theo
         if not dry_run and session is not None:
             try:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
-                    w0.SendVKey(3)
+                    w0.SendVKey(12)  # Esc thoát chứng từ
                     time.sleep(0.2)
             except Exception:
                 pass
@@ -1374,7 +1409,8 @@ class MigoAttachmentRunner:
             "vat_status": vat_res,
             "mail_status": mail_res,
             "overall_status": overall_status,
-            "match_notes": match_notes
+            "match_notes": match_notes,
+            "is_succ": is_succ
         }, is_succ
 
     def process_attachment_batch(
@@ -1503,7 +1539,8 @@ class MigoAttachmentRunner:
 
                         with prog_lock:
                             processed_count += 1
-                            if is_s:
+                            is_item_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
+                            if is_item_succ:
                                 success_count += 1
                             now = time.time()
                             if progress_callback and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
@@ -1529,7 +1566,8 @@ class MigoAttachmentRunner:
             indexed_results.sort(key=lambda x: x[0])
             for _, r_dict, is_s in indexed_results:
                 results.append(r_dict)
-                if is_s:
+                is_actually_succ = is_s or r_dict.get("is_succ") is True or r_dict.get("overall_status") == "DONE" 
+                if is_actually_succ:
                     total_success += 1
                 else:
                     total_missing += 1
@@ -1568,7 +1606,8 @@ class MigoAttachmentRunner:
                     is_folder_requested, has_folder, folder_error, dry_run
                 )
                 results.append(res_dict)
-                if is_s:
+                is_actually_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
+                if is_actually_succ:
                     total_success += 1
                 else:
                     total_missing += 1

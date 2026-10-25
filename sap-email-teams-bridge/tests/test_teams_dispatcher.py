@@ -384,3 +384,50 @@ def test_teams_dispatcher_ton_thap_kpi_badges_no_fake_stock():
     assert "1 Mã ưu tiên xuất Body" in badges_html
     assert "1 Mã ưu tiên kéo line" in badges_html
     assert "3 Mã có hàng chờ xuất" in badges_html
+
+
+
+def test_teams_dispatcher_att_migo_kpi_badges_all_done():
+    """Kiểm tra ATT_MIGO khi 15/15 chứng từ đều DONE thì hiển thị ⚡ 15/15 Thành công (100%)."""
+    records = [
+        {
+            "doc": f"5000000{i}",
+            "ticket_no": f"TICK{i}",
+            "headtext_status": "HEADTEXT_OK",
+            "vat_status": "DONE",
+            "bbbg_status": "DONE",
+            "overall_status": "DONE",
+            "is_succ": True
+        }
+        for i in range(15)
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "ATT_MIGO")
+    assert "15 Chứng từ MIGO" in badges_html
+    assert "15 Số phiếu HeadText" in badges_html
+    assert "⚡ 15/15 Thành công (100%)" in badges_html
+    assert "0/15" not in badges_html
+
+
+def test_teams_dispatcher_att_migo_kpi_badges_partial_done():
+    """Kiểm tra ATT_MIGO khi 10/15 chứng từ DONE thì hiển thị ⚡ 10/15 Thành công."""
+    records = []
+    for i in range(10):
+        records.append({
+            "doc": f"5000000{i}",
+            "ticket_no": f"TICK{i}",
+            "headtext_status": "HEADTEXT_OK",
+            "overall_status": "DONE",
+            "is_succ": True
+        })
+    for i in range(10, 15):
+        records.append({
+            "doc": f"5000000{i}",
+            "ticket_no": "",
+            "headtext_status": "SKIP",
+            "overall_status": "THIẾU_SỐ_PHIẾU",
+            "is_succ": False
+        })
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "ATT_MIGO")
+    assert "15 Chứng từ MIGO" in badges_html
+    assert "10 Số phiếu HeadText" in badges_html
+    assert "⚡ 10/15 Thành công" in badges_html

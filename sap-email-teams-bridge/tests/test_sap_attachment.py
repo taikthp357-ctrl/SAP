@@ -617,3 +617,47 @@ def test_sap_com_retry_logic():
 
 
 
+
+
+
+def test_open_migo_document_esc_cancel():
+    """Kiểm tra open_migo_document sử dụng SendVKey(12) (Esc) để thoát chứng từ."""
+    mock_session = MagicMock()
+    mock_doc_fld = MagicMock()
+    mock_doc_fld.Changeable = False  # Bị khóa từ chứng từ trước
+
+    mock_wnd0 = MagicMock()
+    mock_session.findById.side_effect = lambda cid, *args: mock_wnd0 if "wnd[0]" in cid else None
+
+    # Lần 1: trả về Changeable=False, Lần 2 (sau SendVKey 12): trả về Changeable=True
+    fld_active = MagicMock()
+    fld_active.Changeable = True
+    fld_active.Text = ""
+
+    from unittest.mock import patch
+    with patch("app.sap_attachment.smart_find", side_effect=[mock_doc_fld, fld_active, fld_active]):
+        runner = MigoAttachmentRunner()
+        ok, msg = runner.open_migo_document(mock_session, "500000001", "2026")
+        assert ok is True
+        # Xác nhận SendVKey(12) (phím Esc) được gọi thay vì F3 (3)
+        mock_wnd0.SendVKey.assert_any_call(12)
+
+
+def test_batch_summary_success_count_consistent():
+    """Kiểm tra tổng số thành công total_success và nhãn is_succ được đếm chuẩn xác."""
+    runner = MigoAttachmentRunner()
+    batch_res = runner.process_attachment_batch(
+        folder_path="",
+        items=[
+            {"doc": "500000001", "ticket_no": "TICK01"},
+            {"doc": "500000002", "ticket_no": "TICK02"},
+            {"doc": "500000003", "ticket_no": ""},
+        ],
+        dry_run=True
+    )
+    # 2 cái có ticket_no -> HEADTEXT_DONE -> total_success = 2
+    assert batch_res["total_success"] == 2
+    assert batch_res["total_missing"] == 1
+    assert batch_res["results"][0]["is_succ"] is True
+    assert batch_res["results"][1]["is_succ"] is True
+    assert batch_res["results"][2]["is_succ"] is False

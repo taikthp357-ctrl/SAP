@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 import win32com.client
 
 from app.number_utils import parse_sap_float, format_qty_display, parse_sap_datetime_sort_key
+from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
 
 SAP_LOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 SAP_CONNECTION_NAME = ""
@@ -307,6 +308,14 @@ class SapEngine:
             return self.session.findById(id_text, False)
         except Exception:
             return None
+
+    def smart_find(self, element_name: str, element_type: Optional[str] = None, window: str = "wnd[0]"):
+        """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
+        kết hợp bộ nhớ đệm tự học (UI_CACHE / data/sap_ui_cache.json).
+        """
+        if self.session is None:
+            return None
+        return UI_CACHE.resolve_element(self.session, key_alias=element_name, field_name=element_name, element_type=element_type, window=window)
 
     def _get_status(self) -> Tuple[str, str]:
         """Đọc thông điệp và kiểu trạng thái từ StatusBar (wnd[0]/sbar) như modSAPCore."""

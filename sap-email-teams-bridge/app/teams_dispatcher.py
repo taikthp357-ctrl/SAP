@@ -342,7 +342,15 @@ class TeamsDispatcher:
 
             elif any(k in cmd_upper for k in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]):
                 tot_items = len(records)
-                success_count = sum(1 for r in records if "thành công" in str(r.get("overall_status", "")).lower() or "thanh cong" in str(r.get("overall_status", "")).lower())
+                success_count = sum(
+                    1 for r in records
+                    if r.get("is_succ") is True
+                    or str(r.get("overall_status", "")).upper() in ("DONE", "HOÀN TẤT", "THÀNH CÔNG", "OK")
+                    or any(k in str(r.get("overall_status", "")).lower() for k in ["done", "thành công", "thanh cong", "hoàn tất"])
+                    or str(r.get("vat_status", "")).upper().startswith("DONE")
+                    or str(r.get("bbbg_status", "")).upper().startswith("DONE")
+                    or str(r.get("headtext_status", "")).upper() in ("HEADTEXT_DONE", "HEADTEXT_OK")
+                )
                 ht_count = sum(1 for r in records if "headtext_done" in str(r.get("headtext_status", "")).lower() or "headtext_ok" in str(r.get("headtext_status", "")).lower() or "mô phỏng" in str(r.get("headtext_msg", "")).lower())
 
                 badges.append(
@@ -354,10 +362,10 @@ class TeamsDispatcher:
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
                         f"📝 {ht_count} Số phiếu HeadText</span>"
                     )
-                if success_count == tot_items:
+                if success_count == tot_items and tot_items > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                        f"✅ 100% Hoàn tất</span>"
+                        f"⚡ {success_count}/{tot_items} Thành công (100%)</span>"
                     )
                 else:
                     badges.append(
