@@ -584,6 +584,36 @@ def test_custom_vat_naming_fallback():
         assert all_matches["vat"][0].name == "6461_CT01.pdf"
 
 
+def test_sanitize_migo_session():
+    """Kiểm tra hàm dọn dẹp tab SAP khi gặp popup kẹt và reset về /nMIGO."""
+    from app.sap_attachment import sanitize_migo_session
+    mock_session = MagicMock()
+    mock_session.findById.side_effect = lambda id_str, *args: MagicMock() if ('wnd[2]' in id_str or 'wnd[1]' in id_str or 'wnd[0]' in id_str) else None
+    
+    sanitize_migo_session(mock_session)
+    assert mock_session.findById.called
+
+
+
+def test_sap_com_retry_logic():
+    """Kiểm tra cơ chế retry khi gặp lỗi COM tạm thời."""
+    from app.sap_attachment import sap_com_retry
+    import pywintypes
+
+    attempts = 0
+    def flaky_func():
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise pywintypes.com_error(-2147417846, 'The message filter indicated that the application is busy.', None, None)
+        return 'SUCCESS'
+
+    res = sap_com_retry(flaky_func, retries=5, delay=0.01)
+    assert res == 'SUCCESS'
+    assert attempts == 3
+
+
+
 
 
 

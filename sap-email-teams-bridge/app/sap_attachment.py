@@ -18,6 +18,99 @@ import time
 import unicodedata
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Set, Callable
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import pythoncom
+    import win32com.client
+    import pywintypes
+except ImportError:
+    pythoncom = None
+    win32com = None
+    pywintypes = None
+
+# =====================================================================
+# KHÓA BẢO VỆ TOÀN CỤC & ĐIỀU PHỐI TAB (TỐI ĐA 3 TAB)
+# Tab 0: Fast Lane (Tra cứu nhanh 2-5s: MB52, SCWM/POST, VL06I)
+# Tab 1, Tab 2: Batch Pool (Chạy lô MIGO 100-300 DOC)
+# =====================================================================
+POPUP_LOCK = threading.Lock()          # Micro-lock bảo vệ cửa sổ wnd[1] & Context Menu
+FAST_LANE_LOCK = threading.Lock()      # Khóa riêng cho Tab 0 (Fast Lane)
+BATCH_TAB_LOCKS = {                    # Khóa riêng cho từng Tab trong Batch Pool
+    1: threading.Lock(),
+    2: threading.Lock()
+}
+
+
+def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
+    """Bọc lệnh gọi COM: Tự động lùi lại 50ms rồi thử lại nếu gặp RPC_E_CALL_REJECTED."""
+    for attempt in range(retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if pywintypes and isinstance(e, pywintypes.com_error):
+                if attempt < retries - 1:
+                    time.sleep(delay * (attempt + 1))
+                    continue
+                raise e
+            if attempt < retries - 1 and any(k in str(e).lower() for k in ["busy", "reject", "disconnect", "0x80010"]):
+                time.sleep(delay * (attempt + 1))
+                continue
+            raise e
+
+
+def sanitize_migo_session(session):
+    """Dọn sạch mọi popup kẹt (wnd[2], wnd[1]) và đưa session về màn hình /nMIGO sạch sẽ."""
+    if session is None:
+        return
+    try:
+        for w_idx in (2, 1):
+            try:
+                w = session.findById(f"wnd[{w_idx}]", False)
+                if w:
+                    try:
+                        w.Close()
+                    except Exception:
+                        try:
+                            session.findById(f"wnd[{w_idx}]").SendVKey(12)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        session.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
+        session.findById("wnd[0]").SendVKey(0)
+        time.sleep(0.3)
+    except Exception:
+        pass
+
+
+def ensure_sap_tabs(target_tabs: int = 3) -> int:
+    """Đảm bảo mở sẵn đủ số Tab cần thiết (Tab 0: Fast Lane, Tab 1 & 2: Batch Pool)."""
+    if pythoncom is None or win32com is None:
+        return 1
+    pythoncom.CoInitialize()
+    try:
+        sap_gui = win32com.client.GetObject("SAPGUI")
+        app = sap_gui.GetScriptingEngine
+        if app.Children.Count == 0:
+            return 1
+        conn = app.Children(0)
+        current = conn.Children.Count
+        while current < target_tabs and current < 6:
+            try:
+                conn.Children(0).CreateSession()
+                time.sleep(0.8)
+                current = conn.Children.Count
+            except Exception as e:
+                print(f"[SAP MULTI-TAB WARN] Không thể mở thêm tab: {e}")
+                break
+        return conn.Children.Count
+    except Exception as ex:
+        print(f"[SAP MULTI-TAB ERROR] {ex}")
+        return 1
+    finally:
+        pythoncom.CoUninitialize()
 
 
 DEFAULT_MIGO_ATT_FOLDER = (
@@ -439,134 +532,135 @@ class MigoAttachmentRunner:
         if session is None:
             return titles
 
-        try:
-            # 1. Tìm nút OK_REF_ATTA (Display Attachment) trên màn hình MIGO
-            button = None
-            for cand_id in [
-                "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
-                "wnd[0]/usr/btnOK_REF_ATTA"
-            ]:
-                try:
-                    button = session.findById(cand_id)
-                    if button:
-                        break
-                except Exception:
-                    pass
-
-            if button is None:
-                try:
-                    button = session.findById("wnd[0]").findByName("OK_REF_ATTA", "GuiButton")
-                except Exception:
-                    pass
-
-            has_opened = False
-
-            # Nếu tìm thấy nút OK_REF_ATTA và nút đang sáng (Enabled)
-            if button is not None:
-                enabled = getattr(button, "Enabled", True)
-                if enabled is False or str(enabled).upper() == "FALSE":
-                    # Nút bị mờ / disabled -> SAP chưa có đính kèm nào trên chứng từ này
-                    return []
-                try:
-                    button.Press()
-                    has_opened = True
-                except Exception:
-                    pass
-
-            # Fallback nếu không bấm được nút OK_REF_ATTA: thử mở qua GOS shell %GOS_VIEW_ATTA
-            if not has_opened:
-                for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
-                    try:
-                        shell = session.findById(shell_id)
-                        if shell:
-                            try:
-                                shell.PressContextButton("%GOS_TOOLBOX")
-                                shell.SelectContextMenuItem("%GOS_VIEW_ATTA")
-                                has_opened = True
-                                break
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-
-            if not has_opened:
-                return []
-
-            time.sleep(0.5)
-
-            # 2. Đọc popup Attachment list (wnd[1])
-            popup = None
+        with POPUP_LOCK:
             try:
-                popup = session.findById("wnd[1]")
-            except Exception:
-                pass
-
-            if popup is not None:
-                grid = None
-                for cand_grid_id in [
-                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont/shell",
-                    "wnd[1]/usr/cntlCONTAINER/shellcont/shell",
-                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont",
-                    "wnd[1]/usr/shell"
+                # 1. Tìm nút OK_REF_ATTA (Display Attachment) trên màn hình MIGO
+                button = None
+                for cand_id in [
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
+                    "wnd[0]/usr/btnOK_REF_ATTA"
                 ]:
                     try:
-                        g = session.findById(cand_grid_id)
-                        if g:
-                            grid = g
+                        button = session.findById(cand_id)
+                        if button:
                             break
                     except Exception:
                         pass
 
-                if grid is None:
-                    def find_grid(obj, depth=0):
-                        if depth > 10 or obj is None:
-                            return None
-                        try:
-                            c_type = str(getattr(obj, "Type", ""))
-                            c_sub = str(getattr(obj, "SubType", ""))
-                            if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
-                                return obj
-                            children = getattr(obj, "Children", None)
-                            if children:
-                                for idx in range(children.Count):
-                                    res = find_grid(children.Item(idx), depth + 1)
-                                    if res:
-                                        return res
-                        except Exception:
-                            pass
-                        return None
-                    grid = find_grid(popup)
-
-                if grid:
+                if button is None:
                     try:
-                        row_count = int(getattr(grid, "RowCount", 0))
-                        for r in range(row_count):
-                            title_val = ""
-                            for col_name in ["BITM_DESCR", "OBJDES", "TITLE", "DESCRIPT", "FILENAME"]:
-                                try:
-                                    val = grid.GetCellValue(r, col_name)
-                                    if val and str(val).strip():
-                                        title_val = str(val).strip()
-                                        break
-                                except Exception:
-                                    continue
-                            if title_val:
-                                titles.append(title_val)
-                    except Exception as e:
-                        print(f"[SAP ATT LIST WARN] Lỗi đọc grid: {e}")
-
-                # 3. Đóng popup wnd[1]
-                try:
-                    popup.Close()
-                except Exception:
-                    try:
-                        session.findById("wnd[1]").SendVKey(12)
+                        button = session.findById("wnd[0]").findByName("OK_REF_ATTA", "GuiButton")
                     except Exception:
                         pass
 
-                time.sleep(0.3)
-        except Exception as ex:
-            print(f"[SAP ATT LIST ERROR] {ex}")
+                has_opened = False
+
+                # Nếu tìm thấy nút OK_REF_ATTA và nút đang sáng (Enabled)
+                if button is not None:
+                    enabled = getattr(button, "Enabled", True)
+                    if enabled is False or str(enabled).upper() == "FALSE":
+                        # Nút bị mờ / disabled -> SAP chưa có đính kèm nào trên chứng từ này
+                        return []
+                    try:
+                        button.Press()
+                        has_opened = True
+                    except Exception:
+                        pass
+
+                # Fallback nếu không bấm được nút OK_REF_ATTA: thử mở qua GOS shell %GOS_VIEW_ATTA
+                if not has_opened:
+                    for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
+                        try:
+                            shell = session.findById(shell_id)
+                            if shell:
+                                try:
+                                    shell.PressContextButton("%GOS_TOOLBOX")
+                                    shell.SelectContextMenuItem("%GOS_VIEW_ATTA")
+                                    has_opened = True
+                                    break
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                if not has_opened:
+                    return []
+
+                time.sleep(0.5)
+
+                # 2. Đọc popup Attachment list (wnd[1])
+                popup = None
+                try:
+                    popup = session.findById("wnd[1]")
+                except Exception:
+                    pass
+
+                if popup is not None:
+                    grid = None
+                    for cand_grid_id in [
+                        "wnd[1]/usr/cntlCONTAINER_0100/shellcont/shell",
+                        "wnd[1]/usr/cntlCONTAINER/shellcont/shell",
+                        "wnd[1]/usr/cntlCONTAINER_0100/shellcont",
+                        "wnd[1]/usr/shell"
+                    ]:
+                        try:
+                            g = session.findById(cand_grid_id)
+                            if g:
+                                grid = g
+                                break
+                        except Exception:
+                            pass
+
+                    if grid is None:
+                        def find_grid(obj, depth=0):
+                            if depth > 10 or obj is None:
+                                return None
+                            try:
+                                c_type = str(getattr(obj, "Type", ""))
+                                c_sub = str(getattr(obj, "SubType", ""))
+                                if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
+                                    return obj
+                                children = getattr(obj, "Children", None)
+                                if children:
+                                    for idx in range(children.Count):
+                                        res = find_grid(children.Item(idx), depth + 1)
+                                        if res:
+                                            return res
+                            except Exception:
+                                pass
+                            return None
+                        grid = find_grid(popup)
+
+                    if grid:
+                        try:
+                            row_count = int(getattr(grid, "RowCount", 0))
+                            for r in range(row_count):
+                                title_val = ""
+                                for col_name in ["BITM_DESCR", "OBJDES", "TITLE", "DESCRIPT", "FILENAME"]:
+                                    try:
+                                        val = grid.GetCellValue(r, col_name)
+                                        if val and str(val).strip():
+                                            title_val = str(val).strip()
+                                            break
+                                    except Exception:
+                                        continue
+                                if title_val:
+                                    titles.append(title_val)
+                        except Exception as e:
+                            print(f"[SAP ATT LIST WARN] Lỗi đọc grid: {e}")
+
+                    # 3. Đóng popup wnd[1]
+                    try:
+                        popup.Close()
+                    except Exception:
+                        try:
+                            session.findById("wnd[1]").SendVKey(12)
+                        except Exception:
+                            pass
+
+                    time.sleep(0.3)
+            except Exception as ex:
+                print(f"[SAP ATT LIST ERROR] {ex}")
 
         return titles
 
@@ -580,44 +674,44 @@ class MigoAttachmentRunner:
         filename = abs_path.name
 
         try:
-            # 1. Nhấn nút GOS Toolbox
-            shell = None
-            for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
-                try:
-                    shell = session.findById(shell_id)
-                    if shell:
-                        break
-                except Exception:
-                    pass
+            # 1. Nhấn nút GOS Toolbox & Chọn Create Attachment bên trong Micro-lock
+            with POPUP_LOCK:
+                def _trigger_gos_and_fill():
+                    shell = None
+                    for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
+                        try:
+                            shell = session.findById(shell_id)
+                            if shell:
+                                break
+                        except Exception:
+                            pass
 
-            if shell is None:
-                return False, "GOS_SHELL_NOT_FOUND"
+                    if shell is None:
+                        raise RuntimeError("GOS_SHELL_NOT_FOUND")
 
-            try:
-                shell.PressContextButton("%GOS_TOOLBOX")
-            except Exception:
-                try:
-                    shell.PressButton("%GOS_TOOLBOX")
-                except Exception:
-                    pass
+                    try:
+                        shell.PressContextButton("%GOS_TOOLBOX")
+                    except Exception:
+                        try:
+                            shell.PressButton("%GOS_TOOLBOX")
+                        except Exception:
+                            pass
 
-            # 2. Chọn menu Create Attachment (%GOS_PCATTA_CREA)
-            try:
-                shell.SelectContextMenuItem("%GOS_PCATTA_CREA")
-            except Exception:
-                shell.SelectMenuItem("%GOS_PCATTA_CREA")
+                    try:
+                        shell.SelectContextMenuItem("%GOS_PCATTA_CREA")
+                    except Exception:
+                        shell.SelectMenuItem("%GOS_PCATTA_CREA")
 
-            time.sleep(0.5)
+                    time.sleep(0.4)
 
-            # 3. Điền đường dẫn và tên file vào popup wnd[1]
-            try:
-                session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
-                session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
-                session.findById("wnd[1]/tbar[0]/btn[0]").Press()
-            except Exception:
-                pass
+                    # Điền đường dẫn và nhấn nút Open/btn[0]
+                    session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
+                    session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
+                    session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
-            time.sleep(0.6)
+                sap_com_retry(_trigger_gos_and_fill, retries=4, delay=0.08)
+                # Vừa nhấn btn[0] xong là wnd[1] bắt đầu đóng -> nhả POPUP_LOCK ngay cho Tab kia!
+                time.sleep(0.4)
 
             # 4. Kiểm tra thông báo trạng thái tại thanh sbar
             sbar = session.findById("wnd[0]/sbar")
@@ -783,6 +877,251 @@ class MigoAttachmentRunner:
         except Exception as e:
             return False, f"NAV_ERROR: {e}"
 
+    def process_single_migo_item(
+        self,
+        session,
+        item: Dict[str, str],
+        index_data: Dict[str, Any],
+        fill_headtext: bool = True,
+        year: str = "2026",
+        is_folder_requested: bool = False,
+        has_folder: bool = False,
+        folder_error: str = "",
+        dry_run: bool = False
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Xử lý 1 chứng từ MIGO duy nhất (Điền HeadText, đính kèm BBBG/VAT)."""
+        doc = str(item.get("doc", "")).strip()
+        ticket_no = str(item.get("ticket_no", "")).strip()
+        if not doc:
+            return {}, False
+
+        # =========================================================================
+        # TRƯỜNG HỢP 1: NGƯỜI DÙNG KHÔNG YÊU CẦU ĐÍNH KÈM (Chỉ điền số phiếu HeadText)
+        # =========================================================================
+        if not is_folder_requested:
+            headtext_res = "SKIP"
+            headtext_msg = "Không có số phiếu cần điền"
+            overall_status = "CHƯA_XỬ_LÝ"
+            is_succ = False
+
+            if dry_run or session is None:
+                if fill_headtext and ticket_no:
+                    headtext_res = "HEADTEXT_DONE"
+                    headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
+                    overall_status = "DONE"
+                    is_succ = True
+                else:
+                    headtext_res = "SKIP_NO_TICKET"
+                    headtext_msg = "Thiếu số phiếu"
+                    overall_status = "THIẾU_SỐ_PHIẾU"
+            else:
+                loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
+                if not loaded_ok:
+                    headtext_res = "OPEN_FAIL"
+                    headtext_msg = nav_msg
+                    overall_status = f"Lỗi mở DOC: {nav_msg}"
+                else:
+                    if fill_headtext and ticket_no:
+                        headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+                        if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
+                            overall_status = "DONE"
+                            is_succ = True
+                        else:
+                            overall_status = f"Lỗi HeadText: {headtext_res}"
+                    else:
+                        headtext_res = "SKIP_NO_TICKET"
+                        headtext_msg = "Không có số phiếu để điền"
+                        overall_status = "THIẾU_SỐ_PHIẾU"
+
+            return {
+                "doc": doc,
+                "ticket_no": ticket_no,
+                "headtext_status": headtext_res,
+                "headtext_msg": headtext_msg,
+                "overall_status": overall_status,
+                "bbbg_status": "SKIP_NO_ATTACH",
+                "vat_status": "SKIP_NO_ATTACH",
+                "mail_status": "SKIP_NO_ATTACH",
+                "bbbg_file": None,
+                "vat_file": None,
+                "mail_file": None,
+                "match_notes": headtext_msg
+            }, is_succ
+
+        # =========================================================================
+        # TRƯỜNG HỢP 2: CÓ YÊU CẦU ĐÍNH KÈM NHƯNG THƯ MỤC LỖI TRUY CẬP (Mất mạng / VPN)
+        # =========================================================================
+        if not has_folder:
+            headtext_res = "SKIP"
+            headtext_msg = "Không điền HeadText"
+
+            if fill_headtext and ticket_no:
+                if dry_run or session is None:
+                    headtext_res = "HEADTEXT_DONE"
+                    headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
+                else:
+                    loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
+                    if loaded_ok:
+                        headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+                    else:
+                        headtext_res = "OPEN_FAIL"
+                        headtext_msg = nav_msg
+
+            bbbg_res = "LỖI_THƯ_MỤC"
+            vat_res = "LỖI_THƯ_MỤC"
+            if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
+                overall_status = f"{format_status_label(ticket_no, True)} (Lỗi link thư mục)"
+            else:
+                overall_status = "LỖI_THƯ_MỤC"
+
+            return {
+                "doc": doc,
+                "ticket_no": ticket_no,
+                "headtext_status": headtext_res,
+                "headtext_msg": headtext_msg,
+                "bbbg_file": None,
+                "vat_file": None,
+                "mail_file": None,
+                "bbbg_status": bbbg_res,
+                "vat_status": vat_res,
+                "mail_status": "LỖI_THƯ_MỤC",
+                "overall_status": overall_status,
+                "match_notes": folder_error or "Không thể truy cập thư mục đính kèm"
+            }, False
+
+        # =========================================================================
+        # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
+        # =========================================================================
+        all_matches = self.match_all_files(doc, ticket_no, index_data)
+        bbbg_paths = all_matches["bbbg"]
+        vat_paths = all_matches["vat"]
+        mail_paths = all_matches["mail"]
+
+        match_notes_list = []
+        if bbbg_paths:
+            match_notes_list.append(f"BBBG: {len(bbbg_paths)} file")
+        else:
+            match_notes_list.append("BBBG: FILE_NOT_FOUND")
+        if vat_paths:
+            match_notes_list.append(f"VAT: {len(vat_paths)} file")
+        else:
+            match_notes_list.append("VAT: FILE_NOT_FOUND")
+        match_notes = " | ".join(match_notes_list)
+
+        headtext_res = "SKIP"
+        headtext_msg = "Không điền HeadText"
+        bbbg_res = "FILE_NOT_FOUND"
+        vat_res = "FILE_NOT_FOUND"
+        mail_res = "FILE_NOT_FOUND" if mail_paths else None
+        overall_status = "FILE_NOT_FOUND"
+        is_succ = False
+
+        if dry_run or session is None:
+            if fill_headtext and ticket_no:
+                headtext_res = "HEADTEXT_DONE"
+                headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
+            bbbg_res = "DONE" if bbbg_paths else "FILE_NOT_FOUND"
+            vat_res = f"DONE ({len(vat_paths)})" if len(vat_paths) > 1 else ("DONE" if vat_paths else "FILE_NOT_FOUND")
+            if mail_paths:
+                mail_res = "DONE"
+            if bbbg_paths or vat_paths or mail_paths:
+                overall_status = "DONE"
+                is_succ = True
+            else:
+                overall_status = "FILE_NOT_FOUND"
+        else:
+            loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE" if (fill_headtext and ticket_no) else "DISPLAY")
+            if not loaded_ok:
+                bbbg_res = nav_msg
+                vat_res = nav_msg
+                overall_status = nav_msg
+            else:
+                # 0. KIỂM TRA ĐÍNH KÈM ĐÃ CÓ SẴN TRÊN SAP MIGO (Display Attachment / OK_REF_ATTA)
+                sap_titles = self.read_sap_attachment_titles(session)
+                sap_bbbg, sap_vat = self.check_existing_sap_attachments(sap_titles, ticket_no)
+
+                # 1. Điền số phiếu vào Header Text nếu được yêu cầu
+                if fill_headtext and ticket_no:
+                    headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+
+                # 2. Đính kèm file BBBG
+                b_ok = False
+                if sap_bbbg:
+                    b_ok = True
+                    bbbg_res = "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
+                elif bbbg_paths:
+                    succ_bb = []
+                    fail_bb = []
+                    for bp in bbbg_paths:
+                        ok_b, msg_b = self.attach_file_to_current_migo(session, bp)
+                        if ok_b:
+                            succ_bb.append(bp.name)
+                        else:
+                            fail_bb.append(f"{bp.name}: {msg_b}")
+                    if succ_bb:
+                        b_ok = True
+                        bbbg_res = f"DONE ({len(succ_bb)})" if len(succ_bb) > 1 else "DONE"
+                    else:
+                        bbbg_res = f"Lỗi: {'; '.join(fail_bb)}"
+                else:
+                    bbbg_res = "FILE_NOT_FOUND"
+
+                # 3. Đính kèm file VAT (hỗ trợ 1 hoặc nhiều file VAT)
+                v_ok = False
+                if sap_vat:
+                    v_ok = True
+                    vat_res = "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
+                elif vat_paths:
+                    succ_vat = []
+                    fail_vat = []
+                    for vp in vat_paths:
+                        ok_v, msg_v = self.attach_file_to_current_migo(session, vp)
+                        if ok_v:
+                            succ_vat.append(vp.name)
+                        else:
+                            fail_vat.append(f"{vp.name}: {msg_v}")
+                    if succ_vat:
+                        v_ok = True
+                        vat_res = f"DONE ({len(succ_vat)})" if len(succ_vat) > 1 else "DONE"
+                    else:
+                        vat_res = f"Lỗi: {'; '.join(fail_vat)}"
+                else:
+                    vat_res = "FILE_NOT_FOUND"
+
+                # 4. Đính kèm file Mail (nếu có)
+                m_ok = False
+                if mail_paths:
+                    ok_m, msg_m = self.attach_file_to_current_migo(session, mail_paths[0])
+                    if ok_m:
+                        m_ok = True
+                        mail_res = "DONE"
+                    else:
+                        mail_res = f"Lỗi: {msg_m}"
+
+                # Thành công nếu BBBG, VAT, Mail hoặc HeadText thành công
+                if b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
+                    overall_status = "DONE"
+                    is_succ = True
+                else:
+                    overall_status = "INCOMPLETE"
+
+        return {
+            "doc": doc,
+            "ticket_no": ticket_no,
+            "headtext_status": headtext_res,
+            "headtext_msg": headtext_msg,
+            "bbbg_file": ", ".join(p.name for p in bbbg_paths) if bbbg_paths else None,
+            "vat_file": ", ".join(p.name for p in vat_paths) if vat_paths else None,
+            "mail_file": mail_paths[0].name if mail_paths else None,
+            "bbbg_status": bbbg_res,
+            "vat_status": vat_res,
+            "mail_status": mail_res,
+            "overall_status": overall_status,
+            "match_notes": match_notes
+        }, is_succ
+
     def process_attachment_batch(
         self,
         folder_path: str,
@@ -819,10 +1158,6 @@ class MigoAttachmentRunner:
             index_data = {"total_files": 0, "files": [], "token_map": {}}
             print(f"[ATT RUNNER] Chế độ điền số phiếu HeadText (Không đính kèm file).")
 
-        session = None
-        if not dry_run and self.sap_engine:
-            session = self.sap_engine.ensure_session()
-
         results = []
         total_success = 0
         total_missing = 0
@@ -831,255 +1166,154 @@ class MigoAttachmentRunner:
         last_progress_time = time.time()
         PROGRESS_INTERVAL_SEC = 180.0  # Cập nhật tiến độ lên Teams mỗi 3 phút
 
-        for idx, item in enumerate(items, 1):
-            doc = str(item.get("doc", "")).strip()
-            ticket_no = str(item.get("ticket_no", "")).strip()
+        # Xác định khả năng chạy Multi-Tab (Danh sách > 15 chứng từ, có kết nối SAP và không dry_run)
+        is_multi_tab_eligible = (
+            not dry_run
+            and self.sap_engine is not None
+            and total_items > 15
+            and pythoncom is not None
+        )
 
-            # Thông báo tiến độ định kỳ lên Teams sau mỗi 3 phút khi xử lý danh sách lớn (100 - 300 doc)
-            now = time.time()
-            if progress_callback and total_items > 20 and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
-                last_progress_time = now
-                try:
-                    progress_callback(idx - 1, total_items, doc, total_success)
-                except Exception as ex:
-                    print(f"[PROGRESS WARN] Callback error: {ex}")
-            if not doc:
-                continue
-
-            # =========================================================================
-            # TRƯỜNG HỢP 1: NGƯỜI DÙNG KHÔNG YÊU CẦU ĐÍNH KÈM (Chỉ điền số phiếu HeadText)
-            # =========================================================================
-            if not is_folder_requested:
-                headtext_res = "SKIP"
-                headtext_msg = "Không có số phiếu cần điền"
-                overall_status = "CHƯA_XỬ_LÝ"
-
-                if dry_run or session is None:
-                    if fill_headtext and ticket_no:
-                        headtext_res = "HEADTEXT_DONE"
-                        headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
-                        overall_status = format_status_label(ticket_no, True)
-                        total_success += 1
-                    else:
-                        headtext_res = "SKIP_NO_TICKET"
-                        headtext_msg = "Thiếu số phiếu"
-                        overall_status = "THIẾU_SỐ_PHIẾU"
-                        total_missing += 1
-                else:
-                    loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
-                    if not loaded_ok:
-                        headtext_res = "OPEN_FAIL"
-                        headtext_msg = nav_msg
-                        overall_status = f"Lỗi mở DOC: {nav_msg}"
-                        total_missing += 1
-                    else:
-                        if fill_headtext and ticket_no:
-                            headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
-                            if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
-                                overall_status = format_status_label(ticket_no, True)
-                                total_success += 1
-                            else:
-                                overall_status = f"Lỗi HeadText: {headtext_res}"
-                                total_missing += 1
-                        else:
-                            headtext_res = "SKIP_NO_TICKET"
-                            headtext_msg = "Không có số phiếu để điền"
-                            overall_status = "THIẾU_SỐ_PHIẾU"
-                            total_missing += 1
-
-                results.append({
-                    "doc": doc,
-                    "ticket_no": ticket_no,
-                    "headtext_status": headtext_res,
-                    "headtext_msg": headtext_msg,
-                    "overall_status": overall_status,
-                    "bbbg_status": "SKIP_NO_ATTACH",
-                    "vat_status": "SKIP_NO_ATTACH",
-                    "mail_status": "SKIP_NO_ATTACH",
-                    "bbbg_file": None,
-                    "vat_file": None,
-                    "mail_file": None,
-                    "match_notes": headtext_msg
-                })
-                continue
-
-            # =========================================================================
-            # TRƯỜNG HỢP 2: CÓ YÊU CẦU ĐÍNH KÈM NHƯNG THƯ MỤC LỖI TRUY CẬP (Mất mạng / VPN)
-            # =========================================================================
-            if not has_folder:
-                headtext_res = "SKIP"
-                headtext_msg = "Không điền HeadText"
-
-                if fill_headtext and ticket_no:
-                    if dry_run or session is None:
-                        headtext_res = "HEADTEXT_DONE"
-                        headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
-                    else:
-                        loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
-                        if loaded_ok:
-                            headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
-                        else:
-                            headtext_res = "OPEN_FAIL"
-                            headtext_msg = nav_msg
-
-                bbbg_res = "LỖI_THƯ_MỤC"
-                vat_res = "LỖI_THƯ_MỤC"
-                if headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
-                    overall_status = f"{format_status_label(ticket_no, True)} (Lỗi link thư mục)"
-                else:
-                    overall_status = "LỖI_THƯ_MỤC"
-                total_missing += 1
-
-                results.append({
-                    "doc": doc,
-                    "ticket_no": ticket_no,
-                    "headtext_status": headtext_res,
-                    "headtext_msg": headtext_msg,
-                    "bbbg_file": None,
-                    "vat_file": None,
-                    "mail_file": None,
-                    "bbbg_status": bbbg_res,
-                    "vat_status": vat_res,
-                    "mail_status": "LỖI_THƯ_MỤC",
-                    "overall_status": overall_status,
-                    "match_notes": folder_error or "Không thể truy cập thư mục đính kèm"
-                })
-                continue
-
-            # =========================================================================
-            # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
-            # =========================================================================
-            all_matches = self.match_all_files(doc, ticket_no, index_data)
-            bbbg_paths = all_matches["bbbg"]
-            vat_paths = all_matches["vat"]
-            mail_paths = all_matches["mail"]
-
-            match_notes_list = []
-            if bbbg_paths:
-                match_notes_list.append(f"BBBG: {len(bbbg_paths)} file")
+        active_tab_indices = [0]
+        if is_multi_tab_eligible:
+            available_tabs = ensure_sap_tabs(3)
+            if available_tabs >= 3:
+                # Tab 0 dành riêng cho Fast Lane! Tab 1 và Tab 2 dùng cho Batch Pool
+                active_tab_indices = [1, 2]
+                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải trên Tab 1 & Tab 2 (Chừa Tab 0 cho Fast Lane).")
+            elif available_tabs >= 2:
+                active_tab_indices = [1]
+                print(f"[ATT RUNNER] SAP có 2 tabs: Chạy Batch trên Tab 1 (Chừa Tab 0 cho Fast Lane).")
             else:
-                match_notes_list.append("BBBG: FILE_NOT_FOUND")
-            if vat_paths:
-                match_notes_list.append(f"VAT: {len(vat_paths)} file")
-            else:
-                match_notes_list.append("VAT: FILE_NOT_FOUND")
-            match_notes = " | ".join(match_notes_list)
+                active_tab_indices = [0]
 
-            headtext_res = "SKIP"
-            headtext_msg = "Không điền HeadText"
-            bbbg_res = "FILE_NOT_FOUND"
-            vat_res = "FILE_NOT_FOUND"
-            mail_res = "FILE_NOT_FOUND" if mail_paths else None
-            overall_status = "FILE_NOT_FOUND"
+        # ---------------------------------------------------------------------
+        # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)
+        # ---------------------------------------------------------------------
+        if len(active_tab_indices) > 1:
+            tab_chunks = {t_idx: [] for t_idx in active_tab_indices}
+            for i, itm in enumerate(items):
+                target_tab = active_tab_indices[i % len(active_tab_indices)]
+                tab_chunks[target_tab].append((i, itm))
 
-            if dry_run or session is None:
-                if fill_headtext and ticket_no:
-                    headtext_res = "HEADTEXT_DONE"
-                    headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
-                bbbg_res = "DONE" if bbbg_paths else "FILE_NOT_FOUND"
-                vat_res = f"DONE ({len(vat_paths)})" if len(vat_paths) > 1 else ("DONE" if vat_paths else "FILE_NOT_FOUND")
-                if mail_paths:
-                    mail_res = "DONE"
-                if bbbg_paths or vat_paths or mail_paths:
-                    overall_status = "DONE"
+            processed_count = 0
+            success_count = 0
+            prog_lock = threading.Lock()
+            indexed_results = []
+
+            def _tab_worker(tab_idx: int, chunk: List[Tuple[int, Dict[str, str]]]):
+                nonlocal processed_count, success_count, last_progress_time
+                if pythoncom is not None:
+                    pythoncom.CoInitialize()
+                worker_results = []
+                tab_lock = BATCH_TAB_LOCKS.get(tab_idx, threading.Lock())
+
+                with tab_lock:
+                    worker_session = None
+                    try:
+                        sap_gui = win32com.client.GetObject("SAPGUI")
+                        conn = sap_gui.GetScriptingEngine.Children(0)
+                        if tab_idx < conn.Children.Count:
+                            worker_session = conn.Children(tab_idx)
+                    except Exception as conn_err:
+                        print(f"[ATT RUNNER Tab {tab_idx}] Lỗi kết nối session: {conn_err}")
+
+                    if worker_session is not None:
+                        sanitize_migo_session(worker_session)
+
+                    for orig_idx, itm in chunk:
+                        doc_str = str(itm.get("doc", "")).strip()
+                        try:
+                            res_dict, is_s = self.process_single_migo_item(
+                                worker_session, itm, index_data, fill_headtext, year,
+                                is_folder_requested, has_folder, folder_error, dry_run=False
+                            )
+                        except Exception as item_err:
+                            print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
+                            sanitize_migo_session(worker_session)
+                            res_dict = {
+                                "doc": doc_str,
+                                "ticket_no": str(itm.get("ticket_no", "")).strip(),
+                                "headtext_status": "EXCEPTION",
+                                "headtext_msg": str(item_err),
+                                "bbbg_status": "ERROR",
+                                "vat_status": "ERROR",
+                                "mail_status": "ERROR",
+                                "overall_status": "ERROR",
+                                "match_notes": f"Tab {tab_idx} exception: {item_err}"
+                            }
+                            is_s = False
+
+                        worker_results.append((orig_idx, res_dict, is_s))
+
+                        with prog_lock:
+                            processed_count += 1
+                            if is_s:
+                                success_count += 1
+                            now = time.time()
+                            if progress_callback and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
+                                last_progress_time = now
+                                try:
+                                    progress_callback(processed_count, total_items, doc_str, success_count)
+                                except Exception:
+                                    pass
+
+                if pythoncom is not None:
+                    pythoncom.CoUninitialize()
+                return worker_results
+
+            with ThreadPoolExecutor(max_workers=len(active_tab_indices)) as executor:
+                futures = [
+                    executor.submit(_tab_worker, t_idx, tab_chunks[t_idx])
+                    for t_idx in active_tab_indices
+                ]
+                for fut in as_completed(futures):
+                    indexed_results.extend(fut.result())
+
+            # Khôi phục đúng thứ tự ban đầu của danh sách
+            indexed_results.sort(key=lambda x: x[0])
+            for _, r_dict, is_s in indexed_results:
+                results.append(r_dict)
+                if is_s:
                     total_success += 1
                 else:
-                    overall_status = "FILE_NOT_FOUND"
                     total_missing += 1
-            else:
-                loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE" if (fill_headtext and ticket_no) else "DISPLAY")
-                if not loaded_ok:
-                    bbbg_res = nav_msg
-                    vat_res = nav_msg
-                    overall_status = nav_msg
-                    total_missing += 1
+
+        # ---------------------------------------------------------------------
+        # NHÁNH B: CHẠY ĐƠN TAB TUẦN TỰ (SINGLE-TAB HOẶC DRY-RUN)
+        # ---------------------------------------------------------------------
+        else:
+            session = None
+            if not dry_run and self.sap_engine:
+                single_tab_idx = active_tab_indices[0]
+                if single_tab_idx > 0:
+                    try:
+                        conn = win32com.client.GetObject("SAPGUI").GetScriptingEngine.Children(0)
+                        session = conn.Children(single_tab_idx)
+                    except Exception:
+                        session = self.sap_engine.ensure_session()
                 else:
-                    # 0. KIỂM TRA ĐÍNH KÈM ĐÃ CÓ SẴN TRÊN SAP MIGO (Display Attachment / OK_REF_ATTA)
-                    sap_titles = self.read_sap_attachment_titles(session)
-                    sap_bbbg, sap_vat = self.check_existing_sap_attachments(sap_titles, ticket_no)
+                    session = self.sap_engine.ensure_session()
 
-                    # 1. Điền số phiếu vào Header Text nếu được yêu cầu
-                    if fill_headtext and ticket_no:
-                        headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
+            for idx, item in enumerate(items, 1):
+                doc = str(item.get("doc", "")).strip()
+                now = time.time()
+                if progress_callback and total_items > 20 and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
+                    last_progress_time = now
+                    try:
+                        progress_callback(idx - 1, total_items, doc, total_success)
+                    except Exception as ex:
+                        print(f"[PROGRESS WARN] Callback error: {ex}")
 
-                    # 2. Đính kèm file BBBG
-                    b_ok = False
-                    if sap_bbbg:
-                        b_ok = True
-                        bbbg_res = "DONE"
-                        print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
-                    elif bbbg_paths:
-                        succ_bb = []
-                        fail_bb = []
-                        for bp in bbbg_paths:
-                            ok_b, msg_b = self.attach_file_to_current_migo(session, bp)
-                            if ok_b:
-                                succ_bb.append(bp.name)
-                            else:
-                                fail_bb.append(f"{bp.name}: {msg_b}")
-                        if succ_bb:
-                            b_ok = True
-                            bbbg_res = f"DONE ({len(succ_bb)})" if len(succ_bb) > 1 else "DONE"
-                        else:
-                            bbbg_res = f"Lỗi: {'; '.join(fail_bb)}"
-                    else:
-                        bbbg_res = "FILE_NOT_FOUND"
-
-                    # 3. Đính kèm file VAT (hỗ trợ 1 hoặc nhiều file VAT)
-                    v_ok = False
-                    if sap_vat:
-                        v_ok = True
-                        vat_res = "DONE"
-                        print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
-                    elif vat_paths:
-                        succ_vat = []
-                        fail_vat = []
-                        for vp in vat_paths:
-                            ok_v, msg_v = self.attach_file_to_current_migo(session, vp)
-                            if ok_v:
-                                succ_vat.append(vp.name)
-                            else:
-                                fail_vat.append(f"{vp.name}: {msg_v}")
-                        if succ_vat:
-                            v_ok = True
-                            vat_res = f"DONE ({len(succ_vat)})" if len(succ_vat) > 1 else "DONE"
-                        else:
-                            vat_res = f"Lỗi: {'; '.join(fail_vat)}"
-                    else:
-                        vat_res = "FILE_NOT_FOUND"
-
-                    # 4. Đính kèm file Mail (nếu có)
-                    m_ok = False
-                    if mail_paths:
-                        ok_m, msg_m = self.attach_file_to_current_migo(session, mail_paths[0])
-                        if ok_m:
-                            m_ok = True
-                            mail_res = "DONE"
-                        else:
-                            mail_res = f"Lỗi: {msg_m}"
-
-                    # Thành công nếu BBBG, VAT, Mail hoặc HeadText thành công
-                    if b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
-                        overall_status = "DONE"
-                        total_success += 1
-                    else:
-                        overall_status = "INCOMPLETE"
-                        total_missing += 1
-
-            results.append({
-                "doc": doc,
-                "ticket_no": ticket_no,
-                "headtext_status": headtext_res,
-                "headtext_msg": headtext_msg,
-                "bbbg_file": ", ".join(p.name for p in bbbg_paths) if bbbg_paths else None,
-                "vat_file": ", ".join(p.name for p in vat_paths) if vat_paths else None,
-                "mail_file": mail_paths[0].name if mail_paths else None,
-                "bbbg_status": bbbg_res,
-                "vat_status": vat_res,
-                "mail_status": mail_res,
-                "overall_status": overall_status,
-                "match_notes": match_notes
-            })
+                res_dict, is_s = self.process_single_migo_item(
+                    session, item, index_data, fill_headtext, year,
+                    is_folder_requested, has_folder, folder_error, dry_run
+                )
+                results.append(res_dict)
+                if is_s:
+                    total_success += 1
+                else:
+                    total_missing += 1
 
         return {
             "folder_path": clean_folder if is_folder_requested else "",
