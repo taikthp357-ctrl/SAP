@@ -73,7 +73,10 @@ class SapEngine:
         session_index: int = 0,
         strict_session_safety: bool = True,
         auto_create_session: bool = True,
-        prefer_dedicated_session: bool = False
+        prefer_dedicated_session: bool = True,
+        expected_system: str = "",
+        expected_client: str = "",
+        expected_user: str = ""
     ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
@@ -85,153 +88,92 @@ class SapEngine:
         self.session = None
         self.last_activity = time.time()
         self.last_popup_message = ""
-        self.ensure_session()
+        self.expected_identity = {"system": expected_system, "client": expected_client, "user": expected_user}
+        self.session_identity = None
+
+    @staticmethod
+    def _identity(session):
+        info = session.Info
+        identity = {"system": str(info.SystemName).strip(), "client": str(info.Client).strip(),
+                    "user": str(info.User).strip(), "session_id": str(session.Id).strip()}
+        if not all(identity.values()):
+            raise SapExecutionError("Không xác minh được system/client/user/session SAP")
+        return identity
+
+    def _check_identity(self, session):
+        current = self._identity(session)
+        expected = getattr(self, "expected_identity", {})
+        for key in ("system", "client", "user"):
+            if expected.get(key) and current[key].upper() != str(expected[key]).upper():
+                raise SapExecutionError(f"SAP {key} không khớp cấu hình")
+        prior = getattr(self, "session_identity", None)
+        if prior and any(current[k] != prior[k] for k in ("system", "client", "user")):
+            raise SapExecutionError("Danh tính phiên SAP thay đổi; dừng để kiểm tra")
+        return current
 
     def _connect_sap(self):
-        """Kết nối tới phiên SAP GUI an toàn, ưu tiên phiên đang ở Main Menu hoặc T-Code của bot."""
+        """Only configured connection; never hunt across other systems/tabs."""
         try:
-            sap_gui_auto = win32com.client.GetObject("SAPGUI")
-            app = sap_gui_auto.GetScriptingEngine
-        except Exception:
-            if os.path.exists(SAP_LOGON_PATH):
-                print("[SAP] SAP Logon chưa chạy. Đang khởi động qua os.startfile...")
-                os.startfile(SAP_LOGON_PATH)
-                time.sleep(5)
-                sap_gui_auto = win32com.client.GetObject("SAPGUI")
-                app = sap_gui_auto.GetScriptingEngine
-            else:
-                raise RuntimeError("SAP Logon chưa được mở trên máy trạm!")
+            app = win32com.client.GetObject("SAPGUI").GetScriptingEngine
+        except Exception as exc:
+            raise SapExecutionError("Mở SAP GUI và đăng nhập trước khi tra cứu") from exc
+        if not 0 <= self.connection_index < app.Children.Count:
+            raise SapExecutionError("SAP connection_index không tồn tại")
+        conn = app.Children(self.connection_index)
+        if not 0 <= self.session_index < conn.Children.Count:
+            raise SapExecutionError("SAP session_index không tồn tại")
 
-        if app.Children.Count == 0 and SAP_CONNECTION_NAME:
-            print(f"[SAP] Đang mở kết nối '{SAP_CONNECTION_NAME}'...")
-            app.OpenConnection(SAP_CONNECTION_NAME, True)
-            time.sleep(3)
+        selected = None
+        # Check configured session index
+        seed = conn.Children(self.session_index)
+        is_busy = bool(getattr(seed, "Busy", False))
+        info = getattr(seed, "Info", None)
+        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
 
-        if app.Children.Count == 0:
-            raise RuntimeError("Chưa có Connection nào trong SAP Logon. Vui lòng mở SAP và đăng nhập.")
+        if not is_busy and (tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True)):
+            selected = seed
 
-        # Quét tìm session an toàn: tránh can thiệp nhầm vào phiên người dùng/tool khác đang thao tác
-        selected_session = None
-        bot_safe_tcodes = {"SESSION_MANAGER", "/SCWM/POST", "MB52", "MB51", "VL06I", "ME2N", "VL06O", "/SCWM/MON", "SCWM/MON", ""}
-
-        c_idx = min(self.connection_index, app.Children.Count - 1) if app.Children.Count > 0 else 0
-        conn = app.Children(c_idx) if app.Children.Count > 0 else None
-
-        # Ưu tiên 0: Nếu người dùng chỉ định cấu hình phiên cố định hợp lệ (session_index > 0)
-        if conn and self.session_index > 0 and self.session_index < conn.Children.Count:
-            cand = conn.Children(self.session_index)
-            is_busy = False
-            try:
-                is_busy = bool(getattr(cand, "Busy", False))
-            except Exception:
-                pass
-            if not is_busy:
-                selected_session = cand
-                print(f"[SAP] Dùng phiên chỉ định: Connection {c_idx}, Session {self.session_index}")
-
-        # Ưu tiên 1: Quét tìm phiên đang ở màn hình chính SESSION_MANAGER và KHÔNG bận (Busy=False)
-        prefer_dedicated = getattr(self, "prefer_dedicated_session", False)
-        auto_create = getattr(self, "auto_create_session", True)
-
-        if selected_session is None and not prefer_dedicated:
-            for c_i in range(app.Children.Count):
-                c = app.Children(c_i)
-                for s_i in range(c.Children.Count):
-                    sess = c.Children(s_i)
-                    try:
-                        is_busy = bool(getattr(sess, "Busy", False))
-                        if is_busy:
-                            continue
-                        info = getattr(sess, "Info", None)
-                        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
-                        if tcode == "SESSION_MANAGER":
-                            selected_session = sess
-                            conn = c
-                            print(f"[SAP] Gắn thành công phiên nhàn rỗi: Connection {c_i}, Session {s_i} (SESSION_MANAGER, Busy=False)")
-                            break
-                    except Exception:
-                        pass
-                if selected_session is not None:
-                    break
-
-        # Ưu tiên 2: Tự động mở thêm Tab mới qua CreateSession() nếu phiên khác đang bận và tổng session < MAX_BOT_SESSIONS (tối đa 3 phiên)
-        max_bot_sessions = getattr(self, "MAX_BOT_SESSIONS", 3)
-        if selected_session is None and auto_create and conn is not None:
-            if conn.Children.Count < max_bot_sessions:
+        # Hunt idle session in configured connection
+        if selected is None and not getattr(self, "prefer_dedicated_session", False):
+            for s_i in range(conn.Children.Count):
+                sess = conn.Children(s_i)
                 try:
-                    orig_count = conn.Children.Count
-                    print(f"[SAP MULTI-SESSION] Phát hiện session hiện có đang bận bởi tool khác. Đang tự động mở Tab SAP mới qua CreateSession() (Hiện có {orig_count}/{max_bot_sessions} session)...")
-                    spawn_ok = False
-                    for s_i in range(conn.Children.Count):
-                        try:
-                            s_cand = conn.Children(s_i)
-                            if hasattr(s_cand, "CreateSession"):
-                                s_cand.CreateSession()
-                                spawn_ok = True
-                                break
-                        except Exception:
-                            continue
-
-                    if spawn_ok:
-                        for _ in range(12):
-                            time.sleep(0.5)
-                            if conn.Children.Count > orig_count:
-                                selected_session = conn.Children(conn.Children.Count - 1)
-                                print(f"[SAP MULTI-SESSION] Đã mở thành công Tab mới độc lập (Session index {conn.Children.Count - 1})! Tránh 100% xung đột với tool khác.")
-                                break
-                except Exception as e:
-                    print(f"[SAP WARN] Thử tự động CreateSession thất bại: {e}")
-
-        # Ưu tiên 3: Quét lại các session nằm trong danh sách bot_safe_tcodes và Busy=False
-        if selected_session is None:
-            for c_i in range(app.Children.Count):
-                c = app.Children(c_i)
-                for s_i in range(c.Children.Count):
-                    sess = c.Children(s_i)
-                    try:
-                        is_busy = bool(getattr(sess, "Busy", False))
-                        if is_busy:
-                            continue
-                        info = getattr(sess, "Info", None)
-                        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
-                        if tcode in bot_safe_tcodes:
-                            selected_session = sess
-                            print(f"[SAP] Đã gắn kết nối an toàn: Connection {c_i}, Session {s_i} (T-Code: '{tcode or 'MAIN'}')")
+                    if not bool(getattr(sess, "Busy", False)):
+                        s_info = getattr(sess, "Info", None)
+                        s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
+                        if s_tcode in ("SESSION_MANAGER", ""):
+                            selected = sess
                             break
+                except Exception:
+                    pass
+
+        # Create new session if auto_create_session is True
+        max_bot = getattr(self, "MAX_BOT_SESSIONS", 3)
+        if selected is None and getattr(self, "auto_create_session", True) and conn.Children.Count < max_bot:
+            orig_count = conn.Children.Count
+            for s_i in range(conn.Children.Count):
+                s_cand = conn.Children(s_i)
+                if hasattr(s_cand, "CreateSession"):
+                    try:
+                        s_cand.CreateSession()
+                        for _ in range(12):
+                            time.sleep(0.25)
+                            if conn.Children.Count > orig_count:
+                                selected = conn.Children(conn.Children.Count - 1)
+                                break
                     except Exception:
                         pass
-                if selected_session is not None:
+                if selected is not None:
                     break
 
-        # Ưu tiên 4: Dùng phiên cấu hình mặc định hoặc từ chối can thiệp an toàn
-        if selected_session is None:
-            c_idx = min(self.connection_index, app.Children.Count - 1) if app.Children.Count > 0 else 0
-            conn = app.Children(c_idx)
-            if conn.Children.Count == 0:
-                raise RuntimeError("Chưa có Session nào đang mở trong SAP GUI.")
-            s_idx = min(self.session_index, conn.Children.Count - 1)
-            cand_sess = conn.Children(s_idx)
+        if selected is None:
+            if getattr(self, "strict_session_safety", True):
+                raise RuntimeError("Tất cả các phiên SAP đều đang bận thao tác của người dùng; dừng để bảo vệ an toàn dữ liệu.")
+            raise SapExecutionError("Phiên SAP cấu hình đang bận")
 
-            cand_info = getattr(cand_sess, "Info", None)
-            cand_tcode = str(getattr(cand_info, "Transaction", "")).strip().upper() if cand_info else ""
-            is_busy = False
-            try:
-                is_busy = bool(getattr(cand_sess, "Busy", False))
-            except Exception:
-                pass
-
-            if self.strict_session_safety and (is_busy or (cand_tcode and cand_tcode not in bot_safe_tcodes)):
-                raise RuntimeError(
-                    f"Tất cả các phiên SAP đều đang bận thao tác của người dùng hoặc chạy tool khác (Session {s_idx} đang ở T-Code '{cand_tcode}', Busy={is_busy}). "
-                    f"Để bảo vệ dữ liệu và tránh xung đột giữa 2 tool, Bot từ chối can thiệp. "
-                    f"Vui lòng đóng bớt 1 tab hoặc mở thêm 1 phiên mới ở màn hình chính (SESSION_MANAGER)."
-                )
-
-            selected_session = cand_sess
-            print(f"[SAP] Dùng phiên cấu hình: Connection {c_idx}, Session {s_idx} (T-Code: '{cand_tcode or 'MAIN'}')")
-
+        self.session_identity = self._check_identity(selected)
         self.last_activity = time.time()
-        return selected_session
+        return selected
 
     def _is_session_alive(self) -> bool:
         """Kiểm tra xem session SAP còn phản hồi trong bộ nhớ RAM hay không."""
@@ -244,53 +186,22 @@ class SapEngine:
             return False
 
     def ensure_session(self):
-        """Bảo đảm session luôn hợp lệ; tự động reconnect nếu phiên bị đứt."""
         if not self._is_session_alive():
-            print("[SAP] Phiên SAP bị mất kết nối hoặc chưa khởi tạo, đang kết nối lại...")
             self.session = self._connect_sap()
-            print("[SAP] Kết nối phiên SAP GUI thành công!")
+        identity = self._check_identity(self.session)
+        if getattr(self, "session_identity", None) and identity != self.session_identity:
+            raise SapExecutionError("Session SAP không còn thuộc phiên Bridge đã chọn")
+        if getattr(self.session, "Busy", False) is True:
+            raise SapExecutionError("SAP đang bận; không gửi thêm thao tác")
         return self.session
 
-    def keep_alive(self, idle_threshold_seconds: Optional[int] = None):
-        """Gửi xung nhịp nhẹ làm mới phiên SAP an toàn, không ngắt quãng phiên làm việc của người dùng."""
-        thresh = idle_threshold_seconds or self.keep_alive_idle_seconds
-        if time.time() - self.last_activity < thresh:
-            return
-
-        print(f"[KEEP-ALIVE] Đã qua {int(time.time() - self.last_activity)}s không có thao tác. Gửi xung nhịp làm mới SAP...")
-        try:
-            if not self._is_session_alive():
-                self.session = self._connect_sap()
-            else:
-                # Kiểm tra T-code hiện tại: chỉ gửi /n nếu đang ở màn hình an toàn
-                tcode = ""
-                try:
-                    info = getattr(self.session, "Info", None)
-                    tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
-                except Exception:
-                    pass
-
-                bot_safe_tcodes = {"SESSION_MANAGER", "/SCWM/POST", "MB52", "MB51", "VL06I", "ME2N", "VL06O", "/SCWM/MON", "SCWM/MON", ""}
-                if tcode in bot_safe_tcodes:
-                    self.session.findById("wnd[0]/tbar[0]/okcd").Text = "/n"
-                    self.session.findById("wnd[0]").sendVKey(0)
-                    self._dismiss_popups()
-                else:
-                    # Nếu người dùng đang ở giao dịch khác, chỉ đọc thuộc tính để giữ kết nối RAM
-                    _ = bool(self.session.Busy)
-
-            self.last_activity = time.time()
-            print(f"[KEEP-ALIVE] Phiên SAP đã được làm mới an toàn ({datetime.now().strftime('%H:%M:%S')})")
-        except Exception as e:
-            print(f"[KEEP-ALIVE WARNING] Không thể gửi xung nhịp: {e}. Sẽ kết nối lại khi có lệnh mới.")
+    def keep_alive(self, idle_threshold_seconds=None):
+        # No /n resets on an unattended screen. Reconnect only for actual queries.
+        if self.session is not None:
             try:
-                self.session = self._connect_sap()
-                self.last_activity = time.time()
+                self._check_identity(self.session)
             except Exception:
-                pass
-                self.last_activity = time.time()
-            except Exception:
-                pass
+                self.session = None
 
     def _wait_idle(self, timeout_sec: float = 30.0) -> bool:
         """Đợi SAP GUI hoàn tất xử lý (Busy = False) như chuẩn modSAPCore.WaitIdle."""
@@ -300,7 +211,7 @@ class SapEngine:
                 if not getattr(self.session, "Busy", False):
                     return True
             except Exception:
-                return True
+                return False
             time.sleep(0.1)
         return False
 
@@ -665,8 +576,8 @@ class SapEngine:
         """Trích xuất ALV Grid kèm cơ chế forward-fill mã hàng và lọc bỏ dòng tổng cộng (Summary rows)."""
         try:
             row_count = int(alv_obj.RowCount)
-        except Exception:
-            return []
+        except Exception as exc:
+            raise SapExecutionError("Không đọc được RowCount; dữ liệu nguồn chưa xác định") from exc
 
         if row_count == 0:
             return []
@@ -674,7 +585,11 @@ class SapEngine:
         resolved_cols = self._resolve_grid_columns(alv_obj, column_mapping)
         records = []
         effective_max = max_rows if max_rows is not None else self.max_alv_rows
-        limit = min(row_count, effective_max)
+        if row_count > effective_max:
+            raise SapExecutionError(f"Nguồn có {row_count} dòng, vượt giới hạn {effective_max}; thu hẹp bộ lọc để tránh kết luận từ dữ liệu thiếu")
+        if not resolved_cols:
+            raise SapExecutionError("Không nhận diện được cột dữ liệu SAP")
+        limit = row_count
         last_product = ""
 
         for r in range(limit):
@@ -688,8 +603,8 @@ class SapEngine:
                         alv_obj.firstVisibleRow = r
                         val = alv_obj.GetCellValue(r, sap_col)
                         item[out_key] = str(val).strip()
-                    except Exception:
-                        item[out_key] = ""
+                    except Exception as exc:
+                        raise SapExecutionError(f"Không đọc được ô ALV {r}/{out_key}; nguồn chưa đầy đủ") from exc
 
             # Forward-fill Product nếu ô bị gộp hiển thị trống
             curr_prod = item.get("product", "")
@@ -722,6 +637,7 @@ class SapEngine:
                 item.get("docNo") or item.get("obNo") or item.get("ibNo") or
                 item.get("stoNo") or item.get("poNo") or item.get("wtNo") or
                 item.get("item") or item.get("mvtType") or item.get("refNo") or
+                item.get("component") or item.get("queue_name") or item.get("document") or item.get("error_message") or
                 (item.get("transit") and str(item.get("transit")).strip() not in ("", "0", "0.0", "0,0"))
             )
             # Bỏ qua hoàn toàn dòng tổng cộng / subtotal của ALV (dòng không có bất kỳ thông tin vị trí/chứng từ nào)
@@ -1173,7 +1089,7 @@ class SapEngine:
             self._wait_idle(5.0)
             self._dismiss_popups()
         except Exception as st_err:
-            print(f"[SAP ERROR] Không thể mở giao dịch {tcode}: {st_err}")
+            raise SapExecutionError(f"Không thể mở giao dịch {tcode}") from st_err
 
     def _clear_all_selection_inputs(self, exclude_ids: Optional[Set[str]] = None):
         """Quét và xóa sạch tất cả các ô nhập liệu (text/ctext) trên wnd[0]/usr để chống dính bộ lọc cũ từ các phiên làm việc trước."""
@@ -3579,6 +3495,8 @@ class SapEngine:
                         break
                 if not matched_target:
                     continue
+                if batch and str(r.get("batch", "")).upper() != batch.upper():
+                    continue
                 mats_found.add(matched_target)
                 records_by_mat.setdefault(matched_target, []).append(r)
 
@@ -3591,7 +3509,7 @@ class SapEngine:
 
                 avail_rank = 1
                 for item in m_rows:
-                    qty_f = parse_sap_float(item.get("qty", 0.0))
+                    qty_f = parse_sap_float(item.get("availQty") if item.get("availQty") not in (None, "") else item.get("qty", 0.0))
                     uom = item.get("unit", "PC")
                     bin_code = item.get("bin", "")
                     batch_no = item.get("batch", "")
@@ -3606,7 +3524,10 @@ class SapEngine:
                     is_bin_blocked = bin_code.upper() in ["APFL-BL01-01-01"] or "BLOCK" in bin_code.upper()
                     is_qc = cat_status in ["QT", "QI", "QUALITY"]
                     is_blocked_status = cat_status in ["BT", "BLOCK", "BLOCKED"]
-                    is_unknown = cat_status == "UNKNOWN"
+                    is_unknown = cat_status not in {"FT", "F1", "F2", "QT", "QI", "QUALITY", "BT", "BLOCK", "BLOCKED"}
+                    scope_ok = str(item.get("plant") or plant or "3093") == "3093" and str(item.get("sloc") or "1005") == "1005"
+                    date_ok = parse_sap_datetime_sort_key(item.get("grDate", ""), item.get("grTime", ""))[0] != "99999999"
+                    eligible = False
 
                     if is_bin_blocked:
                         advice = f"⛔ Bin bị khóa hệ thống ({bin_code}) - Không bốc ra đơn"
@@ -3620,7 +3541,11 @@ class SapEngine:
                     elif is_unknown:
                         advice = f"🟡 Trạng thái tồn chưa xác định (TST: '{tst_raw or 'Rỗng'}') - Chưa đủ điều kiện FIFO MIGO"
                         rank_lbl = "-"
+                    elif not scope_ok or not date_ok or not bin_code or not uom:
+                        advice = "⚠️ Chưa xác minh đủ kho/ngày GR/bin/ĐVT; không đề xuất ra đơn"
+                        rank_lbl = "-"
                     elif qty_f > 0:
+                        eligible = True
                         advice = f"✅ FIFO #{avail_rank} - Sẵn sàng ra đơn MIGO 311 ({format_qty_display(qty_f)} {uom})"
                         rank_lbl = f"#{avail_rank}"
                         avail_rank += 1
@@ -3631,7 +3556,8 @@ class SapEngine:
                     records.append({
                         "product": m,
                         "plant": "3093",
-                        "sloc": "1005",
+                        "sloc": item.get("sloc") or "1005",
+                        "eligible": eligible,
                         "bin": bin_code,
                         "batch": batch_no,
                         "qty": format_qty_display(qty_f),
@@ -3655,7 +3581,7 @@ class SapEngine:
                 mb52_recs = []
 
             # R01: Nếu cả 2 nguồn POST và MB52 đều lỗi -> Raise ngoại lệ, không biến lỗi thành hết hàng!
-            if post_err is not None and mb52_err is not None:
+            if mb52_err is not None:
                 raise SapExecutionError(f"Lỗi truy vấn SAP NVL: /SCWM/POST ({post_err}) và MB52 ({mb52_err})")
 
             mb52_by_mat = {m: 0.0 for m in missing_mats}
@@ -3670,7 +3596,7 @@ class SapEngine:
                 if not p_mat:
                     continue
                 r_batch = str(r.get("batch", "")).strip().upper()
-                if batch and r_batch and r_batch != batch.strip().upper():
+                if batch and r_batch != batch.strip().upper():
                     continue
 
                 q = parse_sap_float(r.get("unrest", 0.0))
@@ -3678,6 +3604,8 @@ class SapEngine:
                 for m in missing_mats:
                     if m == p_mat or m.lstrip("0") == p_mat.lstrip("0"):
                         mb52_by_mat[m] += q
+                        if batch_matched[m] and unit_by_mat[m] != u:
+                            raise SapExecutionError("MB52 trả nhiều ĐVT cho cùng mã; không cộng gộp")
                         unit_by_mat[m] = u
                         batch_matched[m] = True
                         break
@@ -3737,6 +3665,7 @@ class SapEngine:
                 continue
 
             bom_found_for_mat = False
+            bom_errors = []
             for usage in ("1", "3", "5"):
                 try:
                     self._open_transaction("CS03")
@@ -3771,7 +3700,9 @@ class SapEngine:
                     # Cách 1: Đọc từ TableControl tblSAPLCSDITCMAT
                     tbl = self._find_by_id_safe("wnd[0]/usr/tblSAPLCSDITCMAT")
                     if tbl is not None:
-                        v_rows = getattr(tbl, "VisibleRowCount", 0)
+                        v_rows = int(getattr(tbl, "VisibleRowCount", 0))
+                        if int(getattr(tbl, "RowCount", v_rows)) > v_rows:
+                            raise SapExecutionError("BOM có nhiều trang; cần adapter phân trang đã xác minh")
                         for r_idx in range(v_rows):
                             try:
                                 c_mat = tbl.GetCell(r_idx, 1).Text.strip()
@@ -3815,6 +3746,7 @@ class SapEngine:
                     if bom_found_for_mat:
                         break
                 except Exception as e:
+                    bom_errors.append(str(e))
                     print(f"[SAP CS03 WARN] Lỗi đọc BOM {clean_mat} usage {usage}: {e}")
                     continue
 
@@ -3822,10 +3754,10 @@ class SapEngine:
                 results.append({
                     "parent": clean_mat,
                     "component": "-",
-                    "description": "Không tìm thấy BOM trên SAP",
+                    "description": "; ".join(bom_errors) if bom_errors else "Không xác minh được BOM với các usage đã thử",
                     "qty": "-",
                     "unit": "-",
-                    "status": "KHÔNG CÓ BOM"
+                    "status": "CHƯA XÁC ĐỊNH BOM"
                 })
 
         return results
@@ -3886,6 +3818,8 @@ class SapEngine:
                     self._wait_idle(10.0)
 
             grid = self._find_largest_grid(max_wait_sec=10.0)
+            if grid is None:
+                raise SapExecutionError("Không đọc được lưới Queue; chưa xác định trạng thái")
             if grid is not None:
                 col_map = {
                     "document": ["BUSOBJ_KEY", "OBJECT KEY", "INBOUND", "DOCUMENT", "REF"],
@@ -3904,5 +3838,4 @@ class SapEngine:
 
             return results
         except Exception as e:
-            print(f"[SAP QUEUE ERROR] {e}")
-            return []
+            raise SapExecutionError(f"Lỗi đọc Queue EWM: {e}") from e

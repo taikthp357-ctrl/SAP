@@ -14,7 +14,7 @@ from app.number_utils import parse_sap_float, format_qty_display, parse_sap_date
 
 def test_parse_sap_float_us_format():
     """Kiểm tra định dạng US/SAP chuẩn: dấu phẩy phân cách hàng nghìn, dấu chấm thập phân."""
-    assert parse_sap_float("1,000") == 1000.0
+    assert parse_sap_float("1,000", fmt="US") == 1000.0
     assert parse_sap_float("1,000.50") == 1000.5
     assert parse_sap_float("2,500,000.75") == 2500000.75
     assert parse_sap_float("500") == 500.0
@@ -32,7 +32,7 @@ def test_parse_sap_float_vn_de_format():
 def test_parse_sap_float_trailing_negative():
     """Kiểm tra định dạng số âm có dấu '-' ở đuôi từ SAP."""
     assert parse_sap_float("100.00-") == -100.0
-    assert parse_sap_float("1,000-") == -1000.0
+    assert parse_sap_float("1,000-", fmt="US") == -1000.0
     assert parse_sap_float("-50.5") == -50.5
 
 
@@ -48,9 +48,9 @@ def test_parse_sap_float_spaces_and_blanks():
 
 def test_parse_sap_float_corrupted_and_mixed_strings():
     """Kiểm tra chuỗi chứa ký tự chữ và số không gây lỗi ValueError."""
-    # 'abc.123' -> trích xuất phần số an toàn
-    assert parse_sap_float("abc.123") == 0.123
-    assert parse_sap_float("QTY: 1,500 PCS") == 1500.0
+    # Text corruption must not turn into a valid quantity
+    assert parse_sap_float("abc.123") == 0.0
+    assert parse_sap_float("QTY: 1,500 PCS") == 0.0
     assert parse_sap_float("INVALID_VAL", default=0.0) == 0.0
     assert parse_sap_float({"not": "a number"}, default=0.0) == 0.0
 
@@ -122,10 +122,10 @@ def test_parse_sap_float_user_production_cases():
     assert parse_sap_float("17.250", fmt="EU") == 17250.0
     assert parse_sap_float("1.019", fmt="EU") == 1019.0
 
-    # 2. Với cấu hình AUTO thông minh
-    assert parse_sap_float("2.050") == 2050.0
-    assert parse_sap_float("2.800") == 2800.0
-    assert parse_sap_float("1.019") == 1019.0
-    assert parse_sap_float("17.250") == 17250.0
-    assert parse_sap_float("16.500") == 16500.0
+    # 2. AUTO refuses ambiguous thousand/decimal separators; configure locale
+    assert parse_sap_float("2.050", default=-1, fmt="AUTO") == -1
+    assert parse_sap_float("2.800", default=-1, fmt="AUTO") == -1
+    assert parse_sap_float("1.019", default=-1, fmt="AUTO") == -1
+    assert parse_sap_float("17.250", default=-1, fmt="AUTO") == -1
+    assert parse_sap_float("16.500", default=-1, fmt="AUTO") == -1
     assert parse_sap_float("450") == 450.0

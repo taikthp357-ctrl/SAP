@@ -612,14 +612,11 @@ def test_parse_dien_so_phieu_and_raw_excel_row():
     assert res1["attachmentItems"][0]["doc"] == "4995880054"
     assert res1["attachmentItems"][0]["ticket_no"] == "OUT_P1_23581"
 
-    # 2. Định dạng copy nguyên dòng từ Excel
-    cmd2 = "4995880054\tOUT_P1_23581"
-    res2 = EmailCommandParser.parse(cmd2)
-    assert res2 is not None
-    assert res2["valid"] is True
-    assert res2["command"] == "ATT_MIGO"
-    assert res2["attachmentItems"][0]["doc"] == "4995880054"
-    assert res2["attachmentItems"][0]["ticket_no"] == "OUT_P1_23581"
+    # Raw pasted rows are data, not authorization to write SAP.
+    res2 = EmailCommandParser.parse("4995880054\tOUT_P1_23581")
+    assert res2["valid"] is False
+    assert res2["explicitWriteIntent"] is False
+    assert res2["detectedIntent"] == "AMBIGUOUS_DOCUMENT_LIST"
 
 
 

@@ -1,417 +1,349 @@
 # -*- coding: utf-8 -*-
-"""Dịch vụ Phân bổ Ra đơn NVL V31 Zone và MIGO 311 (NVL Allocation & MIGO 311 Service).
+"""Read-only NVL planning and explicit, local SQLite reservations.
 
-Kế thừa và chuẩn hóa toàn bộ nghiệp vụ từ 260810_RA_DON_NVL_V31_ZONE.xlsm:
-1. Quy tắc phân bổ FIFO / FEFO:
-   - Ưu tiên 1: HSD (Hạn sử dụng) gần nhất (FEFO).
-   - Ưu tiên 2: Ngày GR (Good Receipt Date) cũ nhất (FIFO).
-   - Nhóm theo Zone / Station / Area / Box (OB_GROUPS).
-2. Quản lý Kế hoạch Phân bổ Bất biến (Immutable Plan & Snapshot):
-   - Tạo mã kế hoạch PLAN-NVL-YYYYMMDD-HHMMSS.
-   - Cơ chế Stock Reservation chống xung đột đặt trước (Double-booking).
-3. Tiền kiểm MIGO 311 (Pre-check & Error Classification):
-   - Phân loại lỗi đỏ (Hard Error chặn lệnh) vs cảnh báo vàng (Warning cho phép tiếp tục).
-4. Thực thi MIGO 311 & Đọc ngược xác thực (Readback Verification):
-   - Tự động điền A08 Transfer Posting -> R10 Others -> Mvt 311.
-   - Đọc ngược số Material Document từ Status Bar.
+No function in this module posts SAP or fabricates SAP documents. Reservation
+scope is material/batch/bin/plant/sloc/UoM/stock identity, never material alone.
 """
-
+import hashlib
 import json
-import re
 import sqlite3
 import uuid
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from app.number_utils import parse_sap_float, format_qty_display
+from app.number_utils import parse_sap_decimal, parse_sap_datetime_sort_key, format_qty_display
+
+ZERO = Decimal("0")
+
+
+def _text(value):
+    return str(value or "").strip().upper()
+
+
+def _first(row, *names):
+    for name in names:
+        if name in row and row[name] is not None and row[name] != "":
+            return row[name]
+    return None
+
+
+def _json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _scope_key(row):
+    return _json([_text(row.get(k)) for k in ("material", "batch", "bin", "plant", "sloc", "unit", "stock_id")])
+
+
+def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
+    """Return an eligible, typed lot; reject missing evidence and zero availability."""
+    material = _text(_first(row, "product", "material"))
+    batch, bin_no = _text(row.get("batch")), _text(row.get("bin"))
+    unit = _text(_first(row, "unit", "uom"))
+    plant = _text(_first(row, "plant", "source_plant"))
+    sloc = _text(_first(row, "sloc", "source_sloc"))
+    cat = _text(_first(row, "cat", "stock_type"))
+    if not all((material, batch, bin_no, unit, plant, sloc)):
+        raise ValueError("Thiếu material/batch/bin/plant/sloc/ĐVT được xác minh")
+    if plant != _text(source_plant) or sloc != _text(source_sloc):
+        raise ValueError("Tồn kho ngoài phạm vi plant/sloc yêu cầu")
+    if cat not in {"FT", "F1", "F2", "UNRESTRICTED"} or row.get("eligible") is False:
+        raise ValueError("Tồn QC/blocked/category chưa xác định không được phân bổ")
+    # Zero must not fall back to total stock. Availability must be provided.
+    qty = parse_sap_decimal(_first(row, "availQty", "available_qty"), fmt=row.get("number_format"))
+    if qty < ZERO:
+        raise ValueError("Số lượng tồn khả dụng âm")
+    gr_date = _first(row, "grDate", "gr_date")
+    gr_time = _first(row, "grTime", "gr_time")
+    gr_key = parse_sap_datetime_sort_key(gr_date, gr_time)
+    if require_fifo and (gr_key[0] == "99999999" or gr_key[1] == "999999"):
+        raise ValueError("Thiếu hoặc sai thời điểm GR để xếp FIFO")
+    hsd = _first(row, "hsd", "expiry_date")
+    hsd_key = parse_sap_datetime_sort_key(hsd, "00:00:00")[0]
+    if hsd and hsd_key == "99999999":
+        raise ValueError("Hạn sử dụng không hợp lệ")
+    if hsd and hsd_key < datetime.now().strftime("%Y%m%d"):
+        raise ValueError("Lô đã hết hạn sử dụng")
+    lot = dict(material=material, batch=batch, bin=bin_no, unit=unit, plant=plant, sloc=sloc,
+               stock_id=_text(_first(row, "stock_id", "stockId", "quant")), raw_qty=qty,
+               gr_date=str(gr_date or ""), gr_time=str(gr_time or ""), gr_key=gr_key,
+               hsd=str(hsd or ""), hsd_score=hsd_key)
+    for key in ("zone", "station", "area", "box"):
+        lot[key] = str(row.get(key) or "").strip()
+    lot["stock_key"] = _scope_key(lot)
+    return lot
 
 
 class NvlService:
-    """Quản lý cấp phát NVL V31 Zone và điều phối MIGO 311."""
-
-    DEFAULT_DB_PATH = Path("G:/SAP/sap-email-teams-bridge/data/bridge_state.db")
+    DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "bridge_state.db"
 
     @classmethod
-    def _get_connection(cls, db_path: Optional[Path] = None) -> sqlite3.Connection:
-        p = Path(db_path or cls.DEFAULT_DB_PATH)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(p), timeout=15.0)
+    @contextmanager
+    def _get_connection(cls, db_path=None):
+        path = Path(db_path or cls.DEFAULT_DB_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path), timeout=15.0)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     @classmethod
-    def init_tables(cls, db_path: Optional[Path] = None):
-        """Khởi tạo bảng quản lý kế hoạch NVL và giữ tồn tạm thời (Stock Reservation)."""
+    def init_tables(cls, db_path=None):
         with cls._get_connection(db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS nvl_plans (
-                    plan_id TEXT PRIMARY KEY,
-                    version INTEGER DEFAULT 1,
-                    status TEXT DEFAULT 'DRAFT',
-                    source_plant TEXT,
-                    source_sloc TEXT,
-                    dest_plant TEXT,
-                    dest_sloc TEXT,
-                    created_by TEXT,
-                    created_at TEXT,
-                    total_ordered REAL,
-                    total_allocated REAL,
-                    mat_doc TEXT,
-                    payload_json TEXT
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS nvl_reservations (
-                    res_id TEXT PRIMARY KEY,
-                    plan_id TEXT,
-                    material TEXT,
-                    batch TEXT,
-                    qty REAL,
-                    reserved_at TEXT,
-                    status TEXT DEFAULT 'ACTIVE',
-                    FOREIGN KEY(plan_id) REFERENCES nvl_plans(plan_id)
-                )
-            """)
-            conn.commit()
+            conn.execute("""CREATE TABLE IF NOT EXISTS nvl_plans (
+                plan_id TEXT PRIMARY KEY, version INTEGER DEFAULT 1, status TEXT DEFAULT 'DRAFT',
+                source_plant TEXT, source_sloc TEXT, dest_plant TEXT, dest_sloc TEXT,
+                created_by TEXT, created_at TEXT, total_ordered REAL, total_allocated REAL,
+                mat_doc TEXT, payload_json TEXT)""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS nvl_reservations (
+                res_id TEXT PRIMARY KEY, plan_id TEXT, material TEXT, batch TEXT, qty REAL,
+                reserved_at TEXT, status TEXT DEFAULT 'ACTIVE',
+                FOREIGN KEY(plan_id) REFERENCES nvl_plans(plan_id))""")
+            for table, columns in {
+                "nvl_plans": {"request_id": "TEXT", "intent_hash": "TEXT", "expires_at": "TEXT"},
+                "nvl_reservations": {"stock_key": "TEXT", "expires_at": "TEXT"},
+            }.items():
+                present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                for column, kind in columns.items():
+                    if column not in present:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS nvl_request_key ON nvl_plans(request_id) WHERE request_id IS NOT NULL AND request_id != ''")
+            conn.execute("CREATE INDEX IF NOT EXISTS nvl_reservation_scope ON nvl_reservations(stock_key, status)")
+            # Legacy active reservations retain a blocking footprint until reviewed.
+            conn.execute("UPDATE nvl_reservations SET status='REVIEW_REQUIRED' WHERE status='ACTIVE' AND (stock_key IS NULL OR stock_key='')")
 
     @staticmethod
-    def parse_date_score(date_str: Any) -> str:
-        """Chuẩn hóa ngày sang định dạng YYYYMMDD để so sánh chuỗi thứ tự thời gian."""
-        if not date_str:
-            return "99999999"
-        s = str(date_str).strip()
-        parts = re.split(r"[./-]", s)
-        if len(parts) == 3:
-            # DD/MM/YYYY
-            if len(parts[2]) == 4:
-                return f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
-            # YYYY/MM/DD
-            if len(parts[0]) == 4:
-                return f"{parts[0]}{parts[1].zfill(2)}{parts[2].zfill(2)}"
-        # Chuỗi thuần số 8 ký tự
-        digits = re.sub(r"\D", "", s)
-        if len(digits) == 8:
-            return digits
-        return "99999999"
+    def parse_date_score(value):
+        return parse_sap_datetime_sort_key(value, "00:00:00")[0]
 
     @classmethod
-    def get_active_reservations(cls, db_path: Optional[Path] = None) -> Dict[Tuple[str, str], float]:
-        """Lấy tổng số lượng đang bị đặt trước (Active Reservations) theo (material, batch)."""
+    def _expire(cls, conn):
+        now = _now().isoformat()
+        conn.execute("UPDATE nvl_reservations SET status='EXPIRED' WHERE status='ACTIVE' AND expires_at <= ?", (now,))
+        conn.execute("UPDATE nvl_plans SET status='EXPIRED' WHERE status='LOCAL_RESERVED' AND expires_at <= ?", (now,))
+
+    @classmethod
+    def get_active_reservations(cls, db_path=None, by_stock_key=False):
+        """Compatibility aggregate; allocation always uses the full stock key."""
         cls.init_tables(db_path)
-        reserved_map: Dict[Tuple[str, str], float] = {}
-        try:
-            with cls._get_connection(db_path) as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT material, batch, SUM(qty) as sum_qty
-                    FROM nvl_reservations
-                    WHERE status = 'ACTIVE'
-                    GROUP BY material, batch
-                """)
-                for r in cur.fetchall():
-                    mat = str(r["material"]).strip().upper()
-                    bat = str(r["batch"]).strip().upper()
-                    reserved_map[(mat, bat)] = float(r["sum_qty"] or 0.0)
-        except Exception:
-            pass
-        return reserved_map
+        result = {}
+        with cls._get_connection(db_path) as conn:
+            cls._expire(conn)
+            for row in conn.execute("SELECT material,batch,stock_key,qty FROM nvl_reservations WHERE status IN ('ACTIVE','REVIEW_REQUIRED')"):
+                key = row["stock_key"] if by_stock_key else (_text(row["material"]), _text(row["batch"]))
+                result[key] = result.get(key, 0.0) + float(row["qty"])
+        return result
 
     @classmethod
-    def allocate_orders(
-        cls,
-        orders: List[Dict[str, Any]],
-        stock_records: List[Dict[str, Any]],
-        source_plant: str = "3093",
-        source_sloc: str = "1005",
-        default_dest_plant: str = "3001",
-        default_dest_sloc: str = "1003",
-        db_path: Optional[Path] = None
-    ) -> Dict[str, Any]:
-        """Thực hiện thuật toán phân bổ FEFO/FIFO cho danh sách đơn NVL.
+    def allocate_orders(cls, orders, stock_records, source_plant="3093", source_sloc="1005",
+                        default_dest_plant="3001", default_dest_sloc="1003", db_path=None,
+                        request_id=None, source_complete=False, reservation_ttl_seconds=900):
+        """Preview from a complete snapshot; no reservation is created here.
 
-        orders: [{material, qty, station, dest_plant?, dest_sloc?, ...}]
-        stock_records: [{product/material, batch, bin, zone?, station?, area?, box?,
-                         totalQty/availQty, hsd?, grDate?, grTime?}]
+        A source adapter must prove scope and completeness. Missing proof returns
+        BLOCKED. Pass a durable request_id so crash/replay returns the same plan.
         """
         cls.init_tables(db_path)
-        active_reservations = cls.get_active_reservations(db_path)
-
-        # 1. Chuẩn hóa danh sách tồn kho và tính tồn khả dụng thực tế sau khi trừ Reservation
-        lots_by_mat: Dict[str, List[Dict[str, Any]]] = {}
-        for st in stock_records:
-            mat = str(st.get("product") or st.get("material") or "").strip().upper()
-            bat = str(st.get("batch") or "").strip().upper()
-            if not mat:
-                continue
-
-            raw_qty = parse_sap_float(st.get("availQty") or st.get("totalQty") or st.get("qty") or 0.0)
-            res_qty = active_reservations.get((mat, bat), 0.0)
-            eff_qty = max(0.0, raw_qty - res_qty)
-
-            if eff_qty <= 0:
-                continue
-
-            lot = {
-                "material": mat,
-                "batch": bat,
-                "bin": str(st.get("bin") or "").strip(),
-                "zone": str(st.get("zone") or "").strip(),
-                "station": str(st.get("station") or "").strip(),
-                "area": str(st.get("area") or "").strip(),
-                "box": str(st.get("box") or "").strip(),
-                "available_qty": eff_qty,
-                "hsd": str(st.get("hsd") or "").strip(),
-                "hsd_score": cls.parse_date_score(st.get("hsd")),
-                "gr_date": str(st.get("grDate") or st.get("gr_date") or "").strip(),
-                "gr_score": cls.parse_date_score(st.get("grDate") or st.get("gr_date")),
-                "gr_time": str(st.get("grTime") or "").strip()
-            }
-            lots_by_mat.setdefault(mat, []).append(lot)
-
-        # Sắp xếp từng danh sách lô theo FEFO (HSD trước) rồi FIFO (GR Date trước)
-        for mat, lots in lots_by_mat.items():
-            lots.sort(key=lambda x: (x["hsd_score"], x["gr_score"], x["gr_time"], x["bin"]))
-
-        # 2. Tiến hành cấp phát cho từng đơn hàng
-        allocated_items: List[Dict[str, Any]] = []
-        shortages: List[Dict[str, Any]] = []
-        tot_ordered = 0.0
-        tot_allocated = 0.0
-
-        for ord_idx, o in enumerate(orders):
-            mat = str(o.get("material") or o.get("product") or "").strip().upper()
-            req_qty = abs(parse_sap_float(o.get("qty") or o.get("orderQty") or 0.0))
-            stn = str(o.get("station") or o.get("tram") or "").strip()
-            d_plant = str(o.get("dest_plant") or default_dest_plant).strip()
-            d_sloc = str(o.get("dest_sloc") or default_dest_sloc).strip()
-
-            tot_ordered += req_qty
-            rem_req = req_qty
-            avail_lots = lots_by_mat.get(mat, [])
-
-            for lot in avail_lots:
-                if rem_req <= 0:
-                    break
-                lot_avail = lot["available_qty"]
-                if lot_avail <= 0:
+        intent = {"orders": orders, "source_plant": source_plant, "source_sloc": source_sloc,
+                  "dest_plant": default_dest_plant, "dest_sloc": default_dest_sloc}
+        intent_hash = hashlib.sha256(_json(intent).encode()).hexdigest()
+        with cls._get_connection(db_path) as conn:
+            cls._expire(conn)
+            if request_id:
+                old = conn.execute("SELECT payload_json,intent_hash,status FROM nvl_plans WHERE request_id=?", (request_id,)).fetchone()
+                if old:
+                    if old["intent_hash"] != intent_hash:
+                        raise ValueError("Request ID đã dùng cho nhu cầu khác")
+                    old_plan = json.loads(old["payload_json"])
+                    old_plan["status"] = old["status"]
+                    old_plan["replayed"] = True
+                    return old_plan
+            reservations = list(conn.execute("SELECT * FROM nvl_reservations WHERE status IN ('ACTIVE','REVIEW_REQUIRED')"))
+        reserved, legacy_materials = {}, set()
+        for row in reservations:
+            if row["status"] == "REVIEW_REQUIRED":
+                legacy_materials.add(_text(row["material"]))
+            else:
+                key = row["stock_key"]
+                reserved[key] = reserved.get(key, ZERO) + Decimal(str(row["qty"]))
+        errors, exclusions, validated_orders, lots = [], [], [], {}
+        if not source_complete:
+            errors.append("Nguồn tồn kho chưa chứng minh đầy đủ; chưa được giữ tồn")
+        if not orders:
+            errors.append("Danh sách nhu cầu rỗng")
+        for index, order in enumerate(orders):
+            try:
+                mat = _text(_first(order, "material", "product"))
+                unit = _text(_first(order, "unit", "uom"))
+                qty = parse_sap_decimal(_first(order, "qty", "orderQty"), fmt=order.get("number_format"))
+                station = str(_first(order, "station", "tram") or "").strip()
+                if not mat or not unit or qty <= ZERO or not station:
+                    raise ValueError("Cần mã vật tư, ĐVT, trạm và số lượng > 0")
+                if mat in legacy_materials:
+                    raise ValueError("Có reservation bản cũ chưa xác minh phạm vi; cần đối chiếu")
+                validated_orders.append((index, order, mat, unit, qty, station))
+            except ValueError as exc:
+                errors.append(f"Nhu cầu {index + 1}: {exc}")
+        for index, stock in enumerate(stock_records):
+            try:
+                lot = validated_stock_lot(stock, source_plant, source_sloc)
+                key = lot["stock_key"]
+                if key in lots:
+                    # No unique stock identity: never double count identical-looking rows.
+                    errors.append(f"Dòng tồn {index + 1}: khóa tồn trùng; cần stock_id riêng")
                     continue
-
-                alloc_qty = min(rem_req, lot_avail)
-                lot["available_qty"] -= alloc_qty
-                rem_req -= alloc_qty
-                tot_allocated += alloc_qty
-
-                allocated_items.append({
-                    "item_no": len(allocated_items) + 1,
-                    "order_index": ord_idx,
-                    "material": mat,
-                    "station": stn or lot["station"],
-                    "area": lot["area"],
-                    "zone": lot["zone"],
-                    "box": lot["box"],
-                    "bin": lot["bin"],
-                    "batch": lot["batch"],
-                    "allocated_qty": alloc_qty,
-                    "unit": o.get("unit") or "PC",
-                    "source_plant": source_plant,
-                    "source_sloc": source_sloc,
-                    "dest_plant": d_plant,
-                    "dest_sloc": d_sloc,
-                    "hsd": lot["hsd"],
-                    "gr_date": lot["gr_date"],
-                    "status": "ALLOCATED"
-                })
-
-            if rem_req > 0:
-                shortages.append({
-                    "material": mat,
-                    "station": stn,
-                    "requested_qty": req_qty,
-                    "allocated_qty": req_qty - rem_req,
-                    "shortage_qty": rem_req,
-                    "unit": o.get("unit") or "PC",
-                    "reason": f"Kho {source_plant}/{source_sloc} thiếu {format_qty_display(rem_req)} sau khi xét đặt trước"
-                })
-
-        plan_id = f"PLAN-NVL-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        is_full = (len(shortages) == 0 and tot_allocated == tot_ordered)
-
-        plan = {
-            "plan_id": plan_id,
-            "version": 1,
-            "status": "DRAFT",
-            "source_plant": source_plant,
-            "source_sloc": source_sloc,
-            "dest_plant": default_dest_plant,
-            "dest_sloc": default_dest_sloc,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_ordered": tot_ordered,
-            "total_allocated": tot_allocated,
-            "is_full_allocation": is_full,
-            "allocated_items": allocated_items,
-            "shortages": shortages,
-            "material_document": None
-        }
-
-        return plan
+                lot["available_qty"] = max(ZERO, lot["raw_qty"] - reserved.get(key, ZERO))
+                lots[key] = lot
+            except ValueError as exc:
+                exclusions.append({"row": index + 1, "reason": str(exc)})
+        items, shortages = [], []
+        total_ordered = sum((order[4] for order in validated_orders), ZERO)
+        total_allocated = ZERO
+        # If any intent or source validation failed, do not partially reserve another order.
+        if not errors:
+            sorted_lots = sorted(lots.values(), key=lambda lot: (lot["hsd_score"], lot["gr_key"], lot["stock_key"]))
+            for index, order, material, unit, qty, station in validated_orders:
+                remaining = qty
+                for lot in sorted_lots:
+                    if lot["material"] != material or lot["unit"] != unit:
+                        continue
+                    requested_batch = _text(order.get("batch"))
+                    if requested_batch and lot["batch"] != requested_batch:
+                        continue
+                    take = min(remaining, lot["available_qty"])
+                    if take <= ZERO:
+                        continue
+                    lot["available_qty"] -= take
+                    remaining -= take
+                    total_allocated += take
+                    item = {key: lot[key] for key in ("material", "batch", "bin", "zone", "area", "box", "hsd", "gr_date", "stock_key", "stock_id")}
+                    item.update(item_no=len(items) + 1, order_index=index, station=station, unit=unit,
+                                allocated_qty=float(take), snapshot_qty=float(lot["raw_qty"]),
+                                source_plant=lot["plant"], source_sloc=lot["sloc"],
+                                dest_plant=_text(order.get("dest_plant") or default_dest_plant),
+                                dest_sloc=_text(order.get("dest_sloc") or default_dest_sloc), status="PLANNED")
+                    items.append(item)
+                    if remaining <= ZERO:
+                        break
+                if remaining > ZERO:
+                    shortages.append(dict(material=material, station=station, requested_qty=float(qty),
+                                          allocated_qty=float(qty - remaining), shortage_qty=float(remaining), unit=unit,
+                                          reason="Không đủ tồn đủ điều kiện sau giữ chỗ cục bộ; kiểm tra nguồn và dòng bị loại"))
+        now = _now()
+        return dict(plan_id="PLAN-NVL-" + (uuid.uuid5(uuid.NAMESPACE_URL, str(request_id)).hex if request_id else uuid.uuid4().hex).upper(),
+                    request_id=request_id, intent_hash=intent_hash, version=1, status="BLOCKED" if errors else "DRAFT",
+                    source_plant=source_plant, source_sloc=source_sloc, dest_plant=default_dest_plant,
+                    dest_sloc=default_dest_sloc, created_at=now.isoformat(),
+                    expires_at=(now + timedelta(seconds=max(1, min(int(reservation_ttl_seconds), 3600)))).isoformat(),
+                    source_complete=bool(source_complete), total_ordered=float(total_ordered), total_allocated=float(total_allocated),
+                    is_full_allocation=bool(orders and not errors and not shortages and total_ordered > ZERO and total_allocated == total_ordered),
+                    allocated_items=items, shortages=shortages, errors=errors, excluded_stock=exclusions,
+                    material_document=None, reservation_scope="LOCAL_ONLY")
 
     @classmethod
-    def save_plan_and_reserve(
-        cls,
-        plan: Dict[str, Any],
-        created_by: str = "BOT",
-        db_path: Optional[Path] = None
-    ) -> str:
-        """Lưu bản kế hoạch bất biến vào SQLite và kích hoạt giữ tồn (Stock Reservation)."""
+    def save_plan_and_reserve(cls, plan, created_by="BOT", db_path=None):
+        """Atomically reserve against the snapshot after rechecking concurrent claims."""
         cls.init_tables(db_path)
-        plan_id = plan["plan_id"]
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+        plan_id = str(plan["plan_id"])
         with cls._get_connection(db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO nvl_plans
-                (plan_id, version, status, source_plant, source_sloc, dest_plant, dest_sloc,
-                 created_by, created_at, total_ordered, total_allocated, mat_doc, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                plan_id,
-                plan.get("version", 1),
-                plan.get("status", "DRAFT"),
-                plan.get("source_plant", "3093"),
-                plan.get("source_sloc", "1005"),
-                plan.get("dest_plant", "3001"),
-                plan.get("dest_sloc", "1003"),
-                created_by,
-                now_str,
-                plan.get("total_ordered", 0.0),
-                plan.get("total_allocated", 0.0),
-                plan.get("material_document"),
-                json.dumps(plan, ensure_ascii=False)
-            ))
-
-            # Giữ tồn từng lô phân bổ
-            for it in plan.get("allocated_items", []):
-                res_id = f"RES-{uuid.uuid4().hex[:12].upper()}"
-                conn.execute("""
-                    INSERT INTO nvl_reservations
-                    (res_id, plan_id, material, batch, qty, reserved_at, status)
-                    VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
-                """, (
-                    res_id,
-                    plan_id,
-                    it["material"],
-                    it["batch"],
-                    it["allocated_qty"],
-                    now_str
-                ))
-
-            conn.commit()
-
+            conn.execute("BEGIN IMMEDIATE")
+            cls._expire(conn)
+            old = conn.execute("SELECT payload_json FROM nvl_plans WHERE plan_id=?", (plan_id,)).fetchone()
+            if old:
+                old_payload = json.loads(old["payload_json"])
+                def immutable_payload(payload):
+                    return {k: v for k, v in payload.items() if k not in {"status", "replayed"}}
+                if immutable_payload(old_payload) != immutable_payload(plan):
+                    raise ValueError("Plan ID đã tồn tại với nội dung khác")
+                return plan_id
+            if plan.get("status") != "DRAFT" or not plan.get("source_complete") or not plan.get("allocated_items"):
+                raise ValueError("Kế hoạch bị chặn, rỗng hoặc nguồn chưa đầy đủ")
+            if not plan.get("expires_at") or datetime.fromisoformat(plan["expires_at"]) <= _now():
+                raise ValueError("Snapshot hết hạn; cần yêu cầu mới")
+            quantities, capacities = {}, {}
+            for item in plan["allocated_items"]:
+                key = item["stock_key"]
+                actual_key = _scope_key(dict(item, plant=item["source_plant"], sloc=item["source_sloc"]))
+                if key != actual_key:
+                    raise ValueError("Khóa scope không khớp item")
+                qty, capacity = parse_sap_decimal(item["allocated_qty"]), parse_sap_decimal(item["snapshot_qty"])
+                if qty <= ZERO or capacity < qty:
+                    raise ValueError("Số lượng giữ chỗ không hợp lệ")
+                quantities[key] = quantities.get(key, ZERO) + qty
+                if key in capacities and capacities[key] != capacity:
+                    raise ValueError("Snapshot cùng khóa nhưng khác số lượng")
+                capacities[key] = capacity
+                legacy = conn.execute("SELECT 1 FROM nvl_reservations WHERE status='REVIEW_REQUIRED' AND material=? LIMIT 1", (item["material"],)).fetchone()
+                if legacy:
+                    raise ValueError("Reservation bản cũ cần đối chiếu trước khi giữ tồn")
+            for key, qty in quantities.items():
+                current = sum((Decimal(str(row[0])) for row in conn.execute("SELECT qty FROM nvl_reservations WHERE stock_key=? AND status='ACTIVE'", (key,))), ZERO)
+                if current + qty > capacities[key]:
+                    raise ValueError("Tồn đã được yêu cầu khác giữ chỗ; lập lại kế hoạch")
+            stored_plan = dict(plan, status="LOCAL_RESERVED")
+            conn.execute("""INSERT INTO nvl_plans (plan_id,version,status,source_plant,source_sloc,dest_plant,dest_sloc,
+                created_by,created_at,total_ordered,total_allocated,mat_doc,payload_json,request_id,intent_hash,expires_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (plan_id, plan.get("version", 1), "LOCAL_RESERVED", plan["source_plant"], plan["source_sloc"],
+                 plan["dest_plant"], plan["dest_sloc"], created_by, plan["created_at"], plan["total_ordered"],
+                 plan["total_allocated"], None, _json(stored_plan), plan.get("request_id"), plan.get("intent_hash"), plan["expires_at"]))
+            by_key = {item["stock_key"]: item for item in plan["allocated_items"]}
+            for key, qty in quantities.items():
+                item = by_key[key]
+                res_id = "RES-" + uuid.uuid5(uuid.NAMESPACE_URL, plan_id + key).hex
+                conn.execute("""INSERT INTO nvl_reservations (res_id,plan_id,material,batch,qty,reserved_at,status,stock_key,expires_at)
+                    VALUES (?,?,?,?,?,?,'ACTIVE',?,?)""", (res_id, plan_id, item["material"], item["batch"], float(qty), _now().isoformat(), key, plan["expires_at"]))
         return plan_id
 
     @classmethod
-    def validate_migo_precheck(cls, plan: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
-        """Tiền kiểm tra nghiệp vụ MIGO 311 trước khi thao tác vào SAP GUI.
-
-        Trả về (is_executable, hard_errors, warnings).
-        """
-        hard_errors: List[str] = []
-        warnings: List[str] = []
-
-        items = plan.get("allocated_items", [])
-        if not items:
-            hard_errors.append("Kế hoạch không có dòng phân bổ nào để xuất MIGO 311.")
-            return False, hard_errors, warnings
-
-        shortages = plan.get("shortages", [])
-        if shortages:
-            warnings.append(f"Kế hoạch có {len(shortages)} mã bị thiếu tồn kho (phân bổ một phần).")
-
-        for it in items:
-            mat = it.get("material", "")
-            qty = it.get("allocated_qty", 0.0)
-            src_p = it.get("source_plant", "")
-            src_s = it.get("source_sloc", "")
-            dst_p = it.get("dest_plant", "")
-            dst_s = it.get("dest_sloc", "")
-            bat = it.get("batch", "")
-
-            if not mat:
-                hard_errors.append(f"Dòng {it.get('item_no')}: Mã vật tư rỗng.")
-            if qty <= 0:
-                hard_errors.append(f"Dòng {it.get('item_no')} ({mat}): Số lượng xuất phải > 0.")
-            if not bat:
-                hard_errors.append(f"Dòng {it.get('item_no')} ({mat}): Chưa chỉ định số lô (Batch).")
-            if src_p == dst_p and src_s == dst_s:
-                hard_errors.append(f"Dòng {it.get('item_no')} ({mat}): Kho xuất và nhận trùng nhau ({src_p}/{src_s}).")
-
-        is_executable = len(hard_errors) == 0
-        return is_executable, hard_errors, warnings
+    def validate_migo_precheck(cls, plan):
+        errors, warnings = list(plan.get("errors", [])), []
+        if not plan.get("source_complete"):
+            errors.append("Nguồn chưa được xác nhận đầy đủ")
+        if not plan.get("allocated_items"):
+            errors.append("Kế hoạch không có dòng phân bổ")
+        if plan.get("shortages"):
+            warnings.append("Kế hoạch phân bổ một phần; chưa phải chứng từ SAP")
+        for item in plan.get("allocated_items", []):
+            if not all(item.get(k) for k in ("material", "batch", "unit", "source_plant", "source_sloc", "dest_plant", "dest_sloc")):
+                errors.append("Thiếu thông tin scope/ĐVT/chứng từ")
+            try:
+                if parse_sap_decimal(item.get("allocated_qty")) <= ZERO:
+                    errors.append("Số lượng phải > 0")
+            except ValueError:
+                errors.append("Số lượng không hợp lệ")
+            if (item.get("source_plant"), item.get("source_sloc")) == (item.get("dest_plant"), item.get("dest_sloc")):
+                errors.append("Kho xuất và nhận trùng nhau")
+        return not errors, errors, warnings
 
     @classmethod
-    def execute_migo_311_simulated(
-        cls,
-        plan_id: str,
-        db_path: Optional[Path] = None
-    ) -> Dict[str, Any]:
-        """Mô phỏng thực thi MIGO 311 (dùng cho dry-run / kiểm thử độc lập)."""
+    def execute_migo_311_simulated(cls, plan_id, db_path=None):
+        """Preview only: never change plan/reservations or generate a document."""
         cls.init_tables(db_path)
         with cls._get_connection(db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM nvl_plans WHERE plan_id = ?", (plan_id,))
-            row = cur.fetchone()
+            row = conn.execute("SELECT payload_json FROM nvl_plans WHERE plan_id=?", (plan_id,)).fetchone()
             if not row:
                 raise ValueError(f"Không tìm thấy kế hoạch {plan_id}")
-
             plan = json.loads(row["payload_json"])
-            is_valid, hard_errors, warnings = cls.validate_migo_precheck(plan)
-            if not is_valid:
-                return {
-                    "success": False,
-                    "plan_id": plan_id,
-                    "errors": hard_errors,
-                    "warnings": warnings,
-                    "status": "VALIDATION_FAILED"
-                }
-
-            fake_mat_doc = f"49{datetime.now().strftime('%m%d%H%M')}"
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # Cập nhật trạng thái EXECUTED
-            conn.execute("""
-                UPDATE nvl_plans
-                SET status = 'EXECUTED', mat_doc = ?
-                WHERE plan_id = ?
-            """, (fake_mat_doc, plan_id))
-
-            # Giải phóng reservation
-            conn.execute("""
-                UPDATE nvl_reservations
-                SET status = 'CONSUMED'
-                WHERE plan_id = ?
-            """, (plan_id,))
-            conn.commit()
-
-        return {
-            "success": True,
-            "plan_id": plan_id,
-            "material_document": fake_mat_doc,
-            "executed_items": len(plan.get("allocated_items", [])),
-            "warnings": warnings,
-            "executed_at": now_str,
-            "status": "EXECUTED"
-        }
+        valid, errors, warnings = cls.validate_migo_precheck(plan)
+        return dict(success=False, simulation_valid=valid, executed=False, plan_id=plan_id,
+                    material_document=None, executed_items=0, preview_items=len(plan.get("allocated_items", [])),
+                    errors=errors, warnings=warnings, status="SIMULATED" if valid else "VALIDATION_FAILED")
 
     @classmethod
-    def release_reservations(cls, plan_id: str, db_path: Optional[Path] = None):
-        """Hủy bỏ giữ tồn khi kế hoạch bị hủy."""
+    def release_reservations(cls, plan_id, db_path=None):
         cls.init_tables(db_path)
         with cls._get_connection(db_path) as conn:
-            conn.execute("""
-                UPDATE nvl_plans SET status = 'CANCELLED' WHERE plan_id = ?
-            """, (plan_id,))
-            conn.execute("""
-                UPDATE nvl_reservations SET status = 'RELEASED' WHERE plan_id = ?
-            """, (plan_id,))
-            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE nvl_plans SET status='CANCELLED' WHERE plan_id=? AND status IN ('DRAFT','LOCAL_RESERVED','EXPIRED')", (plan_id,))
+            conn.execute("UPDATE nvl_reservations SET status='RELEASED' WHERE plan_id=? AND status IN ('ACTIVE','EXPIRED','REVIEW_REQUIRED')", (plan_id,))

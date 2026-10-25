@@ -6,6 +6,13 @@ import json
 from pathlib import Path
 
 DEFAULT_CONFIG = {
+    "data_dir": "data",
+    "allow_sap_writes": False,
+    "sap_system": "",
+    "sap_client": "",
+    "sap_user": "",
+    "trusted_intake_senders": [],
+    "allow_nvl_reservations": False,
     "teams_webhook_url": "https://prod-xx.southeastasia.logic.azure.com:443/workflows/YOUR_WEBHOOK_URL_HERE",
     "outlook_folder_name": "SAP_BOT",
     "poll_interval_seconds": 10,
@@ -15,7 +22,7 @@ DEFAULT_CONFIG = {
     "sap_number_format": "AUTO",
     "strict_session_safety": True,
     "auto_create_session": True,
-    "prefer_dedicated_session": False,
+    "prefer_dedicated_session": True,
     "sap_session_index": 0,
     "sap_connection_index": 0,
     "max_webhook_retries": 3,
@@ -87,5 +94,4 @@ def load_config(config_path: Path = None) -> dict:
         return merged
 
     except Exception as e:
-        print(f"[CONFIG WARNING] Không đọc được config.json ({e}), dùng mặc định.")
-        return dict(DEFAULT_CONFIG)
+        raise ValueError("config.json không hợp lệ; sửa cấu hình trước khi chạy Bridge") from e

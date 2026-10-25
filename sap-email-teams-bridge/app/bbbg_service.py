@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Dịch vụ Đối soát Biên bản bàn giao Thành phẩm (BBBG FG Reconciliation Service).
+"""Preview-only BBBG quantity reconciliation and spreadsheet export.
 
-Kế thừa và chuẩn hóa toàn bộ nghiệp vụ từ 261008_BBBG_FG_V2_2_15.xlsm:
-1. Đối soát 2 chiều giữa MB51 (Movement 101/102/311/601) và VL06I (Inbound Delivery).
-2. Khóa ghép cặp: (Material, Batch, Delivery/Doc).
-3. Bóc tách rõ ràng:
-   - MATCHED: Số lượng bàn giao khớp số lượng thực nhận, đã GR.
-   - MISMATCH_QTY: Có chênh lệch số lượng (diff_qty != 0).
-   - MISSING_INBOUND: Có trên MB51 nhưng không tìm thấy Inbound tương ứng.
-   - MISSING_MB51: Có Inbound nhưng chưa phát sinh chứng từ MB51.
-   - MANUAL_ENTRY: Hàng ngoài hệ thống, tách riêng luồng nhập tay không làm giả kết quả SAP.
-4. Xuất file Excel đúng chuẩn sheet 'BBBG_NEW' bảo toàn layout cột A:K, style, viền, chữ ký.
-5. Tạo bản xem trước email (HTML Preview) theo Shop (BODY, XMĐ, CƠ KHÍ, EDC), tách rời gửi mail tự động.
+Matching preserves inbound/material/batch/unit/scope evidence. Quantity equality
+is not proof of a posted goods receipt or an approved handover document.
 """
 
 import os
 import re
+import math
+from collections import defaultdict
+from html import escape
+from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -30,33 +25,33 @@ from app.number_utils import parse_sap_float, format_qty_display
 class BbbgService:
     """Xử lý đối soát và xuất file BBBG Thành phẩm."""
 
-    DEFAULT_TEMPLATE_PATH = Path("G:/SAP/261008_BBBG_FG_V2_2_15.xlsm")
-    DEFAULT_EXPORTS_DIR = Path("G:/SAP/sap-email-teams-bridge/exports/bbbg")
+    DEFAULT_TEMPLATE_PATH = None
+    DEFAULT_EXPORTS_DIR = Path(__file__).resolve().parent.parent / "exports" / "bbbg"
 
     SHOP_RECIPIENTS_CONFIG = {
         "BODY": {
             "name": "Xưởng Hàn (Body)",
             "plant": "3093",
             "sloc": "3000",
-            "recipients": ["kho.body@vinfast.vn", "qlkho.body@vinfast.vn"]
+            "recipients": []
         },
         "XMD": {
             "name": "Xưởng Xe máy điện (XMĐ)",
             "plant": "2001",
             "sloc": "2001",
-            "recipients": ["kho.xmd@vinfast.vn"]
+            "recipients": []
         },
         "CO_KHI": {
             "name": "Xưởng Cơ khí",
             "plant": "3093",
             "sloc": "3093",
-            "recipients": ["kho.cokhi@vinfast.vn"]
+            "recipients": []
         },
         "EDC": {
             "name": "Xưởng Sơn EDC",
             "plant": "4007",
             "sloc": "4004",
-            "recipients": ["kho.edc@vinfast.vn"]
+            "recipients": []
         }
     }
 
@@ -71,176 +66,166 @@ class BbbgService:
             return s.lstrip("0") or "0"
         return s
 
+    @staticmethod
+    def _value(row: Dict[str, Any], *keys: str) -> Any:
+        """Keep a real zero; never substitute a different quantity for it."""
+        for key in keys:
+            if key in row and row[key] is not None and str(row[key]).strip() != "":
+                return row[key]
+        return ""
+
     @classmethod
     def reconcile(
         cls,
         mb51_rows: List[Dict[str, Any]],
         vl06i_rows: List[Dict[str, Any]],
-        manual_rows: Optional[List[Dict[str, Any]]] = None
+        manual_rows: Optional[List[Dict[str, Any]]] = None,
+        *, source_complete: bool = False,
     ) -> Dict[str, Any]:
-        """Thực hiện đối soát 2 chiều giữa MB51 và VL06I.
+        """Compare quantity evidence, never infer a confirmed GR from equality.
 
-        mb51_rows: [{matnr/product, batch, mblnr/docNo, qty, postDate, unit, xblnr/refNo, ...}]
-        vl06i_rows: [{ibNo, product, batch, qty/actualQty, unit, refNo, status, ...}]
-        manual_rows: [{material, batch, qty, note, ...}]
+        Match only explicit inbound + material + batch + unit + plant + sloc
+        and, when available on both sides, inbound item. Blank scope does not
+        match a nonblank scope. RefNo is accepted as an inbound link only when
+        its value equals the actual inbound number; arbitrary bill references
+        are not joined by material alone. 101/102 rows are netted; other known
+        movement types cannot prove receipt. Missing source completeness keeps
+        the entire result a preview requiring verification.
         """
-        batch_id = f"BBBG-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        groups = {"MB51": defaultdict(list), "VL06I": defaultdict(list)}
+        review = []
+        duplicate_count = 0
+        seen = {}
+        ambiguous = set()
 
-        # 1. Lập chỉ mục VL06I theo (material_norm, batch_norm) và (ibNo_norm)
-        vl_map: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-        vl_by_ib: Dict[str, List[Dict[str, Any]]] = {}
-
-        for r in vl06i_rows:
-            mat = cls.normalize_key(r.get("product") or r.get("matnr") or "")
-            bat = cls.normalize_key(r.get("batch") or r.get("charg") or "")
-            ib = cls.normalize_key(r.get("ibNo") or r.get("vbeln") or "")
-
-            key = (mat, bat)
-            vl_map.setdefault(key, []).append(r)
-            if ib:
-                vl_by_ib.setdefault(ib, []).append(r)
-
-        matched_items: List[Dict[str, Any]] = []
-        mismatch_items: List[Dict[str, Any]] = []
-        missing_ib_items: List[Dict[str, Any]] = []
-        visited_vl_indices = set()
-
-        # 2. Quét qua từng dòng MB51 để khớp với VL06I
-        for mb in mb51_rows:
-            mat = cls.normalize_key(mb.get("product") or mb.get("matnr") or "")
-            bat = cls.normalize_key(mb.get("batch") or mb.get("charg") or "")
-            doc = str(mb.get("docNo") or mb.get("mblnr") or "").strip()
-            ref = str(mb.get("refNo") or mb.get("xblnr") or "").strip()
-            unit = str(mb.get("unit") or mb.get("meins") or "PC").strip()
-            qty_mb = abs(parse_sap_float(mb.get("qty") or mb.get("menge") or 0.0))
-
-            matched_vl = None
-            # Thử khớp theo (mat, bat)
-            candidates = vl_map.get((mat, bat), [])
-            for c in candidates:
-                c_id = id(c)
-                if c_id not in visited_vl_indices:
-                    matched_vl = c
-                    visited_vl_indices.add(c_id)
-                    break
-
-            # Nếu chưa thấy, thử tìm theo ref (ibNo)
-            if not matched_vl and ref:
-                ref_norm = cls.normalize_key(ref)
-                ib_candidates = vl_by_ib.get(ref_norm, [])
-                for c in ib_candidates:
-                    c_id = id(c)
-                    if c_id not in visited_vl_indices:
-                        matched_vl = c
-                        visited_vl_indices.add(c_id)
-                        break
-
-            if matched_vl:
-                qty_vl = abs(parse_sap_float(matched_vl.get("qty") or matched_vl.get("actualQty") or 0.0))
-                ib_no = str(matched_vl.get("ibNo") or matched_vl.get("vbeln") or ref).strip()
-                diff = qty_mb - qty_vl
-
-                item_record = {
-                    "material": mb.get("product") or mb.get("matnr") or mat,
-                    "batch": mb.get("batch") or mb.get("charg") or bat,
-                    "bill_no": ref,
-                    "doc_no": ib_no or doc,
-                    "unit": unit,
-                    "handover_qty": qty_mb,
-                    "received_qty": qty_vl,
-                    "diff_qty": diff,
-                    "gr_status": "Đã GR" if diff == 0 else f"Lệch ({format_qty_display(diff)})",
-                    "mat_doc": doc,
-                    "note": "Khớp 100%" if diff == 0 else f"Chênh lệch số lượng MB51={qty_mb} vs VL06I={qty_vl}",
-                    "is_manual": False,
-                    "status": "MATCHED" if diff == 0 else "MISMATCH_QTY"
-                }
-
-                if diff == 0:
-                    matched_items.append(item_record)
+        for source, rows in (("MB51", mb51_rows), ("VL06I", vl06i_rows)):
+            for ordinal, raw in enumerate(rows):
+                row = dict(raw)
+                mat = cls.normalize_key(cls._value(row, "product", "matnr", "material"))
+                bat = cls.normalize_key(cls._value(row, "batch", "charg"))
+                unit = str(cls._value(row, "unit", "meins", "uom")).strip().upper()
+                ib = cls.normalize_key(cls._value(row, "ibNo", "inboundNo", "inbound_no", "deliveryNo", "vbeln", *( ["refNo", "xblnr"] if source == "MB51" else [])))
+                plant = cls.normalize_key(cls._value(row, "plant", "werks"))
+                sloc = cls.normalize_key(cls._value(row, "sloc", "lgort", "storageLocation"))
+                ib_item = cls.normalize_key(cls._value(row, "ibItem", "inboundItem", "deliveryItem", *( ["item", "posnr"] if source == "VL06I" else [])))
+                key = (ib, mat, bat, unit, plant, sloc, ib_item)
+                qty_raw = cls._value(row, *( ["qty", "menge"] if source == "MB51" else ["actualQty", "qty", "menge"] ))
+                qty = parse_sap_float(qty_raw, default=float("nan"))
+                mvt = cls.normalize_key(cls._value(row, "mvtType", "movementType", "bwart"))
+                reason = ""
+                if not ib or not mat or not unit:
+                    reason = "Thiếu khóa IB, vật tư hoặc đơn vị; chưa đủ bằng chứng ghép dòng."
+                elif not math.isfinite(qty):
+                    reason = "Số lượng thiếu hoặc không hợp lệ."
+                elif source == "MB51" and mvt and mvt not in {"101", "102"}:
+                    reason = f"Movement {mvt} không thuộc phép đối soát nhận hàng 101/102."
+                elif source == "VL06I" and qty < 0:
+                    reason = "Số lượng Inbound âm cần kiểm tra."
+                elif source == "MB51" and mvt == "101" and qty < 0:
+                    reason = "Số lượng 101 âm không được tự chuyển thành số dương."
+                if source == "MB51" and mvt == "102" and math.isfinite(qty):
+                    qty = -abs(qty)
+                doc = str(cls._value(row, "docNo", "mblnr")).strip()
+                year = str(cls._value(row, "docYear", "year", "mjahr")).strip()
+                doc_item = cls.normalize_key(cls._value(row, "docItem", "zeile", "item"))
+                identity = (source, doc, year, doc_item) if source == "MB51" and doc and year and doc_item else ((source, ib, ib_item) if source == "VL06I" and ib and ib_item else None)
+                signature = (key, qty, mvt)
+                if identity is not None:
+                    if identity in seen:
+                        if seen[identity] == signature:
+                            duplicate_count += 1
+                            continue
+                        ambiguous.add(seen[identity][0])
+                        reason = "Một chứng từ/năm/dòng có dữ liệu mâu thuẫn; cần kiểm tra nguồn."
+                    else:
+                        seen[identity] = signature
+                elif any(x["doc"] == doc and x["year"] == year for x in groups[source][key]) and (doc or source == "VL06I"):
+                    ambiguous.add(key)
+                    reason = "Nhiều dòng cùng khóa nhưng thiếu số dòng chứng từ; không tự cộng trùng."
+                record = {"raw": row, "qty": qty if math.isfinite(qty) else None, "doc": doc, "year": year, "mvt": mvt, "key": key}
+                if reason:
+                    review.append(cls._review_item(record, source, reason))
                 else:
-                    mismatch_items.append(item_record)
+                    groups[source][key].append(record)
+
+        items = []
+        for key in sorted(set(groups["MB51"]) | set(groups["VL06I"])):
+            mb, vl = groups["MB51"].get(key, []), groups["VL06I"].get(key, [])
+            if not mb and not vl:
+                continue
+            mb_qty = sum(r["qty"] for r in mb)
+            vl_qty = sum(r["qty"] for r in vl)
+            diff = mb_qty - vl_qty
+            if key in ambiguous:
+                status, note = "REVIEW_REQUIRED", "Khóa chứng từ có dòng trùng/mâu thuẫn; chưa xác nhận số lượng."
+            elif mb and vl:
+                status = "MATCHED" if math.isclose(diff, 0.0, rel_tol=0.0, abs_tol=1e-9) else "MISMATCH_QTY"
+                note = "Số lượng khớp; chưa xác nhận GR trên SAP." if status == "MATCHED" else "Số lượng thuần MB51 và VL06I có chênh lệch."
+            elif mb:
+                status, note = "MISSING_INBOUND", "Không có dòng Inbound cùng đầy đủ khóa trong kết quả nguồn."
             else:
-                # Không tìm thấy Inbound đối ứng
-                missing_ib_items.append({
-                    "material": mb.get("product") or mb.get("matnr") or mat,
-                    "batch": mb.get("batch") or mb.get("charg") or bat,
-                    "bill_no": ref,
-                    "doc_no": doc,
-                    "unit": unit,
-                    "handover_qty": qty_mb,
-                    "received_qty": 0.0,
-                    "diff_qty": qty_mb,
-                    "gr_status": "Thiếu Inbound VL06I",
-                    "mat_doc": doc,
-                    "note": "Không tìm thấy Inbound Delivery trên VL06I tương ứng",
-                    "is_manual": False,
-                    "status": "MISSING_INBOUND"
-                })
-
-        # 3. Quét các Inbound còn lại trong VL06I chưa được khớp (Missing MB51)
-        missing_mb_items: List[Dict[str, Any]] = []
-        for r in vl06i_rows:
-            if id(r) not in visited_vl_indices:
-                qty_vl = abs(parse_sap_float(r.get("qty") or r.get("actualQty") or 0.0))
-                missing_mb_items.append({
-                    "material": r.get("product") or r.get("matnr") or "",
-                    "batch": r.get("batch") or r.get("charg") or "",
-                    "bill_no": r.get("refNo") or "",
-                    "doc_no": r.get("ibNo") or r.get("vbeln") or "",
-                    "unit": r.get("unit") or "PC",
-                    "handover_qty": 0.0,
-                    "received_qty": qty_vl,
-                    "diff_qty": -qty_vl,
-                    "gr_status": "Chưa GR (Thiếu MB51)",
-                    "mat_doc": "",
-                    "note": "Inbound tồn tại nhưng chưa có chứng từ MB51",
-                    "is_manual": False,
-                    "status": "MISSING_MB51"
-                })
-
-        # 4. Hàng xuất thủ công ngoài hệ thống (Manual unlisted entries)
-        manual_items: List[Dict[str, Any]] = []
-        if manual_rows:
-            for mr in manual_rows:
-                qty_man = abs(parse_sap_float(mr.get("qty") or 0.0))
-                manual_items.append({
-                    "material": mr.get("material") or mr.get("product") or "MANUAL_ITEM",
-                    "batch": mr.get("batch") or "N/A",
-                    "bill_no": mr.get("bill_no") or mr.get("refNo") or "",
-                    "doc_no": mr.get("doc_no") or "MANUAL_DOC",
-                    "unit": mr.get("unit") or "PC",
-                    "handover_qty": qty_man,
-                    "received_qty": qty_man,
-                    "diff_qty": 0.0,
-                    "gr_status": "Hàng ngoài hệ thống (Ghi nhận tay)",
-                    "mat_doc": "N/A",
-                    "note": mr.get("note") or "Mã ngoài hệ thống - không kiểm tra trên SAP",
-                    "is_manual": True,
-                    "status": "MANUAL_ENTRY"
-                })
-
-        all_items = matched_items + mismatch_items + missing_ib_items + missing_mb_items + manual_items
-
-        tot_handover = sum(it["handover_qty"] for it in all_items)
-        tot_received = sum(it["received_qty"] for it in all_items)
-
-        result = {
-            "batch_id": batch_id,
+                status, note = "MISSING_MB51", "Không có dòng MB51 cùng đầy đủ khóa trong kết quả nguồn; không kết luận chưa GR."
+            representative = (mb or vl)[0]["raw"]
+            items.append({
+                "material": cls._value(representative, "product", "matnr", "material"),
+                "batch": cls._value(representative, "batch", "charg"),
+                "bill_no": cls._value(representative, "refNo", "xblnr"),
+                "doc_no": key[0], "inbound_item": key[6], "plant": key[4], "sloc": key[5],
+                "unit": key[3], "handover_qty": mb_qty if key not in ambiguous else None,
+                "received_qty": vl_qty if key not in ambiguous else None,
+                "diff_qty": diff if key not in ambiguous else None, "gr_status": "Chưa xác nhận GR", "gr_confirmed": False,
+                "mat_doc": ", ".join(dict.fromkeys(f"{r['doc']}/{r['year']}" if r["year"] else r["doc"] for r in mb if r["doc"])),
+                "note": note, "is_manual": False, "status": status,
+                "source_row_count": {"MB51": len(mb), "VL06I": len(vl)},
+            })
+        items.extend(review)
+        for row in manual_rows or []:
+            qty = parse_sap_float(row.get("qty"), default=float("nan"))
+            valid = math.isfinite(qty) and qty >= 0
+            items.append({
+                "material": cls._value(row, "material", "product"), "batch": row.get("batch", ""),
+                "bill_no": cls._value(row, "bill_no", "refNo"), "doc_no": row.get("doc_no", ""),
+                "unit": row.get("unit", ""), "handover_qty": qty if valid else None,
+                "received_qty": None, "diff_qty": None, "gr_status": "Ghi nhận tay; chưa xác nhận nhận hàng",
+                "gr_confirmed": False, "mat_doc": "", "note": row.get("note", "Hàng ngoài hệ thống"),
+                "is_manual": True, "status": "MANUAL_ENTRY" if valid else "REVIEW_REQUIRED",
+            })
+        counts = {name: sum(x["status"] == name for x in items) for name in ("MATCHED", "MISMATCH_QTY", "MISSING_INBOUND", "MISSING_MB51", "MANUAL_ENTRY", "REVIEW_REQUIRED")}
+        totals = {}
+        for item in items:
+            unit = item["unit"] or "UNKNOWN"
+            total = totals.setdefault(unit, {"handover_qty": 0.0, "received_qty": 0.0})
+            for field in total:
+                if item.get(field) is not None:
+                    total[field] += item[field]
+        single = next(iter(totals.values())) if len(totals) == 1 and "UNKNOWN" not in totals and not counts["REVIEW_REQUIRED"] else None
+        return {
+            "batch_id": f"BBBG-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:12]}",
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_items": len(all_items),
-            "matched_count": len(matched_items),
-            "mismatch_count": len(mismatch_items),
-            "missing_inbound_count": len(missing_ib_items),
-            "missing_mb51_count": len(missing_mb_items),
-            "manual_count": len(manual_items),
-            "total_handover_qty": tot_handover,
-            "total_received_qty": tot_received,
-            "has_mismatch": (len(mismatch_items) > 0 or len(missing_ib_items) > 0 or len(missing_mb_items) > 0),
-            "items": all_items
+            "total_items": len(items), "matched_count": counts["MATCHED"],
+            "mismatch_count": counts["MISMATCH_QTY"], "missing_inbound_count": counts["MISSING_INBOUND"],
+            "missing_mb51_count": counts["MISSING_MB51"], "manual_count": counts["MANUAL_ENTRY"],
+            "review_required_count": counts["REVIEW_REQUIRED"], "duplicate_count": duplicate_count,
+            "total_handover_qty": single["handover_qty"] if single else None,
+            "total_received_qty": single["received_qty"] if single else None,
+            "totals_by_unit": totals, "source_complete": source_complete,
+            "requires_review": not source_complete or any(x["status"] != "MATCHED" for x in items),
+            "has_mismatch": any(x["status"] not in {"MATCHED", "MANUAL_ENTRY"} for x in items),
+            "status": "PREVIEW", "items": items,
         }
 
-        return result
+    @classmethod
+    def _review_item(cls, record, source, reason):
+        row, key, qty = record["raw"], record["key"], record["qty"]
+        return {
+            "material": cls._value(row, "product", "matnr", "material"),
+            "batch": cls._value(row, "batch", "charg"), "bill_no": cls._value(row, "refNo", "xblnr"),
+            "doc_no": key[0], "unit": key[3], "plant": key[4], "sloc": key[5],
+            "handover_qty": None, "received_qty": None, "source_quantity": qty,
+            "source": source, "diff_qty": None,
+            "gr_status": "Chưa xác nhận GR", "gr_confirmed": False, "mat_doc": record["doc"],
+            "note": reason, "is_manual": False, "status": "REVIEW_REQUIRED",
+        }
 
     @classmethod
     def export_excel(
@@ -250,7 +235,7 @@ class BbbgService:
         output_dir: Optional[Path] = None,
         meta_header: Optional[Dict[str, str]] = None
     ) -> str:
-        """Xuất file Excel BBBG chuẩn theo template BBBG_NEW của 261008_BBBG_FG_V2_2_15.xlsm.
+        """Xuất bản preview Excel BBBG_NEW; không giả định biểu mẫu đã phê duyệt.
 
         Đảm bảo giữ đúng layout:
         - Dòng 2: Tiêu đề và Doc ID FVN_SX_KHO03.08
@@ -259,13 +244,15 @@ class BbbgService:
         - Dòng 13+: Dữ liệu đối soát
         - Dòng cuối: Tổng cộng kèm công thức SUM
         """
+        if template_path is not None:
+            raise ValueError("Chưa hỗ trợ áp dụng template ngoài; bỏ template_path để xuất mẫu preview chuẩn của bridge.")
         if output_dir is None:
             output_dir = cls.DEFAULT_EXPORTS_DIR
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        batch_id = reconciliation_result.get("batch_id", "BBBG")
-        file_name = f"{batch_id}.xlsx"
+        batch_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(reconciliation_result.get("batch_id", "BBBG")))[:80]
+        file_name = f"{batch_id}-{uuid4().hex[:12]}.xlsx"
         output_path = output_dir / file_name
 
         wb = openpyxl.Workbook()
@@ -300,18 +287,18 @@ class BbbgService:
         ws["C2"].alignment = align_center
 
         ws.merge_cells("G2:K2")
-        ws["G2"] = "Mã số/Doc ID: FVN_SX_KHO03.08\nPhiên bản/Status: 6.0/Đã phê duyệt\nNgày hiệu lực: 14/07/2026"
+        ws["G2"] = "BẢN XEM TRƯỚC / DRAFT\nChưa ký nhận hoặc xác nhận GR"
         ws["G2"].font = font_doc_id
         ws["G2"].alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
 
         # 2. Metadata (Dòng 4-9)
         meta = meta_header or {}
         now_date_str = meta.get("date") or datetime.now().strftime("%d/%m/%Y")
-        giver_name = meta.get("giver_name") or "Nguyễn Văn Kho"
-        giver_dept = meta.get("giver_dept") or "Bộ phận Quản lý Kho FG 3093"
-        giver_code = meta.get("giver_code") or "VFE-3093"
-        receiver_name = meta.get("receiver_name") or "Lưu Thị Ngọc Mai"
-        receiver_dept = meta.get("receiver_dept") or meta.get("shop") or "Xưởng Sản Xuất"
+        giver_name = meta.get("giver_name") or ""
+        giver_dept = meta.get("giver_dept") or ""
+        giver_code = meta.get("giver_code") or ""
+        receiver_name = meta.get("receiver_name") or ""
+        receiver_dept = meta.get("receiver_dept") or meta.get("shop") or ""
 
         ws["A4"] = "Ngày (Date):"
         ws["B4"] = now_date_str
@@ -330,10 +317,10 @@ class BbbgService:
 
         fields = [
             (5, "Họ và Tên (Full Name):", giver_name, receiver_name),
-            (6, "Mã NV (Employee code):", giver_code, ""),
+            (6, "Mã NV (Employee code):", giver_code, meta.get("receiver_code", "")),
             (7, "Bộ Phận (Department):", giver_dept, receiver_dept),
-            (8, "Chức vụ (Title):", "Nhân viên Kho", "Điều phối viên"),
-            (9, "Số điện thoại (Phone):", "0901234567", "")
+            (8, "Chức vụ (Title):", meta.get("giver_title", ""), meta.get("receiver_title", "")),
+            (9, "Số điện thoại (Phone):", meta.get("giver_phone", ""), meta.get("receiver_phone", ""))
         ]
         for r_idx, lbl, g_val, rec_val in fields:
             ws.cell(row=r_idx, column=1, value=lbl).font = font_regular
@@ -422,12 +409,14 @@ class BbbgService:
         ws.cell(row=tot_row, column=1, value="TỔNG CỘNG").alignment = align_center
         ws.merge_cells(start_row=tot_row, start_column=1, end_row=tot_row, end_column=6)
 
-        c_tot_g = ws.cell(row=tot_row, column=7, value=f"=SUM(G{start_row}:G{tot_row - 1})")
+        same_unit = (not items or (len({it.get("unit") for it in items}) == 1 and all(it.get("unit") for it in items)))
+        totals_known = same_unit and not any(it.get("status") == "REVIEW_REQUIRED" for it in items)
+        c_tot_g = ws.cell(row=tot_row, column=7, value=(f"=SUM(G{start_row}:G{tot_row - 1})" if items else 0) if totals_known else "N/A: cần đối soát")
         c_tot_g.alignment = align_right
         c_tot_g.font = font_bold
         c_tot_g.number_format = "#,##0.00"
 
-        c_tot_h = ws.cell(row=tot_row, column=8, value=f"=SUM(H{start_row}:H{tot_row - 1})")
+        c_tot_h = ws.cell(row=tot_row, column=8, value=(f"=SUM(H{start_row}:H{tot_row - 1})" if items else 0) if totals_known else "N/A: cần đối soát")
         c_tot_h.alignment = align_right
         c_tot_h.font = font_bold
         c_tot_h.number_format = "#,##0.00"
@@ -454,7 +443,13 @@ class BbbgService:
         ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
 
+        # User/SAP text is data, never an Excel formula. Only our total formulas remain formulas.
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.row != tot_row and isinstance(cell.value, str) and cell.value.startswith(("=", "+", "-", "@")):
+                    cell.data_type = "s"
         wb.save(str(output_path))
+        wb.close()
         return str(output_path.resolve())
 
     @classmethod
@@ -466,7 +461,7 @@ class BbbgService:
     ) -> Dict[str, Any]:
         """Tạo bản xem trước Email HTML kèm danh sách người nhận và nút xác nhận."""
         shop_info = cls.SHOP_RECIPIENTS_CONFIG.get(shop_key.upper(), cls.SHOP_RECIPIENTS_CONFIG["BODY"])
-        recipients = recipients_override or shop_info["recipients"]
+        recipients = list(recipients_override) if recipients_override is not None else []
 
         tot = reconciliation_result.get("total_items", 0)
         matched = reconciliation_result.get("matched_count", 0)
@@ -477,7 +472,7 @@ class BbbgService:
 
         badge_style = "display:inline-block;padding:4px 8px;border-radius:4px;font-weight:bold;margin-right:8px;font-size:12px;"
         kpi_badges = [
-            f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>✅ Khớp 100%: {matched}</span>",
+            f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>Số lượng khớp: {matched}</span>",
         ]
         if mismatch > 0:
             kpi_badges.append(f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>⚠️ Lệch SL: {mismatch}</span>")
@@ -491,8 +486,8 @@ class BbbgService:
         html_body = [
             f"<div style='font-family:Segoe UI,sans-serif;font-size:13px;line-height:1.5;color:#24292f;'>",
             f"<h3 style='color:#1f497d;margin-bottom:8px;'>📦 XEM TRƯỚC BIÊN BẢN BÀN GIAO THÀNH PHẨM (BBBG FG) - {shop_info['name']}</h3>",
-            f"<p><strong>Batch ID:</strong> {reconciliation_result.get('batch_id')} | <strong>Thời điểm:</strong> {reconciliation_result.get('created_at')}</p>",
-            f"<p><strong>Người nhận dự kiến:</strong> {', '.join(recipients)}</p>",
+            f"<p><strong>Batch ID:</strong> {escape(str(reconciliation_result.get('batch_id', '')))} | <strong>Thời điểm:</strong> {escape(str(reconciliation_result.get('created_at', '')))}</p>",
+            f"<p><strong>Người nhận dự kiến:</strong> {escape(', '.join(recipients)) or 'Chưa cấu hình'}</p>",
             f"<div style='margin-bottom:12px;'>{''.join(kpi_badges)}</div>",
             f"<table style='border-collapse:collapse;width:100%;font-size:12px;margin-bottom:14px;'>",
             f"<thead><tr style='background:#1f497d;color:#ffffff;'>",
@@ -516,18 +511,18 @@ class BbbgService:
                 bg = "#fff8c5"
 
             diff = it.get("diff_qty", 0.0)
-            diff_str = f"+{diff}" if diff > 0 else str(diff)
+            diff_str = "N/A" if diff is None else (f"+{diff}" if diff > 0 else str(diff))
 
             html_body.append(
                 f"<tr style='background:{bg};'>"
                 f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{idx}</td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;'><strong>{it.get('material')}</strong></td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{it.get('batch')}</td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{it.get('doc_no')}</td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:right;'>{format_qty_display(it.get('handover_qty', 0))}</td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:right;'>{format_qty_display(it.get('received_qty', 0))}</td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;'><strong>{escape(str(it.get('material', '')))}</strong></td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{escape(str(it.get('batch', '')))}</td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{escape(str(it.get('doc_no', '')))}</td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:right;'>{format_qty_display(it['handover_qty']) if it.get('handover_qty') is not None else 'N/A'}</td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:right;'>{format_qty_display(it['received_qty']) if it.get('received_qty') is not None else 'N/A'}</td>"
                 f"<td style='padding:5px;border:1px solid #d0d7de;text-align:right;font-weight:bold;'>{diff_str}</td>"
-                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{it.get('gr_status')}</td>"
+                f"<td style='padding:5px;border:1px solid #d0d7de;text-align:center;'>{escape(str(it.get('gr_status', '')))}</td>"
                 f"</tr>"
             )
 
@@ -540,8 +535,8 @@ class BbbgService:
         html_body.append("</tbody></table>")
         html_body.append(
             f"<div style='background:#f6f8fa;border:1px solid #d0d7de;padding:10px 12px;border-radius:4px;'>"
-            f"⚠️ <strong>Lưu ý:</strong> Thư này chỉ là bản xem trước (Preview). Hệ thống KHÔNG tự động gửi email cho đến khi bạn gõ lệnh xác nhận: "
-            f"<code>XÁC NHẬN GỬI BBBG {reconciliation_result.get('batch_id')}</code>.</div>"
+            f"<strong>Lưu ý:</strong> Đây là bản xem trước; số lượng khớp không xác nhận đã GR. "
+            f"Chức năng gửi email/đính kèm chưa được tích hợp. Cần kiểm tra nguồn và người nhận trước khi gửi thủ công.</div>"
             f"</div>"
         )
 
@@ -551,5 +546,6 @@ class BbbgService:
             "recipients": recipients,
             "html_preview": "".join(html_body),
             "requires_confirmation": True,
+            "send_supported": False,
             "status": "PREVIEW_GENERATED"
         }

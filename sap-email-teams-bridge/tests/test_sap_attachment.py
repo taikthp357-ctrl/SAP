@@ -48,6 +48,18 @@ def sample_attachment_dir():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def owned_runner(session, engine=None):
+    session.Info.SystemName = "TEST"
+    session.Info.Client = "100"
+    session.Info.User = "TESTUSER"
+    session.Info.Transaction = "MIGO"
+    session.Id = "/app/con[0]/ses[1]"
+    session.Busy = False
+    runner = MigoAttachmentRunner(engine, {"system": "TEST", "client": "100", "user": "TESTUSER", "session_id": session.Id})
+    runner._active_document = ("5000000001", "2026")
+    return runner
+
+
 def test_normalize_and_token_extraction():
     """Kiểm tra bóc tách token và chuẩn hóa chuỗi."""
     assert normalize_text("Thành Đạt IN- 6157") == "thanh dat in- 6157"
@@ -132,11 +144,12 @@ def test_process_attachment_batch_dry_run(sample_attachment_dir):
 
     summary = runner.process_attachment_batch(str(sample_attachment_dir), items, fill_headtext=True, dry_run=True)
     assert summary["total_items"] == 4
-    assert summary["total_success"] == 3  # 3 items khớp được ít nhất 1 file
-    assert summary["total_missing"] == 1  # 1 item hoàn toàn không có file
+    assert summary["total_success"] == 0
+    assert summary["total_preview_ready"] == 3
+    assert summary["total_missing"] == 4  # no SAP writes in preview
 
     report = runner.format_teams_report(summary)
-    assert "`5006995954`: DONE" in report
+    assert "`5006995954`: SIMULATED" in report
     assert "`9999999999`: FILE_NOT_FOUND" in report
     assert "| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |" in report
     assert "Mail (.msg)" not in report
@@ -163,8 +176,11 @@ def test_handle_migo_headtext_mock():
 
     mock_session.findById.side_effect = find_by_id
 
-    runner = MigoAttachmentRunner()
-    status, msg = runner.handle_migo_headtext(mock_session, "Thành Đạt in 6157")
+    runner = owned_runner(mock_session)
+    runner.open_migo_document = lambda *args, **kwargs: (True, "VERIFIED")
+    from unittest.mock import patch
+    with patch("app.sap_attachment.smart_find", return_value=mock_field):
+        status, msg = runner.handle_migo_headtext(mock_session, "Thành Đạt in 6157")
     assert status == "HEADTEXT_DONE"
     assert "Đã điền và lưu mới HeadText" in msg
     assert mock_field.Text == "Thành Đạt in 6157"
@@ -188,15 +204,16 @@ def test_sap_session_gos_mock():
 
     mock_session.findById.side_effect = find_by_id
 
-    runner = MigoAttachmentRunner()
+    runner = owned_runner(mock_session)
     with tempfile.NamedTemporaryFile(suffix="_VAT.pdf", delete=False) as tf:
         tf.write(b"dummy pdf")
         dummy_file = Path(tf.name)
 
     try:
+        runner.read_sap_attachment_titles = lambda session: [dummy_file.name]
         ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
         assert ok is True
-        assert "DONE_SAP_ACK" in msg
+        assert "DONE_SAP_READBACK" in msg
         mock_shell.PressContextButton.assert_called_with("%GOS_TOOLBOX")
         mock_shell.SelectContextMenuItem.assert_called_with("%GOS_PCATTA_CREA")
     finally:
@@ -211,14 +228,15 @@ def test_process_attachment_batch_headtext_only():
         items=[{"doc": "4995880054", "ticket_no": "OUT_P1_23581"}],
         dry_run=True
     )
-    assert batch_res["total_success"] == 1
-    assert batch_res["total_missing"] == 0
+    assert batch_res["total_success"] == 0
+    assert batch_res["total_preview_ready"] == 1
+    assert batch_res["total_missing"] == 1
     res0 = batch_res["results"][0]
     assert res0["doc"] == "4995880054"
     assert res0["ticket_no"] == "OUT_P1_23581"
-    assert res0["headtext_status"] == "HEADTEXT_DONE"
+    assert res0["headtext_status"] == "SIMULATED"
     assert res0["bbbg_status"] == "SKIP_NO_ATTACH"
-    assert res0["overall_status"] == "DONE"
+    assert res0["overall_status"] == "SIMULATED"
 
 
 def test_parse_attachment_multi_row_list_and_table():
@@ -290,7 +308,7 @@ def test_unreachable_folder_handling():
     r0 = res["results"][0]
     assert r0["bbbg_status"] == "LỖI_THƯ_MỤC"
     assert r0["vat_status"] == "LỖI_THƯ_MỤC"
-    assert "Lỗi link thư mục" in r0["overall_status"]
+    assert r0["overall_status"] == "LỖI_THƯ_MỤC"
 
     report = runner.format_teams_report(res)
     assert "Cảnh báo thư mục" in report
@@ -516,7 +534,7 @@ def test_process_attachment_batch_with_sap_existing_attachments():
     mock_session = MagicMock()
     mock_sap.ensure_session.return_value = mock_session
 
-    runner = MigoAttachmentRunner(sap_engine=mock_sap)
+    runner = owned_runner(mock_session, mock_sap)
     
     # Mock read_sap_attachment_titles và open_migo_document
     runner.open_migo_document = lambda session, doc, year=None, mode="DISPLAY": (True, "OK")
@@ -527,8 +545,8 @@ def test_process_attachment_batch_with_sap_existing_attachments():
     with tempfile.TemporaryDirectory() as tmp_dir:
         res = runner.process_attachment_batch(
             folder_path=tmp_dir,
-            items=[{"doc": "5006458947", "ticket_no": "Thành Công in 3874"}],
-            dry_run=False
+            items=[{"doc": "5006458947", "ticket_no": "Thành Công in 3874", "year": "2026"}],
+            fill_headtext=False, dry_run=False
         )
         assert len(res["results"]) == 1
         item = res["results"][0]
@@ -564,9 +582,9 @@ def test_multiple_vat_files_matching():
         )
         assert len(res["results"]) == 1
         r0 = res["results"][0]
-        assert r0["bbbg_status"] == "DONE"
-        assert "DONE" in r0["vat_status"]
-        assert r0["overall_status"] == "DONE"
+        assert r0["bbbg_status"] == "SIMULATED"
+        assert r0["vat_status"] == "SIMULATED"
+        assert r0["overall_status"] == "SIMULATED"
 
 
 def test_custom_vat_naming_fallback():
@@ -621,26 +639,26 @@ def test_sap_com_retry_logic():
 
 
 def test_open_migo_document_esc_cancel():
-    """Kiểm tra open_migo_document sử dụng SendVKey(12) (Esc) để thoát chứng từ."""
+    """Reload validates document/year after Enter, not just successful navigation."""
     mock_session = MagicMock()
-    mock_doc_fld = MagicMock()
-    mock_doc_fld.Changeable = False  # Bị khóa từ chứng từ trước
-
-    mock_wnd0 = MagicMock()
-    mock_session.findById.side_effect = lambda cid, *args: mock_wnd0 if "wnd[0]" in cid else None
-
-    # Lần 1: trả về Changeable=False, Lần 2 (sau SendVKey 12): trả về Changeable=True
-    fld_active = MagicMock()
-    fld_active.Changeable = True
-    fld_active.Text = ""
-
+    runner = owned_runner(mock_session)
+    stale = MagicMock(Changeable=False)
+    active = MagicMock(Changeable=True, Text="")
+    year_field = MagicMock(Text="")
+    window = MagicMock()
+    statusbar = MagicMock(MessageType="S", Text="Document loaded")
+    mock_session.findById.side_effect = lambda cid, *a: statusbar if "sbar" in cid else window
+    def enter(key):
+        if key == 0:
+            active.Changeable = False
+    window.SendVKey.side_effect = enter
     from unittest.mock import patch
-    with patch("app.sap_attachment.smart_find", side_effect=[mock_doc_fld, fld_active, fld_active]):
-        runner = MigoAttachmentRunner()
-        ok, msg = runner.open_migo_document(mock_session, "500000001", "2026")
-        assert ok is True
-        # Xác nhận SendVKey(12) (phím Esc) được gọi thay vì F3 (3)
-        mock_wnd0.SendVKey.assert_any_call(12)
+    with patch("app.sap_attachment.smart_find", side_effect=[stale, active, year_field, active, year_field]):
+        ok, msg = runner.open_migo_document(mock_session, "5000000001", "2026")
+    assert ok is True
+    assert runner._active_document == ("5000000001", "2026")
+    window.SendVKey.assert_any_call(12)
+
 
 
 def test_batch_summary_success_count_consistent():
@@ -649,17 +667,17 @@ def test_batch_summary_success_count_consistent():
     batch_res = runner.process_attachment_batch(
         folder_path="",
         items=[
-            {"doc": "500000001", "ticket_no": "TICK01"},
-            {"doc": "500000002", "ticket_no": "TICK02"},
-            {"doc": "500000003", "ticket_no": ""},
+            {"doc": "5000000001", "ticket_no": "TICK01"},
+            {"doc": "5000000002", "ticket_no": "TICK02"},
+            {"doc": "5000000003", "ticket_no": ""},
         ],
         dry_run=True
     )
-    # 2 cái có ticket_no -> HEADTEXT_DONE -> total_success = 2
-    assert batch_res["total_success"] == 2
-    assert batch_res["total_missing"] == 1
-    assert batch_res["results"][0]["is_succ"] is True
-    assert batch_res["results"][1]["is_succ"] is True
+    assert batch_res["total_success"] == 0
+    assert batch_res["total_preview_ready"] == 2
+    assert batch_res["total_missing"] == 3
+    assert batch_res["results"][0]["is_succ"] is False
+    assert batch_res["results"][1]["is_succ"] is False
     assert batch_res["results"][2]["is_succ"] is False
 
 
@@ -674,7 +692,7 @@ def test_handle_migo_headtext_different_text_returns_review_without_overwrite():
     mock_wnd0.findByName.return_value = mock_field
     mock_session.findById.return_value = mock_wnd0
 
-    runner = MigoAttachmentRunner()
+    runner = owned_runner(mock_session)
     status, msg = runner.handle_migo_headtext(mock_session, "TICKET_NEW_456")
     assert status == "HEADTEXT_REVIEW"
     assert "Cần Review thủ công, không ghi đè ngầm" in msg

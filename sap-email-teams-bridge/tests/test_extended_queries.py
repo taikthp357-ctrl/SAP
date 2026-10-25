@@ -43,8 +43,8 @@ def test_diagnose_ewm_queues():
 
 def test_track_asn_provenance():
     raw_asn = [
-        {"product": "BIW32013765AA", "batch": "B01", "qty": 100, "container": "TCLU1234567", "bill": "BL998877", "vendor": "Gestamp", "eta": "28/10/2026", "poNo": "4500123456"},
-        {"product": "BIW32024300AB", "batch": "B02", "qty": 200, "container": "TCLU1234567", "bill": "BL998877", "vendor": "Gestamp", "eta": "28/10/2026", "poNo": "4500123456"}
+        {"ibNo": "18009988", "unit": "PC", "product": "BIW32013765AA", "batch": "B01", "qty": 100, "container": "TCLU1234567", "bill": "BL998877", "vendor": "Gestamp", "eta": "28/10/2026", "poNo": "4500123456"},
+        {"ibNo": "18009988", "unit": "PC", "product": "BIW32024300AB", "batch": "B02", "qty": 200, "container": "TCLU1234567", "bill": "BL998877", "vendor": "Gestamp", "eta": "28/10/2026", "poNo": "4500123456"}
     ]
     res = ExtendedQueryService.track_asn_provenance("18009988", raw_asn)
 

@@ -30,3 +30,12 @@ env/
 # OS
 Thumbs.db
 .DS_Store
+
+# Archive
+archive_deprecated_*/
+
+
+# Local DB & runtime caches
+*.db
+*.sqlite
+sap_ui_cache.json

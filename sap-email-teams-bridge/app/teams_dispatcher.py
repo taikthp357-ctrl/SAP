@@ -117,11 +117,16 @@ class TeamsDispatcher:
                     )
 
             elif any(k in cmd_upper for k in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]):
-                tot_avail = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
+                def _is_nvl_ready(r):
+                    if r.get("eligible") is not None:
+                        return bool(r.get("eligible"))
+                    adv = str(r.get("migoAdvice", ""))
+                    return "Sẵn sàng" in adv and "chờ" not in adv.lower() and "chưa" not in adv.lower()
+                tot_avail = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if _is_nvl_ready(r))
                 tot_all = sum(parse_sap_float(r.get("qty", 0.0)) for r in records if r.get("qty") not in ["0", "N/A"])
                 bins = {r.get("bin") for r in records if r.get("bin") and r.get("bin") not in ["-", "Chưa có Bin", "Chưa xác định (Lỗi /SCWM/POST)"]}
                 batches = {r.get("batch") for r in records if r.get("batch") and r.get("batch") != "-"}
-                ready_count = sum(1 for r in records if "Sẵn sàng" in str(r.get("migoAdvice", "")) or "FIFO" in str(r.get("migoAdvice", "")))
+                ready_count = sum(1 for r in records if _is_nvl_ready(r))
                 qc_count = sum(1 for r in records if "QC" in str(r.get("migoAdvice", "")) or "chờ kiểm" in str(r.get("migoAdvice", "")).lower())
                 unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
 
@@ -875,26 +880,26 @@ class TeamsDispatcher:
         return cls.send_raw_payload(webhook_url, payload)
 
     @classmethod
-    def send_raw_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> bool:
-        """Gửi trực tiếp payload đã chuẩn hóa (dùng cho hàng đợi outbox retry)."""
+    def deliver_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> Dict[str, str]:
+        """2xx means Flow accepted; transport failures have uncertain delivery."""
         if not webhook_url or "YOUR_WEBHOOK_URL_HERE" in webhook_url:
-            print(f"[DRY-RUN] Gửi raw payload: {payload.get('requestId')}")
-            return True
-
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            webhook_url,
-            data=data,
-            headers={"Content-Type": "application/json; charset=utf-8"},
-            method="POST"
-        )
+            return {"status": "SIMULATED", "detail": "Webhook not configured; nothing sent"}
         try:
+            data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            req = urllib.request.Request(webhook_url, data=data,
+                headers={"Content-Type": "application/json; charset=utf-8", "X-Request-ID": str(payload.get("requestId", ""))}, method="POST")
             with urllib.request.urlopen(req, timeout=15) as resp:
-                print(f"[TEAMS RAW] Đã gửi lại payload {payload.get('requestId')} (HTTP {resp.status})")
-                return True
-        except urllib.error.URLError as e:
-            print(f"[TEAMS RAW ERROR] Lỗi gửi raw payload {payload.get('requestId')}: {e}")
-            return False
+                code = int(resp.status)
+                return {"status": "ACCEPTED" if 200 <= code < 300 else "AMBIGUOUS", "detail": f"HTTP {code}; delivery in Teams not verified"}
+        except urllib.error.HTTPError as exc:
+            return {"status": "REJECTED" if 400 <= exc.code < 500 else "AMBIGUOUS", "detail": f"HTTP {exc.code}"}
+        except (urllib.error.URLError, TimeoutError, OSError):
+            # Do not log URLs/tokens or assume a timeout prevented receipt.
+            return {"status": "AMBIGUOUS", "detail": "Transport interrupted; check Flow before retry"}
+
+    @classmethod
+    def send_raw_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> bool:
+        return cls.deliver_payload(webhook_url, payload)["status"] == "ACCEPTED"
 
     @classmethod
     def send_to_teams(

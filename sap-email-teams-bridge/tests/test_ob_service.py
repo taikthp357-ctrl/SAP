@@ -7,16 +7,16 @@ from app.ob_service import ObService
 
 def test_ob_whole_batch_gate_passed():
     delivery_items = [
-        {"item": "10", "material": "BIW32013765AA", "qty": 50, "batch": ""},
-        {"item": "20", "material": "BIW32024300AB", "qty": 30, "batch": "LOT_SPECIFIC"},
+        {"item": "10", "material": "BIW32013765AA", "unit": "PC", "plant": "3001", "sloc": "1003", "qty": 50, "batch": ""},
+        {"item": "20", "material": "BIW32024300AB", "unit": "PC", "plant": "3001", "sloc": "1003", "qty": 30, "batch": "LOT_SPECIFIC"},
     ]
 
     stock_records = [
-        {"product": "BIW32013765AA", "batch": "B01", "availQty": 100},
-        {"product": "BIW32024300AB", "batch": "LOT_SPECIFIC", "availQty": 30},
+        {"product": "BIW32013765AA", "batch": "B01", "bin": "BIN-A", "unit": "PC", "plant": "3001", "sloc": "1003", "cat": "FT", "availQty": 100},
+        {"product": "BIW32024300AB", "batch": "LOT_SPECIFIC", "bin": "BIN-A", "unit": "PC", "plant": "3001", "sloc": "1003", "cat": "FT", "availQty": 30},
     ]
 
-    gate_res = ObService.validate_whole_batch_gate("8000123456", delivery_items, stock_records)
+    gate_res = ObService.validate_whole_batch_gate("8000123456", delivery_items, stock_records, source_complete=True)
 
     assert gate_res["gate_passed"] is True
     assert gate_res["gate_status"] == "GATE_PASSED"
@@ -24,23 +24,24 @@ def test_ob_whole_batch_gate_passed():
 
     # Dispatch to plant 3001
     disp_res = ObService.dispatch_outbound_simulated("8000123456", "3001", gate_res)
-    assert disp_res["success"] is True
+    assert disp_res["success"] is False
+    assert disp_res["status"] == "SIMULATED"
     assert disp_res["channel"] == "VL02N_PICK_PACK"
-    assert disp_res["readback_status"] == "C"
+    assert disp_res["readback_status"] is None
 
 
 def test_ob_whole_batch_gate_deficit_blocked():
     delivery_items = [
-        {"item": "10", "material": "BIW32013765AA", "qty": 50},
-        {"item": "20", "material": "BIW32024300AB", "qty": 100},  # Deficit
+        {"item": "10", "material": "BIW32013765AA", "unit": "PC", "plant": "3001", "sloc": "1003", "qty": 50},
+        {"item": "20", "material": "BIW32024300AB", "unit": "PC", "plant": "3001", "sloc": "1003", "qty": 100},  # Deficit
     ]
 
     stock_records = [
-        {"product": "BIW32013765AA", "batch": "B01", "availQty": 100},
-        {"product": "BIW32024300AB", "batch": "B02", "availQty": 20},  # Only 20 available!
+        {"product": "BIW32013765AA", "batch": "B01", "bin": "BIN-A", "unit": "PC", "plant": "3001", "sloc": "1003", "cat": "FT", "availQty": 100},
+        {"product": "BIW32024300AB", "batch": "B02", "bin": "BIN-A", "unit": "PC", "plant": "3001", "sloc": "1003", "cat": "FT", "availQty": 20},  # Only 20 available!
     ]
 
-    gate_res = ObService.validate_whole_batch_gate("8000999999", delivery_items, stock_records)
+    gate_res = ObService.validate_whole_batch_gate("8000999999", delivery_items, stock_records, source_complete=True)
 
     assert gate_res["gate_passed"] is False
     assert gate_res["gate_status"] == "DEFICIT_BLOCKED"
@@ -64,4 +65,5 @@ def test_ob_multi_plant_routing():
     # Plant 2001 EWM WT
     res_2001 = ObService.dispatch_outbound_simulated("80002", "2001", gate_ok)
     assert res_2001["channel"] == "EWM_MON_WT_CONFIRM"
-    assert res_2001["readback_status"] == "CONFIRMED"
+    assert res_2001["readback_status"] is None
+    assert res_2001["executed"] is False

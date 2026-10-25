@@ -1,174 +1,105 @@
 # -*- coding: utf-8 -*-
-"""Dịch vụ Điều phối Outbound Delivery RC65 (Outbound Coordination Service).
+"""Outbound stock preview. No SAP dispatch or confirmation is implemented."""
+from datetime import datetime, timezone
+from decimal import Decimal
 
-Kế thừa và chuẩn hóa toàn bộ nghiệp vụ từ 261010_OB_TOOL_V1_RC65.xlsm:
-1. Whole-batch Gate Validation:
-   - Kiểm tra toàn bộ danh sách item của đợt giao hàng.
-   - Nếu có bất kỳ item nào thiếu tồn hoặc bị thâm hụt (deficit), chặn toàn bộ đợt xuất (DEFICIT_BLOCKED),
-     tuyệt đối không cho xuất dở dang làm lệch số liệu đối tác.
-2. Điều phối theo 3 phân hệ kho (Multi-Plant Routing):
-   - Kho 3001: Điều phối VL02N (Picking/Packing).
-   - Kho 4007: Điều phối STO / VL10D (Giao hàng chuyển xưởng).
-   - Kho 2001: Điều phối EWM /SCWM/MON (Warehouse Task WT confirmation).
-3. Đọc ngược kiểm chứng (Readback Verification) và ghi sổ cái Audit.
-"""
+from app.nvl_service import _text, _first, validated_stock_lot
+from app.number_utils import parse_sap_decimal, format_qty_display
 
-from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-
-from app.number_utils import parse_sap_float, format_qty_display
+ZERO = Decimal("0")
 
 
 class ObService:
-    """Xử lý kiểm soát cổng lô hàng (Batch Gate) và điều phối Outbound."""
-
     @classmethod
-    def validate_whole_batch_gate(
-        cls,
-        delivery_no: str,
-        delivery_items: List[Dict[str, Any]],
-        stock_records: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Kiểm tra điều kiện cổng toàn bộ lô hàng (Whole-batch Gate).
+    def validate_whole_batch_gate(cls, delivery_no, delivery_items, stock_records,
+                                  source_complete=False, source_plant=None, source_sloc=None):
+        """Evaluate all lines against one shared stock pool, preserving UoM/scope.
 
-        delivery_items: [{item, material/product, qty/orderQty, batch?}]
-        stock_records: [{material/product, batch?, availQty/totalQty, ...}]
+        Batch-specific requirements are allocated first, then unrestricted-batch
+        requirements consume the same remaining lots. A passed gate is a preview,
+        never authorization/evidence of an SAP operation.
         """
-        # 1. Tính tổng tồn khả dụng theo material (hoặc theo material + batch nếu có batch chỉ định)
-        stock_pool: Dict[str, float] = {}
-        stock_by_mat_batch: Dict[Tuple[str, str], float] = {}
-
-        for st in stock_records:
-            mat = str(st.get("product") or st.get("material") or "").strip().upper()
-            bat = str(st.get("batch") or "").strip().upper()
-            qty = parse_sap_float(st.get("availQty") or st.get("totalQty") or st.get("qty") or 0.0)
-
-            if mat:
-                stock_pool[mat] = stock_pool.get(mat, 0.0) + qty
-                if bat:
-                    stock_by_mat_batch[(mat, bat)] = stock_by_mat_batch.get((mat, bat), 0.0) + qty
-
-        evaluated_items: List[Dict[str, Any]] = []
-        deficits: List[Dict[str, Any]] = []
-        has_deficit = False
-
-        # 2. Đánh giá từng dòng trong delivery
-        # Lưu ý: Nếu nhiều dòng trùng material, phải trừ lùi để kiểm tra chính xác tổng nhu cầu
-        consumed_stock: Dict[str, float] = {}
-        consumed_mat_batch: Dict[Tuple[str, str], float] = {}
-
-        for it in delivery_items:
-            item_no = str(it.get("item") or it.get("item_no") or "").strip()
-            mat = str(it.get("material") or it.get("product") or "").strip().upper()
-            req_qty = abs(parse_sap_float(it.get("qty") or it.get("orderQty") or 0.0))
-            bat = str(it.get("batch") or "").strip().upper()
-
-            if bat:
-                # Kiểm tra theo lô chỉ định
-                total_lot = stock_by_mat_batch.get((mat, bat), 0.0)
-                used_lot = consumed_mat_batch.get((mat, bat), 0.0)
-                avail_for_line = max(0.0, total_lot - used_lot)
-                allocated = min(req_qty, avail_for_line)
-                consumed_mat_batch[(mat, bat)] = used_lot + allocated
-            else:
-                # FIFO / General pool
-                total_mat = stock_pool.get(mat, 0.0)
-                used_mat = consumed_stock.get(mat, 0.0)
-                avail_for_line = max(0.0, total_mat - used_mat)
-                allocated = min(req_qty, avail_for_line)
-                consumed_stock[mat] = used_mat + allocated
-
-            deficit = max(0.0, req_qty - allocated)
-            line_status = "READY" if deficit == 0 else "DEFICIT"
-
-            eval_item = {
-                "item_no": item_no,
-                "material": mat,
-                "batch": bat or "AUTO_FIFO",
-                "required_qty": req_qty,
-                "available_qty": allocated,
-                "deficit_qty": deficit,
-                "status": line_status
-            }
-            evaluated_items.append(eval_item)
-
-            if deficit > 0:
-                has_deficit = True
-                deficits.append({
-                    "item_no": item_no,
-                    "material": mat,
-                    "batch": bat,
-                    "required_qty": req_qty,
-                    "shortage_qty": deficit,
-                    "reason": f"Thiếu {format_qty_display(deficit)} trên tổng tồn khả dụng"
-                })
-
-        gate_passed = not has_deficit
-        gate_status = "GATE_PASSED" if gate_passed else "DEFICIT_BLOCKED"
-
-        return {
-            "delivery_no": delivery_no,
-            "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "gate_passed": gate_passed,
-            "gate_status": gate_status,
-            "total_items": len(delivery_items),
-            "deficit_count": len(deficits),
-            "items": evaluated_items,
-            "deficits": deficits,
-            "action_advice": (
-                "Đủ điều kiện xuất hàng. Cho phép điều phối xuất kho."
-                if gate_passed
-                else f"CHẶN XUẤT HÀNG TOÀN LÔ (DEFICIT_BLOCKED): Có {len(deficits)} dòng thiếu tồn. Không cho xuất dở dang."
-            )
-        }
+        errors, excluded, demands, lots = [], [], [], {}
+        if not source_complete:
+            errors.append("Nguồn tồn/nhu cầu chưa chứng minh đầy đủ")
+        if not delivery_no or not delivery_items:
+            errors.append("Thiếu delivery hoặc danh sách dòng giao hàng")
+        for index, item in enumerate(delivery_items):
+            try:
+                material = _text(_first(item, "material", "product"))
+                unit = _text(_first(item, "unit", "uom"))
+                plant = _text(_first(item, "plant", "source_plant") or source_plant)
+                sloc = _text(_first(item, "sloc", "source_sloc") or source_sloc)
+                quantity = parse_sap_decimal(_first(item, "qty", "orderQty", "openQty"), fmt=item.get("number_format"))
+                if not all((material, unit, plant, sloc)) or quantity <= ZERO:
+                    raise ValueError("Cần material/ĐVT/plant/sloc và số lượng > 0")
+                demands.append(dict(index=index, item_no=str(_first(item, "item", "item_no") or index + 1),
+                                    material=material, batch=_text(item.get("batch")), unit=unit,
+                                    plant=plant, sloc=sloc, required=quantity))
+            except ValueError as exc:
+                errors.append(f"Dòng yêu cầu {index + 1}: {exc}")
+        scopes = {(item["plant"], item["sloc"]) for item in demands}
+        for index, stock in enumerate(stock_records):
+            try:
+                plant = _text(_first(stock, "plant", "source_plant"))
+                sloc = _text(_first(stock, "sloc", "source_sloc"))
+                if (plant, sloc) not in scopes:
+                    raise ValueError("Tồn không thuộc plant/sloc của delivery")
+                lot = validated_stock_lot(stock, plant, sloc, require_fifo=False)
+                if lot["stock_key"] in lots:
+                    errors.append(f"Dòng tồn {index + 1}: khóa tồn trùng; cần stock_id riêng")
+                    continue
+                lot["remaining"] = lot["raw_qty"]
+                lots[lot["stock_key"]] = lot
+            except ValueError as exc:
+                excluded.append({"row": index + 1, "reason": str(exc)})
+        evaluated, deficits = {}, []
+        for demand in sorted(demands, key=lambda d: (not bool(d["batch"]), d["index"])):
+            remaining = demand["required"]
+            if not errors:
+                for key in sorted(lots):
+                    lot = lots[key]
+                    if any(lot[field] != demand[field] for field in ("material", "unit", "plant", "sloc")):
+                        continue
+                    if demand["batch"] and demand["batch"] != lot["batch"]:
+                        continue
+                    take = min(remaining, lot["remaining"])
+                    lot["remaining"] -= take
+                    remaining -= take
+                    if remaining <= ZERO:
+                        break
+            line = dict(item_no=demand["item_no"], material=demand["material"],
+                        batch=demand["batch"] or "AUTO_BATCH", unit=demand["unit"],
+                        plant=demand["plant"], sloc=demand["sloc"], required_qty=float(demand["required"]),
+                        available_qty=float(demand["required"] - remaining), deficit_qty=float(remaining),
+                        status="BLOCKED" if errors else ("READY" if remaining == ZERO else "DEFICIT"))
+            evaluated[demand["index"]] = line
+            if remaining > ZERO:
+                deficits.append(dict(item_no=line["item_no"], material=line["material"], batch=demand["batch"],
+                                     unit=demand["unit"], required_qty=line["required_qty"], shortage_qty=float(remaining),
+                                     reason=f"Thiếu {format_qty_display(remaining)} tồn đủ điều kiện trong cùng scope/ĐVT"))
+        passed = bool(demands and not errors and not deficits)
+        status = "GATE_PASSED" if passed else ("VALIDATION_BLOCKED" if errors else "DEFICIT_BLOCKED")
+        return dict(delivery_no=delivery_no, checked_at=datetime.now(timezone.utc).isoformat(),
+                    gate_passed=passed, gate_status=status, total_items=len(delivery_items),
+                    deficit_count=len(deficits), items=[evaluated[i] for i in sorted(evaluated)],
+                    deficits=deficits, errors=errors, excluded_stock=excluded, source_complete=bool(source_complete),
+                    action_advice="Đủ tồn trong snapshot kiểm tra; chưa thực thi hoặc xác nhận SAP." if passed else
+                    f"CHẶN XUẤT HÀNG TOÀN LÔ ({status}): {len(deficits)} dòng thiếu tồn; {len(errors)} lỗi xác minh.")
 
     @classmethod
-    def dispatch_outbound_simulated(
-        cls,
-        delivery_no: str,
-        plant: str,
-        evaluated_gate: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Mô phỏng thực thi điều phối theo phân hệ kho tương ứng."""
+    def dispatch_outbound_simulated(cls, delivery_no, plant, evaluated_gate):
+        """Preview routing only: never fabricate readback or dispatched evidence."""
         if not evaluated_gate.get("gate_passed"):
-            return {
-                "success": False,
-                "delivery_no": delivery_no,
-                "plant": plant,
-                "status": "BLOCKED",
-                "error": "Lô hàng không vượt qua kiểm tra cổng tồn kho (Whole-batch Gate).",
-                "deficits": evaluated_gate.get("deficits", [])
-            }
-
-        plant_str = str(plant).strip()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        if plant_str == "3001":
-            channel = "VL02N_PICK_PACK"
-            action_desc = "Xác nhận nhặt hàng (Pick) và đóng gói qua VL02N tại Kho 3001"
-            readback_status = "C"  # Completely picked
-        elif plant_str == "4007":
-            channel = "VL10D_STO_TRANSFER"
-            action_desc = "Giao hàng điều chuyển nội bộ STO qua VL10D tại Kho 4007"
-            readback_status = "C"
-        elif plant_str == "2001":
-            channel = "EWM_MON_WT_CONFIRM"
-            action_desc = "Tạo và xác nhận Warehouse Task (WT) qua EWM /SCWM/MON tại Kho 2001"
-            readback_status = "CONFIRMED"
-        else:
-            channel = "STANDARD_VL02N"
-            action_desc = f"Điều phối tiêu chuẩn tại Plant {plant_str}"
-            readback_status = "C"
-
-        return {
-            "success": True,
-            "delivery_no": delivery_no,
-            "plant": plant_str,
-            "channel": channel,
-            "action": action_desc,
-            "readback_status": readback_status,
-            "items_processed": evaluated_gate.get("total_items", 0),
-            "dispatched_at": now_str,
-            "status": "DISPATCHED"
-        }
+            return dict(success=False, executed=False, delivery_no=delivery_no, plant=plant,
+                        status="BLOCKED", readback_status=None,
+                        error="Lô hàng chưa vượt qua kiểm tra tồn kho", deficits=evaluated_gate.get("deficits", []))
+        routes = {"3001": "VL02N_PICK_PACK", "4007": "VL10D_STO_TRANSFER", "2001": "EWM_MON_WT_CONFIRM"}
+        plant = _text(plant)
+        if plant not in routes:
+            return dict(success=False, executed=False, delivery_no=delivery_no, plant=plant, status="BLOCKED",
+                        readback_status=None, error="Plant chưa có quy trình điều phối được hỗ trợ", deficits=[])
+        return dict(success=False, executed=False, simulation_valid=True, delivery_no=delivery_no, plant=plant,
+                    channel=routes[plant], action="Bản xem trước điều phối; chưa gửi lệnh hoặc xác nhận trên SAP.",
+                    readback_status=None, items_processed=0, preview_items=evaluated_gate.get("total_items", 0),
+                    status="SIMULATED")

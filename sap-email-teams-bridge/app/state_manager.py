@@ -7,6 +7,8 @@
 
 import json
 import sqlite3
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -22,12 +24,28 @@ class StateManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
+        # SQLite backup API includes committed WAL content; never copy a live DB file.
+        if self.db_path.exists():
+            with self._get_connection() as source:
+                version = source.execute("PRAGMA user_version").fetchone()[0]
+                if version < 2:
+                    backup = self.db_path.with_name(self.db_path.name + ".pre-v1049-" + uuid.uuid4().hex + ".bak")
+                    dest = sqlite3.connect(str(backup))
+                    try:
+                        source.backup(dest)
+                    finally:
+                        dest.close()
         with self._get_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS processed_messages (
@@ -65,6 +83,15 @@ class StateManager:
                     created_at TEXT
                 )
             """)
+            conn.execute("CREATE TABLE IF NOT EXISTS request_claims (request_id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL)")
+            columns = {r[1] for r in conn.execute("PRAGMA table_info(outbox_queue)")}
+            for name, definition in [("lease_token", "TEXT"), ("lease_until", "TEXT"), ("accepted_at", "TEXT")]:
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE outbox_queue ADD COLUMN {name} {definition}")
+            if conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+                # Old PENDING may already have reached Flow even with attempts=0.
+                conn.execute("UPDATE outbox_queue SET status='AMBIGUOUS', last_error='Legacy delivery requires reconciliation' WHERE status='PENDING'")
+            conn.execute("PRAGMA user_version=2")
             conn.commit()
 
     def is_message_processed(self, message_id: str, entry_id: Optional[str] = None) -> bool:
@@ -98,23 +125,69 @@ class StateManager:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self._get_connection() as conn:
             conn.execute("""
-                INSERT OR REPLACE INTO processed_messages
+                INSERT OR IGNORE INTO processed_messages
                 (message_id, entry_id, req_id, command, status, processed_at)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (key, entry_id or "", req_id, command, status, now_str))
             conn.commit()
 
-    def enqueue_outbox(self, req_id: str, webhook_url: str, payload: Dict[str, Any]):
-        """Lưu kết quả tra cứu vào outbox để gửi hoặc thử lại nếu mất mạng."""
-        payload_str = json.dumps(payload, ensure_ascii=False)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    @staticmethod
+    def _insert_outbox(conn, req_id, webhook_url, payload):
+        payload_str = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        existing = conn.execute("SELECT webhook_url,payload_json FROM outbox_queue WHERE req_id=?", (req_id,)).fetchone()
+        if existing:
+            if existing["webhook_url"] != webhook_url or json.loads(existing["payload_json"]) != payload:
+                raise ValueError("Request ID conflict: immutable result already exists")
+            return
+        conn.execute("INSERT INTO outbox_queue(req_id,webhook_url,payload_json,status) VALUES(?,?,?,'PENDING')", (req_id,webhook_url,payload_str))
+
+    def enqueue_outbox(self, req_id, webhook_url, payload):
         with self._get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO outbox_queue
-                (req_id, webhook_url, payload_json, attempts, last_attempt, status)
-                VALUES (?, ?, ?, 0, ?, 'PENDING')
-            """, (req_id, webhook_url, payload_str, now_str))
-            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            self._insert_outbox(conn, req_id, webhook_url, payload)
+
+    def complete_request(self, message_id, entry_id, req_id, command, status, webhook_url, payload):
+        """Persist result and dedup marker atomically before any HTTP attempt."""
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._insert_outbox(conn, req_id, webhook_url, payload)
+            conn.execute("INSERT OR IGNORE INTO processed_messages VALUES(?,?,?,?,?,?)", (message_id or entry_id or req_id,entry_id or "",req_id,command,status,datetime.now().isoformat()))
+            conn.execute("UPDATE request_claims SET status='COMPLETED' WHERE request_id=?", (req_id,))
+
+    def claim_request(self, req_id):
+        with self._get_connection() as conn:
+            result = conn.execute("INSERT OR IGNORE INTO request_claims VALUES(?,'RUNNING',?)", (req_id,datetime.now().isoformat()))
+            return result.rowcount == 1
+
+    def recover_interrupted(self):
+        with self._get_connection() as conn:
+            conn.execute("UPDATE request_claims SET status='RECOVERY_REQUIRED' WHERE status='RUNNING'")
+            conn.execute("UPDATE outbox_queue SET status='AMBIGUOUS', last_error='Worker stopped during HTTP delivery' WHERE status='SENDING'")
+
+    @staticmethod
+    def request_id(namespace, message_id, entry_id):
+        identity = message_id or entry_id
+        if not identity:
+            raise ValueError("Missing durable message identity")
+        return "REF-" + uuid.uuid5(uuid.NAMESPACE_URL, namespace + "|" + identity).hex
+
+    def begin_delivery(self, req_id):
+        token = uuid.uuid4().hex
+        with self._get_connection() as conn:
+            changed = conn.execute("UPDATE outbox_queue SET status='SENDING',lease_token=?,lease_until=?, attempts=attempts+1,last_attempt=? WHERE req_id=? AND status='PENDING'", (token,(datetime.now()+timedelta(seconds=60)).isoformat(),datetime.now().isoformat(),req_id)).rowcount
+        return token if changed else None
+
+    def finish_delivery(self, req_id, token, outcome, detail=""):
+        if outcome not in {"ACCEPTED", "AMBIGUOUS", "REJECTED", "SIMULATED"}:
+            raise ValueError("Invalid delivery outcome")
+        with self._get_connection() as conn:
+            conn.execute("UPDATE outbox_queue SET status=?,last_error=?,accepted_at=?,lease_until=NULL WHERE req_id=? AND lease_token=? AND status='SENDING'", (outcome,detail,datetime.now().isoformat() if outcome=="ACCEPTED" else None,req_id,token))
+
+    def requeue_reviewed(self, req_id, *, confirmed_not_delivered=False):
+        if not confirmed_not_delivered:
+            raise ValueError("Verify Flow delivery before retrying an ambiguous result")
+        with self._get_connection() as conn:
+            conn.execute("UPDATE outbox_queue SET status='PENDING', attempts=0,lease_token=NULL WHERE req_id=? AND status IN ('AMBIGUOUS','REJECTED','FAILED')", (req_id,))
 
     def get_pending_outbox(self, max_attempts: int = 3) -> List[Dict[str, Any]]:
         """Lấy danh sách các phản hồi chưa gửi thành công và chưa vượt quá số lần thử."""
@@ -132,7 +205,11 @@ class StateManager:
                 try:
                     pl = json.loads(r["payload_json"])
                 except Exception:
-                    pl = {}
+                    conn.execute("UPDATE outbox_queue SET status='CORRUPT',last_error='Invalid JSON payload' WHERE id=?", (r["id"],))
+                    continue
+                if not isinstance(pl, dict):
+                    conn.execute("UPDATE outbox_queue SET status='CORRUPT' WHERE id=?", (r["id"],))
+                    continue
                 results.append({
                     "id": r["id"],
                     "req_id": r["req_id"],
@@ -145,7 +222,7 @@ class StateManager:
     def record_outbox_success(self, req_id: str):
         """Xóa hoặc đánh dấu hoàn tất mục trong outbox khi gửi Webhook thành công."""
         with self._get_connection() as conn:
-            conn.execute("DELETE FROM outbox_queue WHERE req_id = ?", (req_id,))
+            conn.execute("UPDATE outbox_queue SET status='ACCEPTED',accepted_at=? WHERE req_id=?", (datetime.now().isoformat(),req_id))
             conn.commit()
 
     def record_outbox_failure(self, req_id: str, error_msg: str, max_attempts: int = 3):

@@ -59,7 +59,7 @@ class SmartCommandParser:
             (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
         ],
         "ATT_MIGO": [
-            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|so\s*phieu|headtext|dien\s*bktxt|bktxt)\b", 35),
+            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 35),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 35),
             (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 28),
             (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 22),
@@ -169,6 +169,125 @@ class SmartCommandParser:
 
         return text.strip()
 
+    JSON_COMMAND_ALIASES = {
+        "GR_DOC": "TIM_GR_DOC", "CHUNGTU_GR": "TIM_GR_DOC",
+        "IB_DETAIL": "CHECK_IB", "KIEMTRA_IB": "CHECK_IB", "FIND_IB": "TIM_IB",
+        "PO_STATUS": "CHECK_PO", "KIEMTRA_PO": "CHECK_PO", "DIEN_OB": "CHECK_FG_OB",
+        "RA_DON_MIGO": "CHECK_NVL_MIGO", "MIGO_311": "CHECK_NVL_MIGO",
+        "CHECK_NVL": "CHECK_NVL_MIGO", "CHECK_POSTING_CHANGE": "CHECK_NVL_MIGO",
+        "POSTING_CHANGE": "CHECK_NVL_MIGO", "POSTING": "CHECK_NVL_MIGO",
+        "BOM": "CHECK_BOM", "CS03": "CHECK_BOM", "QUEUE": "CHECK_QUEUE",
+        "ATTACH_VAT_BBBG": "ATT_MIGO", "MIGO_ATT": "ATT_MIGO", "ATTACH_MIGO": "ATT_MIGO",
+        "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO",
+    }
+    JSON_COMMANDS = frozenset(INTENT_SCORES) | {
+        "PING", "BIN", "POST", "SCWM", "/SCWM/POST", "TON_KHO", "MB52", "MB51",
+        "IB", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN"
+    }
+
+    @classmethod
+    def _parse_json_request(cls, obj: Dict[str, Any], default_plant: str) -> Dict[str, Any]:
+        from decimal import Decimal, InvalidOperation
+        command = str(obj.get("command", "")).strip().upper()
+        command = cls.JSON_COMMAND_ALIASES.get(command, command)
+        base = {"requestId": str(obj.get("requestId") or obj.get("messageId") or ""),
+                "messageId": str(obj.get("messageId") or obj.get("MSG_ID") or obj.get("requestId") or ""),
+                "senderEmail": str(obj.get("senderEmail") or obj.get("SENDER_EMAIL") or "PowerAutomate"),
+                "senderName": str(obj.get("senderName") or obj.get("SENDER_NAME") or "Hệ thống"),
+                "senderId": str(obj.get("senderId") or obj.get("SENDER_ID") or ""),
+                "chatId": str(obj.get("chatId") or obj.get("CHAT_ID") or ""),
+                "command": command, "explicitWriteIntent": command == "ATT_MIGO",
+                "executionMode": "WRITE_PREVIEW" if command == "ATT_MIGO" else "READ_ONLY"}
+        def invalid(reason):
+            return {**base, "valid": False, "needHelpReply": True,
+                    "detectedIntent": command or "UNKNOWN", "reason": reason}
+        if command not in cls.JSON_COMMANDS:
+            return invalid(f"Lệnh '{command}' không được hỗ trợ trong hệ thống.")
+        if command == "HELP":
+            return invalid("Người dùng yêu cầu hướng dẫn cú pháp.")
+        dry_run = obj.get("dryRun", False)
+        if not isinstance(dry_run, bool):
+            return invalid("dryRun phải là true hoặc false trong JSON.")
+        raw_mats = obj.get("materials", [])
+        if isinstance(raw_mats, (str, int)) and not isinstance(raw_mats, bool):
+            raw_mats = re.split(r"[,;\s]+", str(raw_mats))
+        mats = []
+        for value in raw_mats if isinstance(raw_mats, list) else []:
+            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                text = str(value).strip()
+                if re.fullmatch(r"[\w\-./]{2,40}", text) and text not in mats:
+                    mats.append(text)
+        try:
+            days = max(1, min(int(obj.get("days", 7)), 365))
+        except (ValueError, TypeError, OverflowError):
+            days = 7
+        try:
+            limit = max(1, min(int(obj.get("limit", 20)), 100))
+        except (ValueError, TypeError, OverflowError):
+            return invalid("limit phải là số nguyên.")
+        qty = obj.get("qty", obj.get("quantity", obj.get("expectedQty")))
+        if qty is not None:
+            try:
+                if isinstance(qty, bool):
+                    raise ValueError()
+                quantity = Decimal(str(qty))
+                if not quantity.is_finite() or quantity < 0:
+                    raise ValueError()
+                if command == "RA_DON_NVL" and quantity <= 0:
+                    raise ValueError()
+                qty = float(quantity)
+            except (ValueError, InvalidOperation):
+                return invalid("Số lượng phải là số JSON không âm; đơn NVL phải lớn hơn 0.")
+        items = obj.get("attachmentItems", [])
+        docs = obj.get("attachmentDocs", obj.get("docs", []))
+        year = str(obj.get("year", "") or "").strip()
+        if year and not re.fullmatch(r"(?:19|20|21)\d{2}", year):
+            return invalid("year phải là năm chứng từ gồm 4 chữ số.")
+        normalized_items = []
+        if command == "ATT_MIGO":
+            if not isinstance(items, list) or not isinstance(docs, list):
+                return invalid("attachmentItems và attachmentDocs phải là danh sách.")
+            if not items:
+                items = [{"doc": doc} for doc in docs]
+            for item in items:
+                if not isinstance(item, dict):
+                    return invalid("Mỗi attachmentItems phải là object có doc và ticket_no.")
+                doc = str(item.get("doc", "")).strip()
+                item_year = str(item.get("year") or year)
+                ticket = str(item.get("ticket_no", item.get("ticketNo", "")) or "").strip()
+                if not re.fullmatch(r"\d{10}", doc) or (item_year and not re.fullmatch(r"(?:19|20|21)\d{2}", item_year)):
+                    return invalid("Mỗi chứng từ cần doc 10 chữ số và year hợp lệ.")
+                normalized_items.append({"doc": doc, "ticket_no": ticket, "year": item_year})
+            if not normalized_items:
+                return invalid("ATT_MIGO cần danh sách attachmentItems; không suy đoán từ rawText.")
+            docs = [item["doc"] for item in normalized_items]
+        bin_value = str(obj.get("bin", "") or "").strip()
+        if command in {"VITRI", "BIN", "POST", "SCWM", "/SCWM/POST", "TON", "TON_KHO", "MB52", "LICHSU", "MB51", "IB_TREO", "IB", "INBOUND", "VL06I", "STO", "ME2N", "MB5T", "DIEUCHUYEN", "CHECK_BOM", "CHECK_FG_OB", "CHECK_NVL_MIGO", "RA_DON_NVL"} and not mats and not (command in {"VITRI", "BIN"} and bin_value) and not dry_run:
+            return invalid("Không tìm thấy danh sách mã vật tư (materials) hợp lệ trong yêu cầu.")
+        model = str(obj.get("model", "") or ("LIMO" if command == "TON_THAP" else "")).upper()
+        shop = str(obj.get("shop", "") or ("XMD" if "XMD" in model else "BODY" if command == "TON_THAP" else "")).upper()
+        result = {**base, "valid": True, "materials": mats, "plant": str(obj.get("plant") or default_plant).upper(),
+                  "batch": str(obj.get("batch") or "").upper(), "days": days, "dryRun": dry_run,
+                  "intentReason": f"JSON Payload ({command})", "rawText": str(obj.get("rawText") or obj.get("RAW_TEXT") or ""),
+                  "note": str(obj.get("note") or ""), "limit": limit, "model": model, "shop": shop,
+                  "plants": obj.get("plants", ["3093", "3001"] if shop == "BODY" else ["3093", "2001", "3001"] if shop == "XMD" else []),
+                  "qty": qty, "expectedQty": qty if qty is not None else 0.0,
+                  "station": str(obj.get("station") or "").strip().upper(),
+                  "uom": str(obj.get("uom") or obj.get("unit") or "").strip().upper(),
+                  "year": year, "bin": bin_value, "obNo": str(obj.get("obNo") or ""),
+                  "inboundNo": str(obj.get("inboundNo") or obj.get("inbound") or ""),
+                  "poNo": str(obj.get("poNo") or obj.get("po") or ""), "poItem": str(obj.get("poItem") or obj.get("item") or ""),
+                  "refNo": str(obj.get("refNo") or obj.get("ref") or obj.get("bill") or ""),
+                  "materialDocument": str(obj.get("materialDocument") or obj.get("docNo") or ""),
+                  "folderPath": str(obj.get("folderPath") or obj.get("folder") or ""),
+                  "attachmentItems": normalized_items, "attachmentDocs": docs,
+                  "explicitPlant": bool(obj.get("plant"))}
+        # Preserve structured order inputs; their service performs business validation.
+        for key in ("orders", "demands", "items", "containerNo", "batchId", "planId", "warehouse", "sloc"):
+            if key in obj:
+                result[key] = obj[key]
+        return result
+
     @classmethod
     def parse(cls, raw_body: Any, html_body: str = "", subject: str = "", default_plant: str = "3093") -> Optional[Dict[str, Any]]:
         """Phân tích nội dung email và trả về từ điển lệnh."""
@@ -208,217 +327,28 @@ class SmartCommandParser:
                 "reason": "Phát hiện tin nhắn phản hồi của Bot (Loop Guard). Bỏ qua để chống vòng lặp vô hạn."
             }
 
-        # 1. Hỗ trợ bóc tách JSON trực tiếp từ email (cả dạng thuần JSON lẫn có marker)
-        marker_m = re.search(r"SAP_REQUEST_BEGIN\s*(\{.*?\})\s*SAP_REQUEST_END", cleaned, re.DOTALL | re.IGNORECASE)
-        if marker_m:
+        # Structured requests are parsed once and never enter the natural-language
+        # heuristic path. A missing/malformed command must not become a SAP write.
+        import json
+        marker_m = re.search(r"SAP_REQUEST_BEGIN\s*(.*?)\s*SAP_REQUEST_END", cleaned, re.DOTALL | re.IGNORECASE)
+        looks_structured = isinstance(raw_body, dict) or bool(marker_m) or cleaned.lstrip().startswith(("{", "["))
+        candidate = marker_m.group(1) if marker_m else cleaned.strip()
+        if json_obj is None and not looks_structured:
+            first, last = cleaned.find("{"), cleaned.rfind("}")
+            if first >= 0 and last > first and re.search(r'"(?:command|requestId|schemaVersion|materials|RAW_TEXT)"\s*:', cleaned[first:last+1]):
+                looks_structured = True
+                candidate = cleaned[first:last+1]
+        if looks_structured:
             try:
-                import json
-                json_obj = json.loads(marker_m.group(1))
-            except Exception:
-                pass
-
-        if not json_obj:
-            first_brace = cleaned.find("{")
-            last_brace = cleaned.rfind("}")
-            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                cand_str = cleaned[first_brace:last_brace+1]
-                try:
-                    import json
-                    parsed_json = json.loads(cand_str)
-                    if isinstance(parsed_json, dict) and any(k in parsed_json for k in ["command", "requestId", "schemaVersion", "materials", "RAW_TEXT"]):
-                        json_obj = parsed_json
-                except Exception:
-                    pass
-
-        SUPPORTED_JSON_COMMANDS = {
-            "PING", "VITRI", "BIN", "POST", "SCWM", "/SCWM/POST",
-            "TON", "TON_KHO", "TONKHO", "MB52",
-            "LICHSU", "MB51",
-            "IB_TREO", "IB", "INBOUND", "VL06I",
-            "STO", "ME2N", "MB5T", "DIEUCHUYEN",
-            "TON_THAP", "CHECK_OB", "LICHSU_BIN",
-            "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR",
-            "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
-            "TIM_IB", "FIND_IB",
-            "CHECK_BOM", "BOM", "CS03",
-            "CHECK_QUEUE", "QUEUE",
-            "CHECK_PO", "PO_STATUS", "KIEMTRA_PO",
-            "CHECK_FG_OB", "DIEN_OB",
-            "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
-            "ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO",
-            "TAO_BBBG", "XEM_BBBG", "RA_DON_NVL", "KE_HOACH_NVL", "XAC_NHAN_NVL",
-            "DIEU_PHOI_OB", "XAC_NHAN_OB", "TRA_CUU_ASN",
-            "HELP"
-        }
-
-        if json_obj:
-            cmd = str(json_obj.get("command", "")).strip().upper()
-            if cmd in ["TON_KHO", "TONKHO"]:
-                cmd = "TON_KHO"
-            req_id = str(json_obj.get("requestId", "") or json_obj.get("messageId", "")).strip()
-            plant = str(json_obj.get("plant", default_plant)).strip().upper() or default_plant
-            batch = str(json_obj.get("batch", "")).strip().upper()
-
-            days_raw = json_obj.get("days", 7)
-            try:
-                days = int(days_raw)
-            except (ValueError, TypeError):
-                days = 7
-            days = max(1, min(days, 365))
-
-            raw_mats = json_obj.get("materials", [])
-            valid_mats = []
-            if isinstance(raw_mats, (str, int)):
-                candidates = re.split(r"[,;\s]+", str(raw_mats))
-                for c in candidates:
-                    c_clean = c.strip()
-                    if c_clean and re.match(r"^[\w\-./]{2,40}$", c_clean):
-                        valid_mats.append(c_clean)
-            elif isinstance(raw_mats, list):
-                for item in raw_mats:
-                    if isinstance(item, (str, int)) and not isinstance(item, bool):
-                        c_clean = str(item).strip()
-                        if c_clean and re.match(r"^[\w\-./]{2,40}$", c_clean):
-                            valid_mats.append(c_clean)
-            mats = valid_mats
-
-            raw_text = str(json_obj.get("rawText", "") or json_obj.get("RAW_TEXT", "") or json_obj.get("note", "")).strip()
-            sender_email = str(json_obj.get("senderEmail", "") or json_obj.get("SENDER_EMAIL", "") or "PowerAutomate").strip()
-            sender_name = str(json_obj.get("senderName", "") or json_obj.get("SENDER_NAME", "") or "Hệ thống").strip()
-            msg_id = str(json_obj.get("messageId", "") or json_obj.get("MSG_ID", "") or req_id).strip()
-            note = str(json_obj.get("note", "")).strip()
-            dry_run = bool(json_obj.get("dryRun", False))
-
-            if cmd and cmd not in SUPPORTED_JSON_COMMANDS:
-                return {
-                    "valid": False,
-                    "needHelpReply": True,
-                    "messageId": msg_id or req_id,
-                    "senderEmail": sender_email,
-                    "senderName": sender_name,
-                    "detectedIntent": "UNKNOWN",
-                    "reason": f"Lệnh '{cmd}' không được hỗ trợ trong hệ thống."
-                }
-
-            if cmd == "TON_THAP":
-                model_name = str(json_obj.get("model", "")).strip().upper() or "LIMO"
-                shop = str(json_obj.get("shop", "")).strip().upper() or ("XMD" if "XMD" in model_name else "BODY")
-                plants = json_obj.get("plants", ["3093", "3001"] if shop == "BODY" else ["3093", "2001", "3001"])
-                limit = int(json_obj.get("limit", 20))
-                return {
-                    "valid": True,
-                    "command": "TON_THAP",
-                    "intentReason": f"JSON Command TON_THAP (Model={model_name}, Shop={shop})",
-                    "materials": mats,
-                    "model": model_name,
-                    "shop": shop,
-                    "plants": plants,
-                    "limit": limit,
-                    "plant": plant,
-                    "batch": batch,
-                    "days": days,
-                    "requestId": req_id,
-                    "messageId": msg_id or req_id,
-                    "senderEmail": sender_email,
-                    "senderName": sender_name,
-                    "rawText": raw_text or f"TON_THAP {model_name}",
-                    "dryRun": dry_run,
-                    "note": note
-                }
-
-            if cmd in ("VITRI", "BIN", "TON", "MB52", "LICHSU", "MB51", "IB_TREO", "VL06I", "STO", "ME2N") and not mats and not dry_run:
-                return {
-                    "valid": False,
-                    "needHelpReply": True,
-                    "messageId": msg_id or req_id,
-                    "senderEmail": sender_email,
-                    "senderName": sender_name,
-                    "detectedIntent": cmd,
-                    "reason": f"Không tìm thấy danh sách mã vật tư (materials) hợp lệ trong yêu cầu."
-                }
-
-            if cmd == "PING":
-                return {
-                    "valid": True,
-                    "command": "PING",
-                    "intentReason": "JSON Command PING",
-                    "materials": [],
-                    "plant": plant,
-                    "batch": batch,
-                    "days": days,
-                    "requestId": req_id,
-                    "messageId": msg_id or req_id,
-                    "senderEmail": sender_email,
-                    "senderName": sender_name,
-                    "rawText": raw_text or "PING test",
-                    "dryRun": dry_run,
-                    "note": note
-                }
-
-            if mats or cmd in (
-                "CHECK_OB", "LICHSU_BIN",
-                "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR",
-                "CHECK_IB", "IB_DETAIL", "KIEMTRA_IB",
-                "TIM_IB", "FIND_IB",
-                "CHECK_PO", "PO_STATUS", "KIEMTRA_PO"
-            ):
-                canonical_cmd = cmd
-                if cmd in ("TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"):
-                    canonical_cmd = "TIM_GR_DOC"
-                elif cmd in ("CHECK_IB", "IB_DETAIL", "KIEMTRA_IB"):
-                    canonical_cmd = "CHECK_IB"
-                elif cmd in ("TIM_IB", "FIND_IB"):
-                    canonical_cmd = "TIM_IB"
-                elif cmd in ("CHECK_PO", "PO_STATUS", "KIEMTRA_PO"):
-                    canonical_cmd = "CHECK_PO"
-                elif cmd in ("CHECK_FG_OB", "DIEN_OB"):
-                    canonical_cmd = "CHECK_FG_OB"
-                elif cmd in ("CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"):
-                    canonical_cmd = "CHECK_NVL_MIGO"
-                elif cmd in ("CHECK_BOM", "BOM", "CS03"):
-                    canonical_cmd = "CHECK_BOM"
-                elif cmd in ("CHECK_QUEUE", "QUEUE"):
-                    canonical_cmd = "CHECK_QUEUE"
-
-                expected_q = 0.0
-                try:
-                    expected_q = float(json_obj.get("expectedQty", 0.0) or 0.0)
-                except Exception:
-                    expected_q = 0.0
-
-                return {
-                    "valid": True,
-                    "command": canonical_cmd or "VITRI",
-                    "intentReason": f"JSON Payload ({canonical_cmd or 'VITRI'})",
-                    "materials": mats,
-                    "plant": plant,
-                    "batch": batch,
-                    "days": days,
-                    "requestId": req_id,
-                    "messageId": msg_id or req_id,
-                    "senderEmail": sender_email,
-                    "senderName": sender_name,
-                    "rawText": raw_text,
-                    "dryRun": dry_run,
-                    "note": note,
-                    "obNo": str(json_obj.get("obNo", "")).strip(),
-                    "bin": str(json_obj.get("bin", "")).strip(),
-                    "model": str(json_obj.get("model", "")).strip(),
-                    "shop": str(json_obj.get("shop", "")).strip(),
-                    "plants": json_obj.get("plants", []),
-                    "limit": int(json_obj.get("limit", 20)),
-                    "inboundNo": str(json_obj.get("inboundNo", "") or json_obj.get("inbound", "")).strip(),
-                    "poNo": str(json_obj.get("poNo", "") or json_obj.get("po", "")).strip(),
-                    "poItem": str(json_obj.get("poItem", "") or json_obj.get("item", "")).strip(),
-                    "expectedQty": expected_q,
-                    "refNo": str(json_obj.get("refNo", "") or json_obj.get("ref", "") or json_obj.get("bill", "")).strip(),
-                    "materialDocument": str(json_obj.get("materialDocument", "") or json_obj.get("docNo", "")).strip(),
-                    "folderPath": str(json_obj.get("folderPath", "") or json_obj.get("folder", "")).strip(),
-                    "attachmentDocs": json_obj.get("attachmentDocs", []) or json_obj.get("docs", [])
-                }
-
-            if raw_text:
-                cleaned = raw_text
+                if json_obj is None:
+                    json_obj = json.loads(candidate)
+                if not isinstance(json_obj, dict):
+                    raise ValueError("Yêu cầu JSON phải là một object")
+                return cls._parse_json_request(json_obj, default_plant)
+            except (ValueError, TypeError, OverflowError) as exc:
+                return {"valid": False, "needHelpReply": True, "command": "INVALID",
+                        "detectedIntent": "INVALID_JSON", "reason": str(exc),
+                        "explicitWriteIntent": False, "executionMode": "READ_ONLY"}
 
         meta = {
             "messageId": "",
@@ -557,8 +487,8 @@ class SmartCommandParser:
         att_docs = [item["doc"] for item in att_items] if att_items else re.findall(r"\b(?:49\d{8}|500\d{7}|\d{10})\b", command_text)
 
         # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
-        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|so\s*phieu|headtext|bktxt|att)\b", norm_text))
-        if (folder_path or has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
+        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att|attach|dinh\s*kem)\b", norm_text))
+        if (has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
             best_intent = "ATT_MIGO"
             best_score = max(best_score, 35)
             matched_keywords.append("ATT_MIGO: Tự động nhận diện lệnh điền số phiếu HeadText / đính kèm MIGO")
@@ -659,9 +589,9 @@ class SmartCommandParser:
 
         # 5. Xử lý Thông minh (Smart Fallback & Coaching):
         if best_score == 0 and att_items and all(item.get("ticket_no") for item in att_items):
-            best_intent = "ATT_MIGO"
-            best_score = 25
-            matched_keywords.append("Mặc định thông minh (Có cặp Chứng từ và Số phiếu -> Điền số phiếu MIGO)")
+            return {**meta, "valid": False, "needHelpReply": True,
+                    "detectedIntent": "AMBIGUOUS_DOCUMENT_LIST", "explicitWriteIntent": False,
+                    "reason": "Cần ghi rõ ATT MIGO hoặc điền số phiếu để yêu cầu thay đổi chứng từ."}
 
         is_no_mat_allowed = (
             best_score > 0 and (
@@ -724,7 +654,16 @@ class SmartCommandParser:
             "attachmentDocs": att_docs,
             "attachmentItems": att_items,
             "explicitPlant": explicit_plant,
-            "fullModelList": is_full_model_list
+            "fullModelList": is_full_model_list,
+            "qty": expected_qty if eqty_m else None,
+            "station": (re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text).group(1).upper()
+                        if re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text) else ""),
+            "uom": (re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text).group(1).upper()
+                    if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else ""),
+            "year": (re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
+                     if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text) else ""),
+            "explicitWriteIntent": best_intent == "ATT_MIGO",
+            "executionMode": "WRITE_PREVIEW" if best_intent == "ATT_MIGO" else "READ_ONLY"
         })
         return meta
 

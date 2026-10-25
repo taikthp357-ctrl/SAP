@@ -99,6 +99,7 @@ def test_bbbg_mail_preview():
 
     assert preview["requires_confirmation"] is True
     assert preview["shop"] == "Xưởng Hàn (Body)"
-    assert "kho.body@vinfast.vn" in preview["recipients"]
+    assert preview["recipients"] == []
+    assert preview["send_supported"] is False
     assert "XEM TRƯỚC BIÊN BẢN BÀN GIAO" in preview["html_preview"]
     assert "BIW32013765AA" in preview["html_preview"]

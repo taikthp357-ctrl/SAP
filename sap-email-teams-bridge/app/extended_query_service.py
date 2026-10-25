@@ -11,6 +11,7 @@ Kế thừa và chuẩn hóa toàn bộ nghiệp vụ tra cứu từ các tool V
 """
 
 import re
+import math
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -25,7 +26,8 @@ class ExtendedQueryService:
         cls,
         parent_mat: str,
         plant: str,
-        raw_bom_items: List[Dict[str, Any]]
+        raw_bom_items: List[Dict[str, Any]],
+        *, source_complete: bool = True, source_error: str = "",
     ) -> Dict[str, Any]:
         """Phân tích và định dạng danh sách linh kiện định mức (BOM Structure).
 
@@ -34,6 +36,10 @@ class ExtendedQueryService:
         parent_clean = str(parent_mat).strip().upper()
         plant_clean = str(plant).strip()
 
+        if source_error or not source_complete:
+            return {"parent_material": parent_clean, "plant": plant_clean, "has_bom": None,
+                    "total_components": len(raw_bom_items), "components": [], "status": "UNKNOWN",
+                    "summary": "Nguồn BOM chưa đầy đủ hoặc tra cứu lỗi; chưa thể kết luận có/không BOM."}
         if not raw_bom_items:
             return {
                 "parent_material": parent_clean,
@@ -79,12 +85,16 @@ class ExtendedQueryService:
     @classmethod
     def diagnose_ewm_queues(
         cls,
-        raw_queue_rows: List[Dict[str, Any]]
+        raw_queue_rows: List[Dict[str, Any]],
+        *, source_complete: bool = True, source_error: str = "",
     ) -> Dict[str, Any]:
         """Chuẩn đoán tình trạng lỗi kẹt hàng đợi EWM (/SCWM/MON Queue Monitor).
 
         raw_queue_rows: [{queue_name/qname, error_message/errtext, document/docno, user/uname, ...}]
         """
+        if source_error or not source_complete:
+            return {"is_clean": None, "stuck_count": None, "diagnostics": [], "status": "UNKNOWN",
+                    "summary": "Nguồn Queue chưa đầy đủ hoặc tra cứu lỗi; chưa thể kết luận hàng đợi sạch."}
         if not raw_queue_rows:
             return {
                 "is_clean": True,
@@ -138,57 +148,70 @@ class ExtendedQueryService:
     def track_asn_provenance(
         cls,
         inbound_no: str,
-        asn_items: List[Dict[str, Any]]
+        asn_items: List[Dict[str, Any]],
+        *, source_complete: bool = False,
     ) -> Dict[str, Any]:
-        """Tổng hợp hồ sơ nguồn gốc lô hàng ASN (Inbound / Container / Bill of Lading).
+        """Return only evidence explicitly associated with the requested inbound.
 
-        asn_items: [{product, batch, qty, refNo, poNo, vendor, eta, container, bill, customs_status, ...}]
+        VL06I is not evidence of customs clearance. Missing fields stay UNKNOWN;
+        rows without an inbound identifier are excluded, never assigned to the
+        requested inbound just because they arrived in the same result list.
         """
-        ib_clean = str(inbound_no).strip()
-        if not asn_items:
-            return {
-                "inbound_no": ib_clean,
-                "found": False,
-                "items": [],
-                "summary": f"Không tìm thấy thông tin ASN cho số Inbound {ib_clean}."
-            }
-
-        first = asn_items[0]
-        container_no = str(first.get("container") or first.get("cont_no") or "N/A").strip()
-        bill_of_lading = str(first.get("bill") or first.get("refNo") or "N/A").strip()
-        vendor = str(first.get("vendor") or first.get("supplier") or "N/A").strip()
-        eta = str(first.get("eta") or first.get("arrival_date") or "N/A").strip()
-        customs = str(first.get("customs_status") or "ĐÃ THÔNG QUAN").strip()
-
-        rows = []
-        tot_qty = 0.0
-        for it in asn_items:
-            mat = str(it.get("product") or it.get("material") or "").strip()
-            bat = str(it.get("batch") or "").strip()
-            qty = parse_sap_float(it.get("qty") or 0.0)
-            unit = str(it.get("unit") or "PC").strip()
-            po = str(it.get("poNo") or "").strip()
-            tot_qty += qty
-
-            rows.append({
-                "material": mat,
-                "batch": bat,
-                "qty": qty,
-                "unit": unit,
-                "po_no": po,
-                "status": it.get("status", "IN_TRANSIT")
-            })
-
-        return {
-            "inbound_no": ib_clean,
-            "found": True,
-            "container_no": container_no,
-            "bill_of_lading": bill_of_lading,
-            "vendor": vendor,
-            "eta": eta,
-            "customs_status": customs,
-            "total_items": len(rows),
-            "total_qty": tot_qty,
-            "items": rows,
-            "summary": f"Hồ sơ Inbound {ib_clean} (Cont: {container_no} | Bill: {bill_of_lading}) gồm {len(rows)} mã hàng."
+        ib_clean = str(inbound_no or "").strip()
+        def norm(value):
+            text = str(value or "").strip().upper()
+            return (text.lstrip("0") or "0") if text.isdigit() else text
+        def value(row, *keys):
+            for key in keys:
+                if key in row and row[key] is not None and str(row[key]).strip() != "":
+                    return row[key]
+            return ""
+        selected = [r for r in asn_items if ib_clean and norm(value(r, "ibNo", "inboundNo", "inbound_no", "vbeln")) == norm(ib_clean)]
+        result = {
+            "inbound_no": ib_clean, "found": bool(selected), "items": [],
+            "container_no": "UNKNOWN", "bill_of_lading": "UNKNOWN", "vendor": "UNKNOWN",
+            "eta": "UNKNOWN", "customs_status": "UNKNOWN", "total_items": 0,
+            "total_qty": None, "totals_by_unit": {}, "source_complete": source_complete,
+            "excluded_rows": len(asn_items) - len(selected), "status": "UNKNOWN",
+            "summary": f"Chưa tìm thấy dòng nguồn xác minh được thuộc Inbound {ib_clean}.",
+            "field_values": {},
         }
+        if not selected:
+            return result
+        for field, aliases in {
+            "container_no": ("container", "cont_no"), "bill_of_lading": ("bill", "bill_of_lading", "refNo"),
+            "vendor": ("vendor", "supplier"), "eta": ("eta", "arrival_date"), "customs_status": ("customs_status",),
+        }.items():
+            values = [str(value(row, *aliases)).strip() for row in selected]
+            nonempty = sorted(set(v for v in values if v))
+            result["field_values"][field] = nonempty
+            # Partial/conflicting evidence must not present one row as the whole consignment.
+            if len(nonempty) == 1 and all(values):
+                result[field] = nonempty[0]
+            elif len(nonempty) > 1:
+                result[field] = "MULTIPLE_VALUES"
+        totals = {}
+        invalid_quantity = False
+        for row in selected:
+            qty = parse_sap_float(value(row, "qty", "actualQty"), default=float("nan"))
+            valid = math.isfinite(qty) and qty >= 0
+            unit = str(value(row, "unit", "uom", "meins")).strip().upper() or "UNKNOWN"
+            if valid:
+                totals[unit] = totals.get(unit, 0.0) + qty
+            else:
+                invalid_quantity = True
+            result["items"].append({
+                "inbound_no": ib_clean,
+                "material": str(value(row, "product", "material", "matnr")).strip(),
+                "batch": str(value(row, "batch", "charg")).strip(),
+                "qty": qty if valid else None, "unit": unit,
+                "po_no": str(value(row, "poNo", "ebeln")).strip(),
+                "status": str(value(row, "status")) or "UNKNOWN",
+            })
+        result.update({
+            "total_items": len(selected), "totals_by_unit": totals,
+            "total_qty": next(iter(totals.values())) if len(totals) == 1 and "UNKNOWN" not in totals and not invalid_quantity else None,
+            "status": "FOUND" if source_complete and not invalid_quantity else "PARTIAL",
+            "summary": f"Có {len(selected)} dòng xác minh thuộc Inbound {ib_clean}; trường thiếu nguồn được ghi UNKNOWN.",
+        })
+        return result

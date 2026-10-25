@@ -17,18 +17,18 @@ def tmp_db(tmp_path):
 
 def test_nvl_allocation_fefo_fifo(tmp_db):
     orders = [
-        {"material": "BIW32013765AA", "qty": 150, "station": "OP10"}
+        {"material": "BIW32013765AA", "qty": 150, "station": "OP10", "unit": "PC"}
     ]
 
     # Stock records with different HSD and GR Date
     stock_records = [
         # Lot 1: Far future HSD
-        {"product": "BIW32013765AA", "batch": "LOT_LATE", "bin": "B-01-01", "availQty": 100, "hsd": "30/12/2026", "grDate": "01/10/2026"},
+        {"product": "BIW32013765AA", "batch": "LOT_LATE", "bin": "B-01-01", "plant": "3093", "sloc": "1005", "unit": "PC", "cat": "FT", "grTime": "08:00:00", "availQty": 100, "hsd": "30/12/2099", "grDate": "01/10/2026"},
         # Lot 2: Near HSD (should be allocated FIRST by FEFO)
-        {"product": "BIW32013765AA", "batch": "LOT_EARLY", "bin": "B-01-02", "availQty": 100, "hsd": "01/11/2026", "grDate": "05/10/2026"},
+        {"product": "BIW32013765AA", "batch": "LOT_EARLY", "bin": "B-01-02", "plant": "3093", "sloc": "1005", "unit": "PC", "cat": "FT", "grTime": "08:00:00", "availQty": 100, "hsd": "01/11/2099", "grDate": "05/10/2026"},
     ]
 
-    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db)
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
 
     assert plan["total_ordered"] == 150
     assert plan["total_allocated"] == 150
@@ -48,14 +48,14 @@ def test_nvl_allocation_fefo_fifo(tmp_db):
 
 def test_nvl_stock_reservation_prevents_double_booking(tmp_db):
     orders1 = [
-        {"material": "BIW32013765AA", "qty": 80, "station": "OP10"}
+        {"material": "BIW32013765AA", "qty": 80, "station": "OP10", "unit": "PC"}
     ]
     stock_records = [
-        {"product": "BIW32013765AA", "batch": "LOT_SINGLE", "bin": "B-01-01", "availQty": 100, "hsd": "15/12/2026", "grDate": "01/10/2026"}
+        {"product": "BIW32013765AA", "batch": "LOT_SINGLE", "bin": "B-01-01", "plant": "3093", "sloc": "1005", "unit": "PC", "cat": "FT", "grTime": "08:00:00", "availQty": 100, "hsd": "15/12/2099", "grDate": "01/10/2026"}
     ]
 
     # Plan 1 allocates 80 and reserves it
-    plan1 = NvlService.allocate_orders(orders1, stock_records, db_path=tmp_db)
+    plan1 = NvlService.allocate_orders(orders1, stock_records, db_path=tmp_db, source_complete=True)
     assert plan1["total_allocated"] == 80
     plan_id_1 = NvlService.save_plan_and_reserve(plan1, db_path=tmp_db)
 
@@ -66,19 +66,19 @@ def test_nvl_stock_reservation_prevents_double_booking(tmp_db):
     # Plan 2 asks for 50 of the same material
     # Only 20 should be available! (100 - 80 reserved = 20)
     orders2 = [
-        {"material": "BIW32013765AA", "qty": 50, "station": "OP20"}
+        {"material": "BIW32013765AA", "qty": 50, "station": "OP20", "unit": "PC"}
     ]
-    plan2 = NvlService.allocate_orders(orders2, stock_records, db_path=tmp_db)
+    plan2 = NvlService.allocate_orders(orders2, stock_records, db_path=tmp_db, source_complete=True)
     assert plan2["total_allocated"] == 20.0
     assert len(plan2["shortages"]) == 1
     assert plan2["shortages"][0]["shortage_qty"] == 30.0
 
 
 def test_nvl_migo_precheck_and_execution(tmp_db):
-    orders = [{"material": "BIW32013765AA", "qty": 50, "station": "OP10"}]
-    stock = [{"product": "BIW32013765AA", "batch": "B01", "bin": "BIN-A", "availQty": 50}]
+    orders = [{"material": "BIW32013765AA", "qty": 50, "station": "OP10", "unit": "PC"}]
+    stock = [{"product": "BIW32013765AA", "batch": "B01", "bin": "BIN-A", "plant": "3093", "sloc": "1005", "unit": "PC", "cat": "FT", "grTime": "08:00:00", "availQty": 50, "grDate": "01/10/2026"}]
 
-    plan = NvlService.allocate_orders(orders, stock, db_path=tmp_db)
+    plan = NvlService.allocate_orders(orders, stock, db_path=tmp_db, source_complete=True)
     plan_id = NvlService.save_plan_and_reserve(plan, db_path=tmp_db)
 
     # Precheck should pass
@@ -88,10 +88,11 @@ def test_nvl_migo_precheck_and_execution(tmp_db):
 
     # Simulated execution
     exec_res = NvlService.execute_migo_311_simulated(plan_id, db_path=tmp_db)
-    assert exec_res["success"] is True
-    assert exec_res["material_document"].startswith("49")
-    assert exec_res["status"] == "EXECUTED"
+    assert exec_res["success"] is False
+    assert exec_res["simulation_valid"] is True
+    assert exec_res["material_document"] is None
+    assert exec_res["status"] == "SIMULATED"
 
-    # Verify reservation is CONSUMED
+    # Simulation must not consume an operational reservation
     res_map = NvlService.get_active_reservations(tmp_db)
-    assert res_map.get(("BIW32013765AA", "B01"), 0.0) == 0.0
+    assert res_map.get(("BIW32013765AA", "B01"), 0.0) == 50.0

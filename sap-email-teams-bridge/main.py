@@ -16,6 +16,7 @@ import re
 import time
 import json
 import gc
+import html
 from pathlib import Path
 from datetime import datetime, timedelta
 import pythoncom
@@ -32,6 +33,7 @@ from app.material_resolver import MaterialResolver
 from app.teams_dispatcher import TeamsDispatcher
 from app.sap_engine import SapEngine, SapExecutionError
 from app.state_manager import StateManager
+from app.runtime_control import WorkerLease, data_directory
 from app.number_utils import set_global_sap_number_format
 from app.sap_attachment import MigoAttachmentRunner
 from app.bbbg_service import BbbgService
@@ -120,9 +122,40 @@ def move_mail_to_failed(mail, bot_folder):
     move_mail_to_folder(mail, failed)
 
 
+def deliver_outbox(state_mgr, max_attempts=3):
+    for item in state_mgr.get_pending_outbox(max_attempts=max_attempts):
+        token = state_mgr.begin_delivery(item["req_id"])
+        if token:
+            outcome = TeamsDispatcher.deliver_payload(item["webhook_url"], item["payload"])
+            state_mgr.finish_delivery(item["req_id"], token, outcome["status"], outcome["detail"])
+            print(f"[OUTBOX] {item['req_id']} | {outcome['status']}")
+
+
+def actual_sender_address(mail):
+    address = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
+    if str(getattr(mail, "SenderEmailType", "")).upper() == "EX":
+        try:
+            address = str(mail.Sender.GetExchangeUser().PrimarySmtpAddress).strip().lower()
+        except Exception:
+            return ""
+    return address
+
+
+def intake_subject(subject):
+    return bool(re.match(r"^\s*(?:\[SAP-REQUEST\]|SAP_REQUEST)(?:\s|$|:)", str(subject), re.I))
+
+
 def run_bridge():
     """Hàm chạy chính của tiến trình Worker."""
     config = load_config()
+
+    data_dir = data_directory(config, CURRENT_DIR)
+    lease = WorkerLease(data_dir).acquire()
+    state_mgr = StateManager(data_dir / "bridge_state.db")
+    state_mgr.recover_interrupted()
+    max_retries = config.get("max_webhook_retries", 3)
+    # Delivery is independent of SAP and Outlook startup.
+    deliver_outbox(state_mgr, max_retries)
 
     webhook_url = config.get("teams_webhook_url", "")
     folder_name = config.get("outlook_folder_name", "SAP_BOT")
@@ -214,8 +247,6 @@ def run_bridge():
             )
 
     set_global_sap_number_format(config.get("sap_number_format", "AUTO"))
-    state_mgr = StateManager()
-    max_retries = config.get("max_webhook_retries", 3)
 
     resolver = MaterialResolver()
     sap = SapEngine(
@@ -225,15 +256,17 @@ def run_bridge():
         session_index=config.get("sap_session_index", 0),
         strict_session_safety=config.get("strict_session_safety", True),
         auto_create_session=config.get("auto_create_session", True),
-        prefer_dedicated_session=config.get("prefer_dedicated_session", False)
+        prefer_dedicated_session=config.get("prefer_dedicated_session", True),
+        expected_system=config.get("sap_system", ""),
+        expected_client=config.get("sap_client", ""),
+        expected_user=config.get("sap_user", "")
     )
     print(f"[READY] Đang lắng nghe thư mới trong '{bot_folder.Name}'...")
 
-    seq_counter = 1
     allowed_senders = [s.strip().lower() for s in config.get("allowed_senders", []) if s.strip()]
     last_sync_time = 0.0
 
-    while True:
+    while not lease.should_stop():
         try:
             # Ép Outlook Classic gọi lệnh đồng bộ ngầm (Sync Send/Receive) với Server (mỗi 10s một lần, tránh nghẽn MAPI)
             now_ts = time.time()
@@ -244,21 +277,9 @@ def run_bridge():
                 except Exception:
                     pass
 
-            # 1. Giữ phiên SAP không bị timeout khi nhàn rỗi
+            # Deliver durable results before touching SAP or requesting new work.
+            deliver_outbox(state_mgr, max_retries)
             sap.keep_alive()
-
-            # 2. Xử lý hàng đợi Outbox (Retry gửi Webhook trực tiếp mà KHÔNG CẦN gọi lại SAP GUI)
-            pending_outbox = state_mgr.get_pending_outbox(max_attempts=max_retries)
-            for item in pending_outbox:
-                req_out_id = item["req_id"]
-                url_out = item["webhook_url"]
-                pl_out = item["payload"]
-                print(f"[OUTBOX RETRY] Thử gửi lại Webhook {req_out_id} (Lần thử {item['attempts'] + 1}/{max_retries})...")
-                if TeamsDispatcher.send_raw_payload(url_out, pl_out):
-                    state_mgr.record_outbox_success(req_out_id)
-                    print(f"[OUTBOX SUCCESS] Gửi lại thành công Webhook {req_out_id}!")
-                else:
-                    state_mgr.record_outbox_failure(req_out_id, "Gửi lại thất bại", max_attempts=max_retries)
 
             # 3. Quét tất cả các thư trong thư mục SAP_BOT (kể cả thư đã mở xem lẫn thư chưa đọc)
             # Mọi thư đã xử lý xong đều được chuyển tự động sang thư mục con 'Processed'.
@@ -286,13 +307,13 @@ def run_bridge():
             # 2. TỐC ĐỘ CAO (0ms): Dùng MAPI Restrict để nhặt ngay lập tức các thư [SAP-REQUEST] chưa đọc trong Inbox mà không nạp toàn bộ hòm thư
             if inbox and inbox != bot_folder:
                 try:
-                    unread_inbox = inbox.Items.Restrict("[UnRead] = True")
+                    unread_inbox = inbox.Items.Restrict('@SQL="urn:schemas:httpmail:read" = 0 AND ("urn:schemas:httpmail:subject" LIKE \'[SAP-REQUEST]%\' OR "urn:schemas:httpmail:subject" LIKE \'SAP_REQUEST%\')')
                     u_count = unread_inbox.Count
                     for i in range(1, min(u_count + 1, 31)):
                         try:
                             item = unread_inbox.Item(i)
                             subj = str(getattr(item, "Subject", "") or "")
-                            if "[SAP-REQUEST]" in subj or "SAP_REQUEST" in subj or "SAP" in subj.upper():
+                            if intake_subject(subj):
                                 mail_candidates.append(item)
                         except Exception:
                             pass
@@ -300,6 +321,8 @@ def run_bridge():
                     pass
 
             for mail in mail_candidates:
+                if lease.should_stop():
+                    break
                 entry_id = getattr(mail, "EntryID", "")
                 if entry_id and state_mgr.is_message_processed("", entry_id):
                     try:
@@ -310,15 +333,14 @@ def run_bridge():
                         print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead thư cũ: {out_err}")
                     continue
 
-                req_id = f"REF-{datetime.now().strftime('%H%M%S')}-{seq_counter:02d}"
-                seq_counter += 1
+                req_id = StateManager.request_id(str(data_dir), "", entry_id) if entry_id else "UNIDENTIFIED"
 
                 # Cô lập hoàn toàn lỗi từng thư để không chặn luồng
                 try:
                     # 1. Kiểm tra danh sách người gửi được phép (nếu có cấu hình)
                     if allowed_senders:
-                        actual_sender = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
-                        if actual_sender and not any(actual_sender == s or actual_sender.endswith(s) for s in allowed_senders):
+                        actual_sender = actual_sender_address(mail)
+                        if actual_sender not in allowed_senders:
                             print(f"[SECURITY] {req_id} | Người gửi '{actual_sender}' không thuộc allowed_senders. Chuyển thư sang Failed.")
                             try:
                                 mail.UnRead = False
@@ -360,6 +382,11 @@ def run_bridge():
                         move_mail_to_processed(mail, bot_folder)
                         continue
 
+                    store_id = str(getattr(getattr(mail, "Parent", None), "StoreID", "") or data_dir)
+                    req_id = StateManager.request_id(store_id, msg_id, entry_id)
+                    if not state_mgr.claim_request(req_id):
+                        print(f"[RECOVERY] {req_id}: kết quả đã lưu hoặc cần kiểm tra lần chạy gián đoạn; không chạy SAP lại.")
+                        continue
                     cmd = meta["command"]
                     raw_mats = meta["materials"]
                     plant = meta["plant"]
@@ -397,6 +424,7 @@ def run_bridge():
                     headers = {}
                     summary = ""
                     custom_html = None
+                    result_status = "SUCCEEDED"
 
                     try:
                         if cmd == "PING":
@@ -409,7 +437,7 @@ def run_bridge():
                                 f"• <strong>Request ID:</strong> {meta.get('requestId') or req_id}<br>"
                                 f"• <strong>Thư mục lắng nghe:</strong> Outlook/{bot_folder.Name}<br>"
                                 f"• <strong>Plant:</strong> {plant}<br>"
-                                f"• <strong>Trạng thái SAP:</strong> Sẵn sàng (0 Open Port / 0 PowerShell)<br>"
+                                f"• <strong>Trạng thái SAP:</strong> Chưa kiểm tra trong lệnh PING<br>"
                                 f"• <strong>Ghi chú:</strong> {meta.get('note', 'Kiểm tra đường truyền hoàn tất.')}"
                                 f"</div></div>"
                             )
@@ -546,11 +574,11 @@ def run_bridge():
                                 "unit": "ĐVT", "status": "Trạng thái"
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                            has_bom_cnt = sum(1 for r in records if "CÓ BOM" in str(r.get("status", "")).upper())
+                            has_bom_cnt = sum(1 for r in records if str(r.get("status", "")).upper().startswith("CÓ BOM"))
                             if has_bom_cnt > 0:
                                 summary = f"Kết quả kiểm tra định mức BOM (CS03) Plant {plant} cho: {', '.join(resolved_mats)}{mapping_info}"
                             else:
-                                summary = f"Xác nhận: Mã {', '.join(resolved_mats)} tại Plant {plant} KHÔNG CÓ BOM trên SAP.{mapping_info}"
+                                summary = f"Kết quả kiểm tra BOM cho {', '.join(resolved_mats)} tại Plant {plant}; xem trạng thái nguồn trong bảng.{mapping_info}"
 
                         elif cmd in ["CHECK_QUEUE", "QUEUE"]:
                             inbound_filter = meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
@@ -645,6 +673,16 @@ def run_bridge():
                             summary = f"Posting Change NVL (Plant {plant or '3093'} - Kho 1005) cho: {', '.join(resolved_mats)}"
 
                         elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
+                            is_preview = meta.get("dryRun", True) is True
+                            if not meta.get("explicitWriteIntent"):
+                                raise ValueError("ATT_MIGO cần lệnh đính kèm/điền HeadText rõ ràng")
+                            if not is_preview:
+                                trusted = {str(x).strip().lower() for x in config.get("trusted_intake_senders", [])}
+                                if not config.get("allow_sap_writes") or actual_sender_address(mail) not in trusted:
+                                    raise ValueError("Ghi SAP chưa được bật cho nguồn thư đã xác thực; dùng dryRun để xem trước")
+                                if not all(config.get(k) for k in ("sap_system", "sap_client", "sap_user")):
+                                    raise ValueError("Thiếu SAP system/client/user đã cấu hình cho thao tác ghi")
+                                sap.ensure_session()
                             folder_path = meta.get("folderPath", "")
                             items_to_att = meta.get("attachmentItems", [])
                             if not items_to_att:
@@ -653,7 +691,7 @@ def run_bridge():
                                     att_docs = [m for m in raw_mats if m.isdigit() and len(m) >= 8]
                                 items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
 
-                            runner = MigoAttachmentRunner(sap_engine=sap)
+                            runner = MigoAttachmentRunner(sap_engine=sap, expected_session_identity=sap.session_identity if not is_preview else None)
 
                             def on_att_progress(done_count, total_count, cur_doc, cur_success):
                                 try:
@@ -668,10 +706,12 @@ def run_bridge():
                                 folder_path,
                                 items_to_att,
                                 fill_headtext=True,
-                                dry_run=meta.get("dryRun", False),
+                                dry_run=is_preview,
+                                year=meta.get("year"),
                                 progress_callback=on_att_progress
                             )
                             records = att_summary["results"]
+                            result_status = "SIMULATED" if is_preview else ("SUCCEEDED" if att_summary["total_success"] == att_summary["total_items"] else "FAILED")
                             if not folder_path:
                                 headers = {
                                     "doc": "Số DOC",
@@ -695,15 +735,15 @@ def run_bridge():
                             days_cnt = meta.get("days", 1)
                             mb51_rows = sap.check_history_mb51(resolved_mats, days=days_cnt, plant=plant, explicit_plant=True)
                             vl06i_rows = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
-                            recon = BbbgService.reconcile(mb51_rows, vl06i_rows)
+                            recon = BbbgService.reconcile(mb51_rows, vl06i_rows, source_complete=True)
                             if cmd == "TAO_BBBG":
-                                file_path = BbbgService.export_excel(recon, meta_header={"shop": meta.get("shop", "BODY")})
+                                file_path = BbbgService.export_excel(recon, meta_header={"shop": meta.get("shop", "BODY")}, output_dir=data_dir / "exports" / "bbbg")
                                 state_mgr.log_audit(req_id, "TAO_BBBG", "SUCCESS", target_doc=recon.get("batch_id"), user_name=meta.get("senderName"), message=f"Đã xuất file BBBG: {file_path}")
-                                summary = f"Biên bản giao nhận Thành phẩm (BBBG FG) - {recon['matched_count']}/{recon['total_items']} khớp 100% (File: {Path(file_path).name})"
+                                summary = f"Biên bản giao nhận Thành phẩm (BBBG FG) - {recon['matched_count']}/{recon['total_items']} khớp số lượng (File lưu tại máy worker: {file_path}; chưa gửi tệp lên Teams)"
                             else:
                                 preview = BbbgService.generate_mail_preview(recon, shop_key=meta.get("shop", "BODY"))
                                 custom_html = preview["html_preview"]
-                                summary = f"Xem trước BBBG FG ({recon['matched_count']}/{recon['total_items']} khớp 100%)"
+                                summary = f"Xem trước BBBG FG ({recon['matched_count']}/{recon['total_items']} khớp số lượng)"
                             records = recon.get("items", [])
                             headers = {
                                 "material": "Mã hàng", "batch": "Số lô", "doc_no": "Inbound / Doc",
@@ -712,30 +752,32 @@ def run_bridge():
                             }
 
                         elif cmd in ["RA_DON_NVL", "KE_HOACH_NVL"]:
-                            orders = [{"material": m, "qty": meta.get("qty", 100), "station": meta.get("station", "OP10")} for m in resolved_mats]
-                            stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant or "3093")
-                            plan = NvlService.allocate_orders(orders, stock_records, source_plant=plant or "3093")
-                            plan_id = NvlService.save_plan_and_reserve(plan, created_by=meta.get("senderName") or "BOT")
-                            state_mgr.log_audit(req_id, "RA_DON_NVL", "SUCCESS", target_doc=plan_id, user_name=meta.get("senderName"), message=f"Đã lập kế hoạch NVL: {plan['total_allocated']}/{plan['total_ordered']}")
+                            if meta.get("qty") is None or not meta.get("station") or not (meta.get("unit") or meta.get("uom")):
+                                raise ValueError("Kế hoạch NVL cần qty, station và unit rõ ràng; không tự điền mặc định")
+                            orders = [{"material": m, "qty": meta["qty"], "station": meta["station"], "unit": meta.get("unit") or meta.get("uom"), "plant": plant, "sloc": meta.get("sloc", "1005")} for m in resolved_mats]
+                            stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant)
+                            plan = NvlService.allocate_orders(orders, stock_records, source_plant=plant,
+                                db_path=state_mgr.db_path, request_id=req_id, source_complete=True)
+                            plan_id = plan["plan_id"]
+                            result_status = "PREVIEW"
+                            if config.get("allow_nvl_reservations"):
+                                plan_id = NvlService.save_plan_and_reserve(plan, created_by=meta.get("senderName") or "BOT", db_path=state_mgr.db_path)
+                            state_mgr.log_audit(req_id, "RA_DON_NVL", "PREVIEW", target_doc=plan_id, user_name=meta.get("senderName"), message="Kế hoạch cục bộ, chưa thực hiện MIGO trên SAP")
                             records = plan.get("allocated_items", [])
                             headers = {
                                 "material": "Mã hàng", "station": "Trạm", "bin": "Bin", "batch": "Số lô",
                                 "allocated_qty": "SL Phân bổ", "unit": "ĐVT", "hsd": "HSD", "gr_date": "Ngày GR"
                             }
-                            summary = f"Kế hoạch ra đơn NVL V31 Zone ({plan_id}): Cấp phát {plan['total_allocated']}/{plan['total_ordered']}"
+                            summary = f"Xem trước kế hoạch NVL ({plan_id}), chưa ghi SAP: Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']}"
 
                         elif cmd in ["DIEU_PHOI_OB", "RC65", "XAC_NHAN_OB"]:
                             ob_no = meta.get("obNo", "")
                             ob_items = sap.check_open_ob_vl06o(resolved_mats, ob_no=ob_no, plant=plant)
                             stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant or "3093")
-                            gate_eval = ObService.validate_whole_batch_gate(ob_no or "BATCH", ob_items, stock_records)
-                            if gate_eval["gate_passed"]:
-                                disp = ObService.dispatch_outbound_simulated(ob_no or "BATCH", plant or "3001", gate_eval)
-                                state_mgr.log_audit(req_id, "DIEU_PHOI_OB", "DISPATCHED", target_doc=ob_no, user_name=meta.get("senderName"), message=disp["action"])
-                                summary = f"Điều phối Outbound ({ob_no or 'Lô'}): {disp['action']} (Trạng thái: {disp['readback_status']})"
-                            else:
-                                state_mgr.log_audit(req_id, "DIEU_PHOI_OB", "BLOCKED", target_doc=ob_no, user_name=meta.get("senderName"), message="Chặn cổng do thiếu tồn")
-                                summary = f"Chặn điều phối Outbound ({ob_no or 'Lô'}): {gate_eval['action_advice']}"
+                            gate_eval = ObService.validate_whole_batch_gate(ob_no or "BATCH", ob_items, stock_records, source_complete=True)
+                            result_status = "PREVIEW"
+                            state_mgr.log_audit(req_id, "DIEU_PHOI_OB", "PREVIEW", target_doc=ob_no, user_name=meta.get("senderName"), message="Chỉ kiểm tra điều kiện; chưa có executor SAP đã xác minh")
+                            summary = f"Xem trước Outbound {ob_no or 'Lô'}: {gate_eval['action_advice']}. Chưa điều phối hoặc xác nhận trên SAP."
                             records = gate_eval.get("items", [])
                             headers = {
                                 "item_no": "Item", "material": "Mã hàng", "batch": "Số lô",
@@ -745,30 +787,22 @@ def run_bridge():
 
                         elif cmd in ["TRA_CUU_ASN", "ASN"]:
                             inbound_no = meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
-                            raw_asn = sap.find_inbound_vl06i(materials=resolved_mats, plant=plant)
+                            raw_asn = sap.find_inbound_vl06i(materials=resolved_mats, plant=plant, inbound_no=inbound_no)
                             asn_res = ExtendedQueryService.track_asn_provenance(inbound_no, raw_asn)
                             records = asn_res.get("items", [])
                             headers = {
                                 "material": "Mã hàng", "batch": "Số lô", "qty": "SL giao",
                                 "unit": "ĐVT", "po_no": "Số PO", "status": "Trạng thái"
                             }
-                            summary = f"Hồ sơ xuất xứ ASN {inbound_no} (Cont: {asn_res['container_no']} | Vận đơn: {asn_res['bill_of_lading']})"
+                            summary = asn_res["summary"]
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(
-                            req_id, meta, "SUCCEEDED", summary, records, headers, custom_html=custom_html
+                            req_id, meta, result_status, summary, records, headers, custom_html=custom_html
                         )
-                        state_mgr.enqueue_outbox(req_id, webhook_url, payload)
+                        state_mgr.complete_request(msg_id, entry_id, req_id, cmd, result_status, webhook_url, payload)
+                        deliver_outbox(state_mgr, max_retries)
 
-                        # Thử gửi ngay lập tức
-                        if TeamsDispatcher.send_raw_payload(webhook_url, payload):
-                            state_mgr.record_outbox_success(req_id)
-                            print(f"[COMPLETED] {req_id} | Đã hoàn tất tra cứu SAP & gửi thành công tới Teams!")
-                        else:
-                            state_mgr.record_outbox_failure(req_id, "Lần gửi đầu tiên qua Webhook thất bại", max_attempts=max_retries)
-                            print(f"[OUTBOX QUEUED] {req_id} | Tra cứu SAP xong. Webhook chưa gửi được, đã lưu vào Outbox SQLite để tự động thử lại.")
-
-                        state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "SUCCEEDED")
                         try:
                             mail.UnRead = False
                             mail.Save()
@@ -778,18 +812,15 @@ def run_bridge():
 
                     except Exception as sap_err:
                         print(f"[SAP ERROR] {req_id} | {sap_err}")
-                        err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {sap_err}</p>"
+                        err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {html.escape(str(sap_err))}</p>"
                         fail_summary = f"Lỗi tra cứu SAP: {sap_err}"
                         fail_payload, fail_data = TeamsDispatcher.prepare_safe_payload(
                             req_id, meta, "FAILED", fail_summary, [], {}, custom_html=err_html
                         )
-                        state_mgr.enqueue_outbox(req_id, webhook_url, fail_payload)
-                        if TeamsDispatcher.send_raw_payload(webhook_url, fail_payload):
-                            state_mgr.record_outbox_success(req_id)
-                        else:
-                            state_mgr.record_outbox_failure(req_id, f"Lỗi Webhook sau lỗi SAP: {sap_err}", max_attempts=max_retries)
+                        if not state_mgr.is_message_processed(msg_id, entry_id):
+                            state_mgr.complete_request(msg_id, entry_id, req_id, cmd, "FAILED", webhook_url, fail_payload)
+                            deliver_outbox(state_mgr, max_retries)
 
-                        state_mgr.mark_message_processed(msg_id, entry_id, req_id, cmd, "FAILED")
                         try:
                             mail.UnRead = False
                             mail.Save()
@@ -817,11 +848,19 @@ def run_bridge():
         except Exception:
             pass
 
-        time.sleep(poll_sec)
+        for _ in range(max(1, int(poll_sec))):
+            if lease.should_stop():
+                break
+            time.sleep(1)
+    lease.close()
+    pythoncom.CoUninitialize()
 
 
 if __name__ == "__main__":
-    if "--test-parser" in sys.argv:
+    if "--stop" in sys.argv:
+        requested = WorkerLease.request_stop(data_directory(load_config(), CURRENT_DIR))
+        print("Đã yêu cầu dừng sau tác vụ hiện tại." if requested else "Chưa tìm thấy worker trong thư mục dữ liệu.")
+    elif "--test-parser" in sys.argv:
         run_self_test()
     else:
         run_bridge()

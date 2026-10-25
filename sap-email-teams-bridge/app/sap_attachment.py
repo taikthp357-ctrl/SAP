@@ -587,8 +587,37 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 class MigoAttachmentRunner:
     """Điều khiển tự động hóa điền số phiếu và đính kèm BBBG / VAT / Email vào SAP MIGO qua GOS."""
 
-    def __init__(self, sap_engine=None):
+    def __init__(self, sap_engine=None, expected_session_identity=None):
         self.sap_engine = sap_engine
+        self.expected_session_identity = dict(expected_session_identity or {})
+        self._active_document = None
+
+    def verify_session_identity(self, session, require_migo=False):
+        if session is None:
+            return False, "NO_SESSION"
+        required = ("system", "client", "user", "session_id")
+        if not all(self.expected_session_identity.get(key) for key in required):
+            return False, "SESSION_IDENTITY_REQUIRED"
+        try:
+            actual = {"system": session.Info.SystemName, "client": session.Info.Client,
+                      "user": session.Info.User, "session_id": session.Id}
+            if any(not isinstance(actual[key], str) or actual[key].strip().casefold() != str(self.expected_session_identity[key]).strip().casefold() for key in required):
+                return False, "SESSION_IDENTITY_MISMATCH"
+            if session.Busy:
+                return False, "SESSION_BUSY"
+            if require_migo and str(session.Info.Transaction).upper() != "MIGO":
+                return False, "SESSION_TRANSACTION_MISMATCH"
+            return True, "SESSION_VERIFIED"
+        except Exception:
+            return False, "SESSION_IDENTITY_UNAVAILABLE"
+
+    @staticmethod
+    def _failed_item(doc, ticket, status, message):
+        return {"doc": doc, "ticket_no": ticket, "headtext_status": status,
+                "headtext_msg": message, "bbbg_status": "NOT_EXECUTED",
+                "vat_status": "NOT_EXECUTED", "mail_status": "NOT_EXECUTED",
+                "bbbg_file": None, "vat_file": None, "mail_file": None,
+                "overall_status": status, "match_notes": message, "is_succ": False}, False
 
     @staticmethod
     def index_source_folder(folder_path: str, recursive: bool = True) -> Dict[str, Any]:
@@ -732,6 +761,9 @@ class MigoAttachmentRunner:
         """Kiểm tra và điền số phiếu vào trường Header Text theo chuẩn Change_doc:
         MIGO_OK_HEADER_OPEN -> GOHEAD-BKTXT.Text = ticket_no -> SendVKey 11 (Save).
         """
+        identity_ok, identity_status = self.verify_session_identity(session, require_migo=True)
+        if not identity_ok or self._active_document is None:
+            return "HEADTEXT_BLOCKED", identity_status if not identity_ok else "DOCUMENT_NOT_VERIFIED"
         if not ticket_no or not str(ticket_no).strip():
             return "SKIP_NO_TICKET", "Không có số phiếu cần điền"
 
@@ -777,7 +809,7 @@ class MigoAttachmentRunner:
             if current_text:
                 curr_tokens, curr_compact = extract_search_tokens(current_text)
                 tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
-                if curr_compact == tick_compact or (curr_tokens and set(curr_tokens).intersection(set(tick_tokens))):
+                if curr_compact == tick_compact:
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
                 else:
                     # Quy tắc Đợt 2 (A01): Nếu đã có HeadText khác nội dung -> Báo REVIEW, tuyệt đối không ghi đè ngầm
@@ -815,9 +847,18 @@ class MigoAttachmentRunner:
                         break
                 if s_type in ("E", "A"):
                     return "HEADTEXT_FAIL", f"Lỗi lưu: {s_msg}"
-                return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}' ({s_msg})"
-
-            return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText thành công: '{ticket_clean}'"
+            else:
+                return "HEADTEXT_UNCERTAIN", "Không đọc được phản hồi lưu SAP; cần kiểm tra thủ công"
+            if s_type != "S":
+                return "HEADTEXT_UNCERTAIN", f"SAP chưa xác nhận lưu: {s_msg}"
+            doc, year = self._active_document
+            loaded, reason = self.open_migo_document(session, doc, year, mode="DISPLAY", force_reload=True)
+            if not loaded:
+                return "HEADTEXT_UNCERTAIN", f"Chưa đọc lại chứng từ sau lưu: {reason}"
+            readback = smart_find(session, "GOHEAD-BKTXT", "GuiTextField")
+            if readback is None or str(getattr(readback, "Text", "")).strip() != ticket_clean:
+                return "HEADTEXT_UNCERTAIN", "Header Text đọc lại không khớp; cần kiểm tra thủ công"
+            return "HEADTEXT_DONE", f"Đã điền và lưu mới HeadText, đọc lại khớp: '{ticket_clean}'"
         except Exception as e:
             return "HEADTEXT_EXCEPTION", f"Lỗi xử lý HeadText: {e}"
 
@@ -952,6 +993,9 @@ class MigoAttachmentRunner:
 
     def attach_file_to_current_migo(self, session, file_path: Path) -> Tuple[bool, str]:
         """Đính kèm 1 file vật lý vào chứng từ MIGO đang mở trên SAP qua GOS (%GOS_TOOLBOX)."""
+        identity_ok, identity_status = self.verify_session_identity(session, require_migo=True)
+        if not identity_ok or self._active_document is None:
+            return False, identity_status if not identity_ok else "DOCUMENT_NOT_VERIFIED"
         abs_path = file_path.resolve()
         if not abs_path.exists():
             return False, f"FILE_NOT_FOUND: {abs_path}"
@@ -988,7 +1032,9 @@ class MigoAttachmentRunner:
                     else:
                         session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
-                sap_com_retry(_trigger_gos_and_fill, retries=4, delay=0.08)
+                # Do not retry a sequence containing upload: a lost response may
+                # follow a successful write and retrying could duplicate files.
+                _trigger_gos_and_fill()
                 # Vừa nhấn btn[0] xong là wnd[1] bắt đầu đóng -> nhả POPUP_LOCK ngay cho Tab kia!
                 time.sleep(0.4)
 
@@ -997,13 +1043,15 @@ class MigoAttachmentRunner:
             msg = getattr(sbar, "Text", "")
             msg_type = getattr(sbar, "MessageType", "")
 
-            success_keywords = ["SUCCESS", "CREATED", "SAVED", "STORED", "THANH CONG", "DA TAO", "EXISTING"]
-            if any(k in msg.upper() for k in success_keywords) or msg_type == "S":
-                return True, f"DONE_SAP_ACK: {msg or 'Created successfully'}"
-            elif any(k in msg.upper() for k in ["NOT CREATED", "FAILED", "ERROR", "CANCELLED", "CANCELED"]):
+            text = str(msg).upper()
+            if msg_type in ("E", "A") or any(k in text for k in ["NOT CREATED", "NOT SAVED", "FAILED", "ERROR", "CANCELLED", "CANCELED", "KHONG THANH CONG"]):
                 return False, f"SAP_ERROR: {msg}"
-            else:
-                return True, f"DONE_ACK (msg: {msg})"
+            if msg_type != "S":
+                return False, f"ATTACHMENT_UNCERTAIN: {msg}"
+            titles = self.read_sap_attachment_titles(session)
+            if not any(Path(str(title)).name.casefold() == filename.casefold() for title in titles):
+                return False, "ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file trên SAP"
+            return True, f"DONE_SAP_READBACK: {filename}"
 
         except Exception as e:
             return False, f"GOS_EXCEPTION: {e}"
@@ -1012,7 +1060,8 @@ class MigoAttachmentRunner:
         """Chuẩn bị màn hình MIGO theo chuẩn Change_doc từ 240101_MA Log_GR Tool_V7_1:
         Mở /nmigo một lần duy nhất trước vòng lặp và đặt Action = A12 (Change) hoặc A04 (Display).
         """
-        if session is None:
+        identity_ok, _ = self.verify_session_identity(session)
+        if not identity_ok:
             return False
         try:
             try:
@@ -1064,18 +1113,29 @@ class MigoAttachmentRunner:
                     except Exception:
                         pass
                 time.sleep(0.3)
-            return True
+                if str(getattr(act_cb, "Key", "")) != target_act:
+                    return False
+            else:
+                return False
+            return str(session.Info.Transaction).upper() == "MIGO"
         except Exception as e:
             print(f"[MIGO INIT WARN] {e}")
             return False
 
-    def open_migo_document(self, session, doc: str, year: str = "2026", mode: str = "CHANGE") -> Tuple[bool, str]:
+    def open_migo_document(self, session, doc: str, year: str = "", mode: str = "CHANGE", force_reload: bool = False) -> Tuple[bool, str]:
         """Nạp chứng từ MIGO theo chuẩn luồng Change_doc:
         Điền số DOC vào GODYNPRO-MAT_DOC và gửi Enter (SendVKey 0).
         """
-        if session is None:
-            return False, "NO_SESSION: Session SAP là None"
+        self._active_document = None
+        identity_ok, reason = self.verify_session_identity(session)
+        if not identity_ok:
+            return False, reason
+        if not re.fullmatch(r"\d{10}", str(doc)) or not re.fullmatch(r"(?:19|20|21)\d{2}", str(year)):
+            return False, "DOCUMENT_AND_YEAR_REQUIRED"
         try:
+            if force_reload or str(session.Info.Transaction).upper() != "MIGO":
+                if not self.prepare_migo_session(session, mode=mode):
+                    return False, "SESSION_PREPARE_FAILED"
             # 1. Tìm ô nhập số chứng từ GODYNPRO-MAT_DOC
             doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
@@ -1092,7 +1152,8 @@ class MigoAttachmentRunner:
 
             # Nếu sau Esc vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
             if doc_fld is None or not getattr(doc_fld, "Changeable", True):
-                self.prepare_migo_session(session, mode=mode)
+                if not self.prepare_migo_session(session, mode=mode):
+                    return False, "SESSION_PREPARE_FAILED"
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
             if doc_fld is None:
@@ -1108,6 +1169,10 @@ class MigoAttachmentRunner:
             except Exception:
                 doc_fld.text = str(doc).strip()
 
+            year_fld = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+            if year_fld is None:
+                return False, "YEAR_CONTROL_NOT_FOUND"
+            year_fld.Text = str(year)
             # 3. Enter nạp chứng từ
             w0 = safe_find_by_id(session, "wnd[0]")
             if w0:
@@ -1137,7 +1202,19 @@ class MigoAttachmentRunner:
                             pass
                     return False, f"DOC_NOT_FOUND: {s_msg}"
 
-            return True, "LOADED_OK"
+            identity_ok, reason = self.verify_session_identity(session, require_migo=True)
+            if not identity_ok:
+                return False, reason
+            read_doc = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
+            read_year = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+            if read_doc is None or read_year is None:
+                return False, "DOCUMENT_READBACK_UNAVAILABLE"
+            if str(getattr(read_doc, "Text", "")).strip() != str(doc) or str(getattr(read_year, "Text", "")).strip() != str(year):
+                return False, "DOCUMENT_READBACK_MISMATCH"
+            if getattr(read_doc, "Changeable", True):
+                return False, "DOCUMENT_NOT_LOADED"
+            self._active_document = (str(doc), str(year))
+            return True, "LOADED_VERIFIED"
         except Exception as e:
             try:
                 w0 = safe_find_by_id(session, "wnd[0]")
@@ -1153,7 +1230,7 @@ class MigoAttachmentRunner:
         item: Dict[str, str],
         index_data: Dict[str, Any],
         fill_headtext: bool = True,
-        year: str = "2026",
+        year: str = "",
         is_folder_requested: bool = False,
         has_folder: bool = False,
         folder_error: str = "",
@@ -1162,8 +1239,29 @@ class MigoAttachmentRunner:
         """Xử lý 1 chứng từ MIGO duy nhất (Điền HeadText, đính kèm BBBG/VAT)."""
         doc = str(item.get("doc", "")).strip()
         ticket_no = str(item.get("ticket_no", "")).strip()
-        if not doc:
-            return {}, False
+        year = str(item.get("year") or year or "").strip()
+        if not re.fullmatch(r"\d{10}", doc):
+            return self._failed_item(doc, ticket_no, "INVALID_DOCUMENT", "Số chứng từ phải có 10 chữ số")
+        if item.get("multi_ticket_conflict"):
+            return self._failed_item(doc, ticket_no, "MULTI_TICKET_DOC", "Cùng chứng từ có nhiều số phiếu; cần kiểm tra thủ công")
+        if dry_run:
+            matches = self.match_all_files(doc, ticket_no, index_data) if has_folder else {"bbbg": [], "vat": [], "mail": []}
+            ready = bool(ticket_no and fill_headtext) if not is_folder_requested else bool(has_folder and any(matches.values()))
+            status = "SIMULATED" if ready else "FILE_NOT_FOUND" if has_folder else "LỖI_THƯ_MỤC" if is_folder_requested else "THIẾU_SỐ_PHIẾU"
+            result, _ = self._failed_item(doc, ticket_no, status, "Xem trước; chưa thay đổi dữ liệu SAP")
+            result.update({"headtext_status": "SIMULATED" if ticket_no and fill_headtext else "SKIP_NO_TICKET",
+                           "simulated": True, "preview_ready": ready, "year": year})
+            for kind in ("bbbg", "vat", "mail"):
+                result[kind + "_file"] = ", ".join(p.name for p in matches[kind]) or None
+                result[kind + "_status"] = ("SIMULATED" if matches[kind] else "FILE_NOT_FOUND") if has_folder else "LỖI_THƯ_MỤC" if is_folder_requested else "SKIP_NO_ATTACH"
+            return result, False
+        if session is None:
+            return self._failed_item(doc, ticket_no, "NO_SESSION", "Không kết nối SAP; chưa thực hiện thao tác")
+        if not re.fullmatch(r"(?:19|20|21)\d{2}", year):
+            return self._failed_item(doc, ticket_no, "YEAR_REQUIRED", "Cần năm chứng từ rõ ràng; không tự lấy năm hiện tại")
+        identity_ok, identity_status = self.verify_session_identity(session)
+        if not identity_ok:
+            return self._failed_item(doc, ticket_no, identity_status, "Chưa xác minh đúng hệ thống, client, người dùng và session được cấp")
 
         # =========================================================================
         # TRƯỜNG HỢP 1: NGƯỜI DÙNG KHÔNG YÊU CẦU ĐÍNH KÈM (Chỉ điền số phiếu HeadText)
@@ -1174,7 +1272,7 @@ class MigoAttachmentRunner:
             overall_status = "CHƯA_XỬ_LÝ"
             is_succ = False
 
-            if dry_run or session is None:
+            if dry_run:
                 if fill_headtext and ticket_no:
                     headtext_res = "HEADTEXT_DONE"
                     headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
@@ -1237,7 +1335,7 @@ class MigoAttachmentRunner:
             headtext_msg = "Không điền HeadText"
 
             if fill_headtext and ticket_no:
-                if dry_run or session is None:
+                if dry_run:
                     headtext_res = "HEADTEXT_DONE"
                     headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
                 else:
@@ -1300,7 +1398,7 @@ class MigoAttachmentRunner:
         overall_status = "FILE_NOT_FOUND"
         is_succ = False
 
-        if dry_run or session is None:
+        if dry_run:
             if fill_headtext and ticket_no:
                 headtext_res = "HEADTEXT_DONE"
                 headtext_msg = f"Mô phỏng: Điền '{ticket_no}'"
@@ -1437,7 +1535,7 @@ class MigoAttachmentRunner:
         self,
         folder_path: str,
         items: List[Dict[str, str]],
-        year: str = "2026",
+        year: str = "",
         fill_headtext: bool = True,
         dry_run: bool = False,
         progress_callback: Optional[Callable[[int, int, str, int], None]] = None
@@ -1494,12 +1592,9 @@ class MigoAttachmentRunner:
         PROGRESS_INTERVAL_SEC = 180.0  # Cập nhật tiến độ lên Teams mỗi 3 phút
 
         # Xác định khả năng chạy Multi-Tab (Danh sách > 15 chứng từ, có kết nối SAP và không dry_run)
-        is_multi_tab_eligible = (
-            not dry_run
-            and self.sap_engine is not None
-            and total_items > 15
-            and pythoncom is not None
-        )
+        # Index-based tab selection is not proof of ownership. Keep writes on the
+        # single explicitly configured and reverified session.
+        is_multi_tab_eligible = False
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
@@ -1624,9 +1719,6 @@ class MigoAttachmentRunner:
                 else:
                     session = self.sap_engine.ensure_session()
 
-            if session is not None:
-                self.prepare_migo_session(session, mode="CHANGE")
-
             for idx, item in enumerate(items, 1):
                 doc = str(item.get("doc", "")).strip()
                 now = time.time()
@@ -1654,6 +1746,8 @@ class MigoAttachmentRunner:
             "total_items": len(items),
             "total_success": total_success,
             "total_missing": total_missing,
+            "simulated": dry_run,
+            "total_preview_ready": sum(bool(r.get("preview_ready")) for r in results),
             "results": results
         }
 
@@ -1668,6 +1762,9 @@ class MigoAttachmentRunner:
         folder_error = batch_summary.get("folder_error", "")
 
         lines = []
+        if batch_summary.get("simulated"):
+            ready = batch_summary.get("total_preview_ready", 0)
+            lines.append(f"**XEM TRƯỚC MIGO — CHƯA GHI SAP**: {ready}/{total} dòng sẵn sàng theo dữ liệu cục bộ.")
         if not folder_path:
             lines.append(f"📝 **KẾT QUẢ ĐIỀN SỐ PHIẾU HEADTEXT MIGO**")
             lines.append(f"• Tiến độ: Hoàn tất **{success}/{total}** chứng từ (Lỗi/Thiếu: {missing})")
