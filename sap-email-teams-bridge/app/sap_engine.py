@@ -63,6 +63,7 @@ class SapExecutionError(RuntimeError):
 
 class SapEngine:
     """Quản lý kết nối và điều khiển tự động SAP GUI theo chuẩn BBBG."""
+    MAX_BOT_SESSIONS: int = 3
 
     def __init__(
         self,
@@ -153,12 +154,13 @@ class SapEngine:
                 if selected_session is not None:
                     break
 
-        # Ưu tiên 2: Tự động mở thêm Tab mới qua CreateSession() nếu phiên khác đang bận và tổng session < 6
+        # Ưu tiên 2: Tự động mở thêm Tab mới qua CreateSession() nếu phiên khác đang bận và tổng session < MAX_BOT_SESSIONS (tối đa 3 phiên)
+        max_bot_sessions = getattr(self, "MAX_BOT_SESSIONS", 3)
         if selected_session is None and auto_create and conn is not None:
-            if conn.Children.Count < 6:
+            if conn.Children.Count < max_bot_sessions:
                 try:
                     orig_count = conn.Children.Count
-                    print(f"[SAP MULTI-SESSION] Phát hiện session hiện có đang bận bởi tool khác. Đang tự động mở Tab SAP mới qua CreateSession() (Hiện có {orig_count}/6 session)...")
+                    print(f"[SAP MULTI-SESSION] Phát hiện session hiện có đang bận bởi tool khác. Đang tự động mở Tab SAP mới qua CreateSession() (Hiện có {orig_count}/{max_bot_sessions} session)...")
                     spawn_ok = False
                     for s_i in range(conn.Children.Count):
                         try:
@@ -626,19 +628,24 @@ class SapEngine:
             "no data", "not found", "không tìm thấy", "keine daten",
             "chưa có", "không có dữ liệu", "no document", "no item",
             "no suitable", "no records", "không có chứng từ",
-            "deliveries selected", "outbound deliveries", "giao hàng",
-            "không có giao hàng", "no deliveries", "no open", "không có đơn",
+            "không có giao hàng", "no deliveries", "no outbound deliveries", "no open", "không có đơn",
             "list contains no data", "danh sách không chứa", "no stock",
-            "không có tồn", "keine lieferungen", "ausgewählt", "selected",
-            "zero records", "0 records", "không tìm thấy bản ghi",
-            "restrict your selection", "restrict", "giới hạn lựa chọn"
+            "không có tồn", "keine lieferungen",
+            "zero records", "0 records", "không tìm thấy bản ghi"
         ]
 
+        # Kiểm tra nếu là thông báo không có dữ liệu thật sự
+        # Loại bỏ các từ mang tính cảnh báo lọc ('restrict', 'selected') để tránh biến lỗi màn hình thành NO_DATA giả tạo
         if any(p in lower_txt for p in empty_phrases):
             print(f"[SAP {tcode_name}] Xác nhận không có dữ liệu: '{combined_txt}'")
             return
 
         if is_selection_screen:
+            if any(w in lower_txt for w in ["restrict", "giới hạn lựa chọn", "quá nhiều", "specify"]):
+                raise SapExecutionError(
+                    f"SAP yêu cầu thu hẹp điều kiện lọc hoặc nhập thêm tiêu chí trên màn hình {tcode_name}. "
+                    f"Trạng thái: '{status_txt or 'Restrict your selection'}'. Vui lòng kiểm tra lại Plant, Mã hàng hoặc Kho."
+                )
             raise SapExecutionError(
                 f"Không thể mở bảng kết quả SAP {tcode_name} (màn hình nhập liệu không phản hồi hoặc bị chặn). "
                 f"Trạng thái: '{status_txt or 'Chưa rõ'}'"
@@ -725,7 +732,62 @@ class SapEngine:
 
         return records
 
-    def _apply_alv_filter(self, grid, column_id: str, values: List[str]) -> bool:
+    def _find_filter_field_token(self, wnd1, column_id: str, col_caption: str = "") -> str:
+        """Tìm chính xác token trường lọc (%%DYN001, %%DYN002, ...) khớp với cột cần lọc theo chuẩn VL6_FilterField của RC65."""
+        base_sub = "wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/"
+        col_norm = self._normalize_header(column_id)
+        cap_norm = self._normalize_header(col_caption)
+
+        aliases = {col_norm}
+        if cap_norm:
+            aliases.add(cap_norm)
+        if col_norm in ("MATNR", "MATERIAL", "PRODUCT", "EMATN"):
+            aliases.update(["MATNR", "MATERIAL", "PRODUCT", "VATTU", "MAHANG", "MATHANG", "EMATN"])
+        elif col_norm in ("VBELN", "DELIVERY", "OUTBOUND"):
+            aliases.update(["VBELN", "DELIVERY", "OUTBOUNDDELIVERY", "GIAOHANG", "CHUNGTU"])
+        elif col_norm in ("KUNWE", "KUNNR", "SHIPTO"):
+            aliases.update(["KUNWE", "KUNNR", "SHIPTO", "SHIPTOPARTY", "NOINHAN"])
+        elif col_norm in ("LGORT", "SLOC"):
+            aliases.update(["LGORT", "SLOC", "STORAGELOCATION", "KHO"])
+
+        matched_tokens = []
+        for i in range(1, 20):
+            token = f"%%DYN{i:03d}"
+            low_ctl = self._find_by_id_safe(f"{base_sub}ctxt{token}-LOW")
+            if low_ctl is None:
+                low_ctl = self._find_by_id_safe(f"{base_sub}txt{token}-LOW")
+            if low_ctl is None:
+                break
+
+            lbl_text = ""
+            for lbl_id in [
+                f"{base_sub}%_{token}_%_APP_%-TEXT",
+                f"{base_sub}lbl{token}",
+                f"{base_sub}txt{token}",
+                f"wnd[1]/usr/lbl{token}",
+                f"wnd[1]/usr/txt{token}"
+            ]:
+                lbl = self._find_by_id_safe(lbl_id)
+                if lbl is not None:
+                    lbl_text = str(getattr(lbl, "Text", "") or getattr(lbl, "text", "")).strip()
+                    if lbl_text:
+                        break
+
+            norm_lbl = self._normalize_header(lbl_text)
+            if norm_lbl:
+                if any(a in norm_lbl or norm_lbl in a for a in aliases):
+                    matched_tokens.append(token)
+
+        if len(matched_tokens) == 1:
+            print(f"[SAP ALV FILTER] Đã tìm thấy đúng token trường lọc cho cột '{column_id}': '{matched_tokens[0]}'")
+            return matched_tokens[0]
+        elif len(matched_tokens) > 1:
+            print(f"[SAP ALV FILTER] Tìm thấy {len(matched_tokens)} token khả dĩ ({matched_tokens}), chọn: '{matched_tokens[0]}'")
+            return matched_tokens[0]
+
+        return "%%DYN001"
+
+    def _apply_alv_filter(self, grid, column_id: str, values: List[str], col_caption: str = "") -> bool:
         """Áp dụng bộ lọc ALV Filter trên ALV Grid (phím Ctrl+F2 / nút &MB_FILTER / btn[29]) theo đúng chuẩn VL6_ApplyALVFilter của RC65."""
         clean_vals = [str(v).strip().upper() for v in values if str(v).strip()]
         if not clean_vals or grid is None or "Mock" in type(grid).__name__:
@@ -734,6 +796,10 @@ class SapEngine:
             # 1. Bỏ chọn các vùng cũ và chọn cột cần lọc
             try:
                 grid.clearSelection()
+                if hasattr(grid, "selectedRows"):
+                    grid.selectedRows = ""
+                if hasattr(grid, "SelectedColumns"):
+                    grid.SelectedColumns = ""
             except Exception:
                 pass
             try:
@@ -760,10 +826,15 @@ class SapEngine:
                 print(f"[SAP ALV FILTER WARN] Không tìm thấy popup wnd[1] sau khi bấm Filter cột {column_id}")
                 return False
 
-            # 3. Tìm ô nhập giá trị trong wnd[1]
+            # 3. Tìm đúng ô nhập giá trị trong wnd[1] theo chuẩn VL6_FilterField của RC65
+            token = self._find_filter_field_token(wnd1, column_id, col_caption)
             base_sub = "wnd[1]/usr/ssub%_SUBSCREEN_FREESEL:SAPLSSEL:1105/"
-            low_ctl = self._find_by_id_safe(base_sub + "ctxt%%DYN001-LOW")
-            hi_ctl = self._find_by_id_safe(base_sub + "ctxt%%DYN001-HIGH")
+            low_ctl = self._find_by_id_safe(f"{base_sub}ctxt{token}-LOW")
+            if low_ctl is None:
+                low_ctl = self._find_by_id_safe(f"{base_sub}txt{token}-LOW")
+            hi_ctl = self._find_by_id_safe(f"{base_sub}ctxt{token}-HIGH")
+            if hi_ctl is None:
+                hi_ctl = self._find_by_id_safe(f"{base_sub}txt{token}-HIGH")
 
             if low_ctl is None:
                 usr_obj = self._find_by_id_safe("wnd[1]/usr")
@@ -776,17 +847,27 @@ class SapEngine:
                             low_ctl = ch
                             break
 
+            # Xóa các giá trị lọc cũ trên popup trước khi điền mới
+            if low_ctl is not None:
+                try:
+                    low_ctl.text = ""
+                except Exception:
+                    pass
+            if hi_ctl is not None:
+                try:
+                    hi_ctl.text = ""
+                except Exception:
+                    pass
+
             if len(clean_vals) == 1 and low_ctl is not None:
                 low_ctl.text = clean_vals[0]
-                if hi_ctl is not None:
-                    try:
-                        hi_ctl.text = ""
-                    except Exception:
-                        pass
+                readback_val = str(getattr(low_ctl, "Text", "") or getattr(low_ctl, "text", "")).strip()
+                print(f"[SAP ALV FILTER TRACE] Cột '{column_id}' ({token}): Đã điền '{clean_vals[0]}', Readback='{readback_val}'")
             else:
-                multi_push = self._find_by_id_safe(base_sub + "btn%_%%DYN001_%_APP_%-VALU_PUSH")
+                multi_push_id = f"{base_sub}btn%_{token}_%_APP_%-VALU_PUSH"
+                multi_push = self._find_by_id_safe(multi_push_id)
                 if multi_push is not None:
-                    self._fill_multiple_selection(base_sub + "btn%_%%DYN001_%_APP_%-VALU_PUSH", clean_vals)
+                    self._fill_multiple_selection(multi_push_id, clean_vals)
                 elif low_ctl is not None:
                     low_ctl.text = clean_vals[0]
 
@@ -802,7 +883,7 @@ class SapEngine:
                 grid.clearSelection()
             except Exception:
                 pass
-            print(f"[SAP ALV FILTER] Đã áp dụng thành công bộ lọc {clean_vals} trên cột {column_id}.")
+            print(f"[SAP ALV FILTER] Đã áp dụng thành công bộ lọc {clean_vals} trên cột {column_id} (token {token}).")
             return True
         except Exception as e:
             print(f"[SAP ALV FILTER WARN] Không thể áp dụng ALV filter: {e}")
@@ -1813,8 +1894,14 @@ class SapEngine:
 
     # 5. KIỂM TRA ĐƠN ĐIỀU CHUYỂN KHO (STO - ME2N)
     # --------------------------------------------------------------------------
-    def check_sto_me2n(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
-        """Tra cứu đơn STO (Stock Transport Order) điều chuyển kho qua ME2N."""
+    def check_sto_me2n(
+        self,
+        materials: List[str],
+        plant: str = "3093",
+        supplying_plant: str = "",
+        receiving_plant: str = ""
+    ) -> List[Dict[str, str]]:
+        """Tra cứu đơn STO (Stock Transport Order) điều chuyển kho qua ME2N chuẩn theo RC65."""
         try:
             if not materials:
                 return []
@@ -1825,8 +1912,24 @@ class SapEngine:
             # Xóa sạch các bộ lọc cũ trên màn hình chọn ME2N
             self._clear_all_selection_inputs()
 
-            print(f"[SAP ME2N] Đang tra cứu STO cho Materials={materials}, Plant={plant}...")
             clean_mats = [m.strip().upper() for m in materials if m.strip()]
+            user_plant = str(plant or "3093").strip().upper()
+
+            # Phân định Supplying Plant (S_RESWK) và Receiving Plant (S_WERKS) theo chuẩn RC65
+            actual_supplying = supplying_plant.strip().upper() if supplying_plant else ""
+            actual_receiving = receiving_plant.strip().upper() if receiving_plant else ""
+
+            if not actual_supplying and not actual_receiving:
+                if user_plant == "4007":
+                    actual_receiving = "4007"
+                    actual_supplying = "3093"
+                else:
+                    actual_supplying = user_plant
+
+            print(
+                f"[SAP ME2N TRACE] Đang tra cứu STO: Materials={clean_mats}, "
+                f"SupplyingPlant='{actual_supplying}', ReceivingPlant='{actual_receiving}'..."
+            )
 
             # 1. Đặt định dạng hiển thị ALV
             listu_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtLISTU")
@@ -1863,12 +1966,32 @@ class SapEngine:
                 except Exception:
                     pass
 
-            # 4. Điền Supplying Plant (Nhà máy cấp hàng) nếu có
-            if plant:
+            # 4. Điền Supplying Plant (Nhà máy cấp hàng S_RESWK) và Receiving Plant (Nhà máy nhận hàng S_WERKS)
+            if actual_supplying:
                 reswk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_RESWK-LOW")
                 if reswk_ctl is not None:
                     try:
-                        reswk_ctl.text = plant
+                        reswk_ctl.text = actual_supplying
+                    except Exception:
+                        pass
+                reswk_hi = self._find_by_id_safe("wnd[0]/usr/ctxtS_RESWK-HIGH")
+                if reswk_hi is not None:
+                    try:
+                        reswk_hi.text = ""
+                    except Exception:
+                        pass
+
+            if actual_receiving:
+                werks_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtS_WERKS-LOW")
+                if werks_ctl is not None:
+                    try:
+                        werks_ctl.text = actual_receiving
+                    except Exception:
+                        pass
+                werks_hi = self._find_by_id_safe("wnd[0]/usr/ctxtS_WERKS-HIGH")
+                if werks_hi is not None:
+                    try:
+                        werks_hi.text = ""
                     except Exception:
                         pass
 
@@ -1886,6 +2009,11 @@ class SapEngine:
             status_txt, status_type = self._get_status()
             if status_type in ("E", "A"):
                 raise SapExecutionError(f"Lỗi SAP ME2N ({status_type}): {status_txt}")
+
+            # Xử lý thông báo "No suitable purchasing documents found" một cách êm ái
+            if any(p in status_txt.lower() for p in ["no suitable purchasing documents", "no purchasing documents", "không tìm thấy chứng từ"]):
+                print(f"[SAP ME2N] SAP xác nhận không có chứng từ mua hàng/STO phù hợp: '{status_txt}'")
+                return []
 
             # 6. Tìm ALV Grid
             alv_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
@@ -1909,17 +2037,16 @@ class SapEngine:
                 "deleteInd":      ["LOEKZ", "DELETION INDICATOR", "DEL"]
             }
             raw_records = self._extract_alv_grid(alv_grid, col_map)
-            print(f"[SAP ME2N] Đã trích xuất {len(raw_records)} dòng đơn STO.")
+            print(f"[SAP ME2N TRACE] Đã trích xuất {len(raw_records)} dòng đơn STO từ SAP.")
 
             records = []
             for r in raw_records:
-                # Bỏ qua dòng đã xóa
                 if str(r.get("deleteInd", "")).strip():
                     continue
 
-                # Tính số lượng còn lại (Remaining Qty) chuẩn hóa float
                 ord_q = parse_sap_float(r.get("orderQty"))
                 del_q = parse_sap_float(r.get("deliveredQty"))
+                # Ghi chú: MGLIEF chỉ mang tính tham khảo theo chuẩn RC65 dòng 9069
                 rem_q = max(0.0, ord_q - del_q)
 
                 r["orderQty"] = format_qty_display(ord_q)
@@ -1927,14 +2054,13 @@ class SapEngine:
                 r["remainingQty"] = format_qty_display(rem_q)
                 records.append(r)
 
-            # Sắp xếp số đơn STO mới nhất lên đầu
+            print(f"[SAP ME2N TRACE] Sau khi xử lý: còn {len(records)} dòng STO thỏa mãn.")
             records.sort(key=lambda x: str(x.get("stoNo", "")), reverse=True)
             return records
-
-        # --------------------------------------------------------------------------
         finally:
             self._reset_to_session_manager()
 
+    # --------------------------------------------------------------------------
     # 6. KIỂM TRA TỒN THẤP THEO MODEL & SHOP (MB52 ĐA PLANT)
     # --------------------------------------------------------------------------
     def check_low_stock(
@@ -2287,7 +2413,7 @@ class SapEngine:
         plant: str = "3093",
         ship_to: str = ""
     ) -> List[Dict[str, str]]:
-        """Tra cứu các đơn Outbound Delivery (OB) đang mở qua VL06O chuẩn theo 261010_OB_TOOL_V1_RC65."""
+        """Tra cứu các đơn Outbound Delivery (OB) đang mở qua VL06O chuẩn theo 261010_OB_TOOL_V1_RC65 kèm 5 nấc chẩn đoán."""
         try:
             self._open_transaction("VL06O")
             self._wait_idle(10.0)
@@ -2296,10 +2422,8 @@ class SapEngine:
             clean_ob = str(ob_no or "").strip()
             user_plant = str(plant or "3093").strip().upper()
 
-            # Chuẩn RC65 (ModuleSAP.bas dòng 2572-2584): Shipping Point = "3093" trực tiếp
-            target_vstel = "3098" if user_plant == "3098" else "3093"
-
-            print(f"[SAP VL06O] Tra cứu OB mở theo chuẩn RC65: OB='{clean_ob}', Materials={clean_mats}, ShippingPoint='{target_vstel}', ShipTo='{ship_to}'...")
+            # Chuẩn RC65 (ModuleSAP.bas dòng 2572-2584): Shipping Point = "3093" trực tiếp hoặc theo user_plant
+            target_vstel = "3098" if user_plant == "3098" else ("3093" if user_plant in ("3093", "") else user_plant)
 
             # 1. Điều hướng vào màn hình chọn List Outbound Deliveries (nút btnBUTTON6)
             date_low_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WADAT-LOW")
@@ -2329,7 +2453,7 @@ class SapEngine:
                 if self._find_by_id_safe(btn_id) is not None:
                     self._clear_multiple_selection(btn_id)
 
-            # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Điền Shipping Point = 3093 trực tiếp vào ctxtIF_VSTEL-LOW (không dùng popup)
+            # 3. ĐIỀU KIỆN THEN CHỐT THEO RC65: Điền Shipping Point trực tiếp vào ctxtIF_VSTEL-LOW (không dùng popup)
             vstel_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIF_VSTEL-LOW")
             if vstel_ctl is not None:
                 try:
@@ -2361,12 +2485,13 @@ class SapEngine:
                     pass
 
             # 5. Goods Movement Status = "A" (Chưa xuất hàng / Đang mở theo RC65)
+            target_gm = "A"
             gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
             if gm_ctl is None:
                 gm_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTA-LOW")
             if gm_ctl is not None:
                 try:
-                    gm_ctl.text = "A"
+                    gm_ctl.text = target_gm
                 except Exception:
                     pass
 
@@ -2400,6 +2525,13 @@ class SapEngine:
                 except Exception:
                     pass
 
+            # Nấc 1 Trace: Ghi nhận đầy đủ tham số đã áp dụng ở Selection Screen
+            print(
+                f"[SAP VL06O SELECTION TRACE] ShippingPoint='{target_vstel}', "
+                f"PlannedGI='{from_date}'->'{to_date}', GMStatus='{target_gm}', "
+                f"OB='{clean_ob}', ShipTo='{ship_to}', Materials={clean_mats}"
+            )
+
             # 8. Thực thi F8
             print("[SAP VL06O] Đang bấm thực thi (F8)...")
             exec_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[8]")
@@ -2413,8 +2545,8 @@ class SapEngine:
 
             status_txt, status_type = self._get_status()
             comb = f"{status_txt} {popup_msg}".lower()
-            if any(k in comb for k in ["no deliveries", "no data", "không tìm thấy", "keine lieferungen", "không có giao hàng"]):
-                print(f"[SAP VL06O] Xác nhận không có đơn Outbound nào: '{status_txt or popup_msg}'")
+            if any(k in comb for k in ["no deliveries", "no outbound deliveries", "outbound deliveries selected", "no data", "không tìm thấy", "keine lieferungen", "keine auslieferungen", "không có giao hàng"]):
+                print(f"[SAP VL06O TRACE Nấc 1] Xác nhận không có đơn Outbound nào: '{status_txt or popup_msg}'")
                 return []
 
             if status_type in ("E", "A"):
@@ -2426,15 +2558,53 @@ class SapEngine:
                 self._validate_grid_or_raise(alv_grid, "VL06O", status_txt, status_type)
                 return []
 
+            # Nấc 1 Trace: Đọc RowCount ban đầu của lưới Item View
+            row_count_before = 0
+            try:
+                row_count_before = int(getattr(alv_grid, "RowCount", 0))
+            except Exception as e:
+                print(f"[SAP VL06O WARN] Không thể đọc RowCount trước filter: {e}")
+            print(f"[SAP VL06O TRACE Nấc 1] RowCount TRƯỚC khi Filter ALV: {row_count_before} dòng.")
+
+            if row_count_before == 0:
+                print(f"[SAP VL06O TRACE Nấc 1] Lưới Item View trả về 0 dòng từ Selection Screen.")
+                return []
+
             # 10. ÁP DỤNG BỘ LỌC ALV FILTER THEO CHUẨN VL6_ApplyALVFilter CỦA RC65:
             # Nếu người dùng hỏi 1 mã (hoặc danh sách mã), lọc trực tiếp trên ALV để loại bỏ hàng nghìn dòng thừa!
+            row_count_after = row_count_before
             if clean_mats:
                 resolved_item_cols = self._resolve_grid_columns(
                     alv_grid,
                     {"product": ["MATNR", "MATERIAL", "PRODUCT"]}
                 )
                 mat_tech_col = resolved_item_cols.get("product", "MATNR")
-                self._apply_alv_filter(alv_grid, mat_tech_col, clean_mats)
+
+                mat_caption = ""
+                try:
+                    mat_caption = str(alv_grid.GetDisplayedColumnTitle(mat_tech_col) or "").strip()
+                except Exception:
+                    pass
+
+                print(f"[SAP VL06O TRACE Nấc 2] Đang áp dụng ALV Filter: Cột='{mat_tech_col}' (caption='{mat_caption}'), Values={clean_mats}")
+                filter_ok = self._apply_alv_filter(alv_grid, mat_tech_col, clean_mats, col_caption=mat_caption)
+
+                # Sau khi Filter, luôn re-acquire direct grid reference giống VL6_DirectGrid trong RC65 dòng 5309
+                refreshed_grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell")
+                if refreshed_grid is None:
+                    refreshed_grid = self._find_largest_grid(max_wait_sec=5.0)
+                if refreshed_grid is not None:
+                    alv_grid = refreshed_grid
+
+                try:
+                    row_count_after = int(getattr(alv_grid, "RowCount", 0))
+                except Exception as e:
+                    print(f"[SAP VL06O WARN] Không thể đọc RowCount sau filter: {e}")
+                print(f"[SAP VL06O TRACE Nấc 2] RowCount SAU khi Filter ALV: {row_count_after} dòng (giảm từ {row_count_before} dòng). Filter_Success={filter_ok}")
+
+                if row_count_after == 0:
+                    print(f"[SAP VL06O TRACE Nấc 2] Không có đơn nào cho mã {clean_mats} sau khi áp dụng bộ lọc ALV.")
+                    return []
 
             # 11. Trích xuất toàn bộ dữ liệu từ lưới Item View đã lọc
             col_map = {
@@ -2451,23 +2621,36 @@ class SapEngine:
                 "createDate": ["ERDAT", "CREATED ON", "DATE"]
             }
             all_records = self._extract_alv_grid(alv_grid, col_map)
-            print(f"[SAP VL06O] Đã trích xuất {len(all_records)} dòng đơn OB từ SAP.")
+            print(f"[SAP VL06O TRACE Nấc 3] Extractor đã đọc {len(all_records)}/{row_count_after} dòng từ lưới ALV.")
 
-            # 12. Lọc lại một lượt để chắc chắn và định dạng số lượng
+            if row_count_after > 0 and len(all_records) == 0:
+                raise SapExecutionError(
+                    f"Lỗi trích xuất VL06O (Nấc 3): Lưới ALV hiển thị {row_count_after} dòng nhưng không đọc được dữ liệu qua COM. "
+                    f"Vui lòng kiểm tra lại hiển thị SAP GUI."
+                )
+
+            # 12. Lọc lại một lượt để chắc chắn và định dạng số lượng kèm bộ đếm lý do loại bỏ
             filtered_records = []
+            drop_reasons = {"mat_mismatch": 0, "ob_mismatch": 0, "gm_mismatch": 0}
             for r in all_records:
                 prod = str(r.get("product", "")).strip().upper()
                 if clean_mats and not self._matches_material(prod, clean_mats):
+                    drop_reasons["mat_mismatch"] += 1
                     continue
                 if clean_ob and clean_ob not in str(r.get("obNo", "")).strip():
+                    drop_reasons["ob_mismatch"] += 1
                     continue
                 gm = str(r.get("gmStatus", "")).strip().upper()
                 if gm and gm not in ("A", "B", ""):
+                    drop_reasons["gm_mismatch"] += 1
                     continue
                 r["qty"] = format_qty_display(parse_sap_float(r.get("qty")))
                 filtered_records.append(r)
 
-            print(f"[SAP VL06O] Sau khi lọc theo điều kiện: còn {len(filtered_records)} dòng đơn OB thỏa mãn.")
+            print(
+                f"[SAP VL06O TRACE Nấc 4] Sau khi hậu lọc: còn {len(filtered_records)} dòng đơn OB thỏa mãn. "
+                f"Lý do loại dòng (Drop reasons): {drop_reasons}"
+            )
             filtered_records.sort(key=lambda x: str(x.get("obNo", "")), reverse=True)
             return filtered_records
         finally:

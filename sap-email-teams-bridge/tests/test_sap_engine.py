@@ -1207,11 +1207,73 @@ def test_check_low_stock_reads_excel_body_and_supports_full_model_list():
 
 
 def test_validate_grid_or_raise_restrict_your_selection():
-    """Kiểm tra khi SAP MB52 trả về 'Restrict your selection' (không có tồn) thì không văng lỗi mà trả về rỗng."""
+    """Kiểm tra khi SAP MB52 trả về 'Restrict your selection' thì văng SapExecutionError yêu cầu thu hẹp điều kiện lọc (không che giấu thành NO_DATA)."""
     engine = SapEngine.__new__(SapEngine)
     engine._find_by_id_safe = MagicMock(return_value=MagicMock())  # Giả lập đang ở màn hình lọc
     engine.last_popup_message = ""
 
-    # Phải pass không được raise SapExecutionError
-    engine._validate_grid_or_raise(None, "MB52", "Restrict your selection", "S")
+    with pytest.raises(SapExecutionError) as exc_info:
+        engine._validate_grid_or_raise(None, "MB52", "Restrict your selection", "S")
+    assert "thu hẹp điều kiện lọc" in str(exc_info.value) or "restrict" in str(exc_info.value).lower()
+
+
+def test_sap_engine_max_bot_sessions_cap():
+    """Kiểm tra trần tối đa 3 phiên SAP do bot quản lý (MAX_BOT_SESSIONS = 3) theo chuẩn RC65."""
+    assert SapEngine.MAX_BOT_SESSIONS == 3
+
+
+def test_find_filter_field_token_resolution():
+    """Kiểm tra bộ phân giải token trường lọc ALV Filter theo chuẩn RC65."""
+    engine = SapEngine.__new__(SapEngine)
+    mock_wnd1 = MagicMock()
+    
+    mock_ctl = MagicMock()
+    mock_lbl = MagicMock()
+    mock_lbl.Text = "Material Number"
+
+    def mock_find(id_str):
+        if "ctxt%%DYN002-LOW" in id_str:
+            return mock_ctl
+        if "%%DYN002" in id_str and "TEXT" in id_str:
+            return mock_lbl
+        if "ctxt%%DYN001-LOW" in id_str:
+            return mock_ctl
+        return None
+
+    engine._find_by_id_safe = MagicMock(side_effect=mock_find)
+    token = engine._find_filter_field_token(mock_wnd1, "MATNR", "Material")
+    assert token == "%%DYN002"
+
+
+def test_check_sto_me2n_supplying_and_receiving_plants():
+    """Kiểm tra ME2N tự động phân định đúng Supplying Plant (3093) và Receiving Plant (4007) theo chuẩn RC65."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    mock_controls = {}
+    def mock_find(id_str):
+        if id_str not in mock_controls:
+            mock_controls[id_str] = MagicMock()
+        return mock_controls[id_str]
+    engine._find_by_id_safe = MagicMock(side_effect=mock_find)
+    engine._dismiss_popups = MagicMock(return_value="")
+    engine._get_status = MagicMock(return_value=("", "S"))
+
+    mock_grid = MagicMock()
+    mock_grid.RowCount = 1
+    engine._find_largest_grid = MagicMock(return_value=mock_grid)
+
+    mock_records = [
+        {"stoNo": "45001234", "item": "10", "product": "BIW001", "orderQty": "100.0", "deliveredQty": "40.0", "supplyingPlant": "3093", "receivingPlant": "4007", "deleteInd": ""}
+    ]
+    engine._extract_alv_grid = MagicMock(return_value=mock_records)
+
+    # Khi người dùng tra cứu STO cho kho 4007
+    res = engine.check_sto_me2n(["BIW001"], plant="4007")
+    assert len(res) == 1
+    assert res[0]["remainingQty"] == "60"
+    # Kiểm tra S_WERKS (Receiving Plant) được điền 4007, S_RESWK (Supplying Plant) được điền 3093
+    assert mock_controls["wnd[0]/usr/ctxtS_WERKS-LOW"].text == "4007"
+    assert mock_controls["wnd[0]/usr/ctxtS_RESWK-LOW"].text == "3093"
 
