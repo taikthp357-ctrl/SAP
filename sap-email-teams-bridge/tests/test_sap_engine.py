@@ -1204,3 +1204,14 @@ def test_check_low_stock_reads_excel_body_and_supports_full_model_list():
     # Lấy full_model_list=True -> trả về 50 mã sắp xếp ưu tiên
     recs_full = engine.check_low_stock([], plants=["3093", "3001"], limit=20, model_name="LIMO", shop_name="BODY", full_model_list=True)
     assert len(recs_full) == 50
+
+
+def test_validate_grid_or_raise_restrict_your_selection():
+    """Kiểm tra khi SAP MB52 trả về 'Restrict your selection' (không có tồn) thì không văng lỗi mà trả về rỗng."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())  # Giả lập đang ở màn hình lọc
+    engine.last_popup_message = ""
+
+    # Phải pass không được raise SapExecutionError
+    engine._validate_grid_or_raise(None, "MB52", "Restrict your selection", "S")
+

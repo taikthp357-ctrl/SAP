@@ -621,7 +621,8 @@ class SapEngine:
             "không có giao hàng", "no deliveries", "no open", "không có đơn",
             "list contains no data", "danh sách không chứa", "no stock",
             "không có tồn", "keine lieferungen", "ausgewählt", "selected",
-            "zero records", "0 records", "không tìm thấy bản ghi"
+            "zero records", "0 records", "không tìm thấy bản ghi",
+            "restrict your selection", "restrict", "giới hạn lựa chọn"
         ]
 
         if any(p in lower_txt for p in empty_phrases):
