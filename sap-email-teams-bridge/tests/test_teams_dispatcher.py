@@ -363,3 +363,24 @@ def test_teams_dispatcher_mb52_kpi_badges_sloc_kho_and_line():
     assert "Tồn kho 1005: 29600 EA" in badges_html
     assert "Tồn line nhỏ 3001: 8045 EA" in badges_html
     assert "3 Lô (Batch)" in badges_html
+
+
+def test_teams_dispatcher_ton_thap_kpi_badges_no_fake_stock():
+    """Kiểm tra TON_THAP không bị hiển thị nhầm thẻ 'Tồn: 0 PC 0 Lô (Batch)' mà phải có thẻ cảnh báo theo nghiệp vụ."""
+    records = [
+        {"product": "BIW74239330AA", "status": "MA hết tồn", "kho_ma": "0", "line_ma": "0", "transit": "0"},
+        {"product": "BIW70005061", "status": "Ưu tiên xuất Body (Chờ xuất: 40)", "kho_ma": "620", "line_ma": "0", "transit": "40"},
+        {"product": "BIW70004803HB", "status": "Ưu tiên kéo line (Chờ xuất: 30)", "kho_ma": "0", "line_ma": "60", "transit": "30"},
+        {"product": "BIW70002021HB", "status": "Hàng chờ xuất sang Body (160)", "kho_ma": "210", "line_ma": "150", "transit": "160"}
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "TON_THAP")
+    # TUYỆT ĐỐI không có badge giả 'Tồn: 0 PC' hoặc '0 Lô'
+    assert "Tồn: 0" not in badges_html
+    assert "0 Lô (Batch)" not in badges_html
+
+    # Phải có các thẻ KPI chính xác theo nghiệp vụ Body
+    assert "Báo cáo Tồn & Cảnh báo: 4 mã linh kiện" in badges_html
+    assert "1 Mã MA hết tồn" in badges_html
+    assert "1 Mã ưu tiên xuất Body" in badges_html
+    assert "1 Mã ưu tiên kéo line" in badges_html
+    assert "3 Mã có hàng chờ xuất" in badges_html

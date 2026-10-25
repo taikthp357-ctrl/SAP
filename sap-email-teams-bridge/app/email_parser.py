@@ -51,6 +51,7 @@ class SmartCommandParser:
             (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
         ],
         "ATT_MIGO": [
+            (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 35),
             (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 28),
             (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 22),
             (r"\b(?:att\s*vat\s*bbbg|att\s*bbbg\s*vat)\b", 30),
@@ -509,11 +510,27 @@ class SmartCommandParser:
         except Exception:
             att_items = [{"doc": d, "ticket_no": ""} for d in att_docs]
 
+        # NẾU CÓ FOLDER PATH VÀ (ATT ITEMS HOẶC INTENT ATT_MIGO HOẶC TỪ KHÓA ATT):
+        if folder_path and (att_items or att_docs or "att" in norm_text or best_intent == "ATT_MIGO"):
+            best_intent = "ATT_MIGO"
+            best_score = max(best_score, 35)
+            matched_keywords.append("ATT_MIGO: Tự động nhận diện thư mục đính kèm & danh sách chứng từ")
+
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
+        explicit_plant = False
         plant = default_plant
         plant_m = re.search(r"\b(?:plant|nha\s*may|werks)\s*[:=]?\s*(\d{4})\b", norm_text)
         if plant_m:
             plant = plant_m.group(1)
+            explicit_plant = True
+
+        # Kiểm tra nếu người dùng yêu cầu nguyên list / toàn bộ cho Model Tồn thấp
+        is_full_model_list = bool(re.search(r"\b(?:nguyen\s*list|toan\s*bo|full\s*list|tat\s*ca|tatca|full)\b", norm_text))
+        if is_full_model_list and (best_intent == "TON_THAP" or "body" in norm_text or "limo" in norm_text):
+            if best_intent != "TON_THAP" and ("limo" in norm_text or "vf" in norm_text or "body" in norm_text):
+                best_intent = "TON_THAP"
+                best_score = max(best_score, 25)
+            limit_val = 100
 
         batch = ""
         batch_m = re.search(r"\b(?:batch|so\s*lo|lo|charg)\s*[:=]?\s*([a-z0-9_-]{3,15})\b", norm_text)
@@ -535,6 +552,18 @@ class SmartCommandParser:
         work_str = command_text.upper()
         if meta["messageId"]:
             work_str = work_str.replace(meta["messageId"].upper(), " ")
+        if folder_path:
+            work_str = work_str.replace(folder_path.upper(), " ")
+        # Xóa sạch mọi dạng đường dẫn UNC hoặc thư mục còn sót lại
+        work_str = re.sub(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", " ", work_str)
+        # Xóa địa chỉ IP (ví dụ: 10.128.10.72) để không bị nhận nhầm thành mã vật tư
+        work_str = re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", " ", work_str)
+        if best_intent == "ATT_MIGO":
+            for d in att_docs:
+                work_str = work_str.replace(d, " ")
+            for item in att_items:
+                if item.get("doc"):
+                    work_str = work_str.replace(item["doc"], " ")
         if batch_m and batch:
             work_str = re.sub(r"\b(?:BATCH|SO\s*LO|LO|CHARG|LÔ|SỐ\s*LÔ)\s*[:=]?\s*" + re.escape(batch), " ", work_str, flags=re.I)
         if plant_m:
@@ -634,7 +663,9 @@ class SmartCommandParser:
             "materialDocument": mat_doc,
             "folderPath": folder_path,
             "attachmentDocs": att_docs,
-            "attachmentItems": att_items
+            "attachmentItems": att_items,
+            "explicitPlant": explicit_plant,
+            "fullModelList": is_full_model_list
         })
         return meta
 

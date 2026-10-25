@@ -546,3 +546,53 @@ def test_loop_guard_detects_and_drops_bot_echo():
     assert res.get("valid") is False
     assert res.get("isBotEcho") is True
     assert res.get("command") == "LOOP_GUARD"
+
+
+def test_parse_att_mail_with_unc_and_ticket_numbers():
+    """Kiểm tra lệnh 'att mail' đính kèm thư mục UNC và phiếu: Không bị phân loại nhầm sang posting change và không nhận nhầm IP làm vật tư."""
+    text = (
+        "SAP att mail nhé\n"
+        "\\\\10.128.10.72\\fvn$\\test\\folder\n"
+        "5007072231  THÀNH CÔNG in - 6156\n"
+        "5007072232  THÀNH ĐẠT in 6157"
+    )
+    res = EmailCommandParser.parse(text)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "ATT_MIGO"
+    assert res["materials"] == []
+    assert res["folderPath"] == "\\\\10.128.10.72\\fvn$\\test\\folder"
+    assert len(res["attachmentItems"]) == 2
+    assert res["attachmentItems"][0]["doc"] == "5007072231"
+    assert "6156" in res["attachmentItems"][0]["ticket_no"]
+
+
+def test_parse_mb51_explicit_vs_default_plant():
+    """Kiểm tra phân biệt rõ explicitPlant=True khi người dùng có gõ plant, và False khi không gõ."""
+    cmd1 = "SAP lịch sử xuất 3 ngày BIW32026700HA"
+    res1 = EmailCommandParser.parse(cmd1)
+    assert res1 is not None
+    assert res1["command"] == "LICHSU"
+    assert res1["days"] == 3
+    assert "BIW32026700HA" in res1["materials"]
+    assert res1["explicitPlant"] is False
+
+    cmd2 = "SAP lịch sử xuất 5 ngày plant 3093 BIW32026700HA"
+    res2 = EmailCommandParser.parse(cmd2)
+    assert res2 is not None
+    assert res2["command"] == "LICHSU"
+    assert res2["days"] == 5
+    assert res2["plant"] == "3093"
+    assert res2["explicitPlant"] is True
+
+
+def test_parse_ton_model_body_full_list():
+    """Kiểm tra nhận diện câu lệnh tồn model Body với tùy chọn nguyên list / full list."""
+    cmd = "SAP tồn limo body nguyên list"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["command"] == "TON_THAP"
+    assert res["model"] == "LIMO"
+    assert res["shop"] == "BODY"
+    assert res["fullModelList"] is True
+    assert res["limit"] == 100

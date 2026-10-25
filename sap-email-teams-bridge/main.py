@@ -434,14 +434,17 @@ def run_bridge():
                             summary = f"Tồn tổng hợp (Toàn bộ SLoc - Plant {plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["LICHSU", "LỊCH SỬ", "MB51"]:
-                            records = sap.check_history_mb51(resolved_mats, days, plant)
+                            explicit_p = meta.get("explicitPlant", False)
+                            target_plant = plant if explicit_p else ""
+                            records = sap.check_history_mb51(resolved_mats, days, target_plant, explicit_plant=explicit_p)
                             headers = {
                                 "product": "Mã hàng", "docNo": "Số CT", "mvtType": "Loại GD",
                                 "postDate": "Ngày HT", "qty": "Số lượng", "unit": "ĐVT",
                                 "sloc": "Kho", "batch": "Batch"
                             }
                             mapping_info = f" (Quy đổi: {', '.join(raw_mats)} ➔ {', '.join(resolved_mats)})" if raw_mats != resolved_mats else ""
-                            summary = f"Lịch sử giao dịch {days} ngày (MB51) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                            plant_info = f" (Plant {plant})" if explicit_p else " (Tất cả nhà máy)"
+                            summary = f"Lịch sử giao dịch {days} ngày (MB51){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
                         elif cmd in ["IB_TREO", "IB", "INBOUND", "VL06I"]:
                             records = sap.check_inbound_treo_vl06i(resolved_mats, plant=plant)
@@ -468,7 +471,8 @@ def run_bridge():
                             shop_name = meta.get("shop", "BODY")
                             target_plants = meta.get("plants", ["3093", "3001"] if shop_name == "BODY" else ["3093", "2001", "3001"])
                             limit_cnt = meta.get("limit", 20)
-                            records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name, shop_name=shop_name)
+                            full_model = meta.get("fullModelList", False)
+                            records = sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name, shop_name=shop_name, full_model_list=full_model)
                             if shop_name == "BODY":
                                 headers = {
                                     "product": "Material",
@@ -495,7 +499,8 @@ def run_bridge():
                                     "stock_3093": "Kho FG 3093", "stock_3001": "Line Body 3001",
                                     "total_stock": "Tổng tồn", "unit": "ĐVT", "status": "Cảnh báo"
                                 }
-                            summary = f"Cảnh báo tồn kho Body - Model {model_name} ({len(records)} mã Ưu tiên xuất theo chuẩn Stock_FG_MA_BODY)"
+                            list_mode = "Toàn bộ danh sách" if full_model else "Ưu tiên xuất"
+                            summary = f"Cảnh báo tồn kho Body - Model {model_name} ({len(records)} mã {list_mode} theo chuẩn Stock_FG_MA_BODY)"
 
                         elif cmd in ["CHECK_OB", "VL06O"]:
                             ob_no = meta.get("obNo", "")

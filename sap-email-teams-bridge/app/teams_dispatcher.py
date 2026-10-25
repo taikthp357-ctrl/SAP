@@ -197,7 +197,7 @@ class TeamsDispatcher:
                     f"⚡ Khả dụng: {format_qty_display(tot_avail)} {unit}</span>"
                 )
 
-            elif any(k in cmd_upper for k in ["TON", "MB52"]):
+            elif (any(k in cmd_upper for k in ["TON", "MB52"]) and "THAP" not in cmd_upper):
                 batches = {r.get("batch") for r in records if r.get("batch")}
                 unrest_sum = 0.0
                 unit = ""
@@ -310,21 +310,34 @@ class TeamsDispatcher:
                     )
 
             elif any(k in cmd_upper for k in ["TON_THAP", "LOW_STOCK"]):
-                zero_count = sum(1 for r in records if "Hết hàng" in str(r.get("status", "")))
-                low_count = sum(1 for r in records if "Tồn thấp" in str(r.get("status", "")))
+                zero_count = sum(1 for r in records if "hết" in str(r.get("status", "")).lower() or (parse_sap_float(r.get("kho_ma", "0")) == 0 and parse_sap_float(r.get("line_ma", "0")) == 0))
+                priority_body = sum(1 for r in records if "ưu tiên xuất" in str(r.get("status", "")).lower())
+                priority_line = sum(1 for r in records if "ưu tiên kéo line" in str(r.get("status", "")).lower())
+                transit_count = sum(1 for r in records if "chờ xuất" in str(r.get("status", "")).lower() or parse_sap_float(r.get("transit", "0")) > 0)
+
                 badges.append(
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
-                    f"📊 {len(records)} Mã báo cáo</span>"
+                    f"📊 Báo cáo Tồn & Cảnh báo: {len(records)} mã linh kiện</span>"
                 )
                 if zero_count > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
-                        f"🔴 {zero_count} Mã hết hàng (0)</span>"
+                        f"🔴 {zero_count} Mã MA hết tồn</span>"
                     )
-                if low_count > 0:
+                if priority_body > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-                        f"🟡 {low_count} Mã tồn thấp (<50)</span>"
+                        f"⚡ {priority_body} Mã ưu tiên xuất Body</span>"
+                    )
+                if priority_line > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                        f"🏭 {priority_line} Mã ưu tiên kéo line</span>"
+                    )
+                if transit_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"🚚 {transit_count} Mã có hàng chờ xuất</span>"
                     )
 
             elif any(k in cmd_upper for k in ["CHECK_OB", "VL06O", "OB"]):
@@ -571,6 +584,10 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã kiểm tra điều độ tồn FG và đơn OB mở cho sếp rồi ạ 👇"
             elif cmd_u in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]:
                 greeting = "Sếp ơi, em đã kiểm tra Posting Change kho NVL 1005 (Plant 3093) cho sếp rồi ạ! 📋"
+            elif cmd_u in ["TON_THAP", "LOW_STOCK"]:
+                greeting = f"Sếp ơi, em đã kiểm tra cảnh báo tồn kho Body (Model {meta.get('model', 'LIMO')}) cho sếp rồi ạ 👇"
+            elif cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
+                greeting = "Sếp ơi, em đã thực hiện xong tự động đính kèm và điền số phiếu MIGO cho sếp rồi ạ 👇"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 

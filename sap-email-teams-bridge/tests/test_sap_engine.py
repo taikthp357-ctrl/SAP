@@ -1154,3 +1154,53 @@ def test_connect_sap_creates_new_session_when_all_sessions_busy():
         assert selected == mock_sess_new
         mock_sess0.CreateSession.assert_called_once()
 
+
+
+def test_check_history_mb51_clears_plant_when_not_explicit():
+    """Kiểm tra check_history_mb51 xóa trường WERKS-LOW để tìm đa nhà máy khi explicit_plant=False."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {"matnr": "BIW32026700HA", "mblnr": "5000999999", "bwart": "261", "budat": "24.10.2026", "erfmg": "10.000", "erfme": "PC", "lgort": "3001", "charg": "LOT1"}
+    ])
+    engine._reset_to_session_manager = MagicMock()
+
+    mock_werks_low = MagicMock()
+    mock_werks_low.text = "OLD_PLANT"
+
+    def fake_find_by_id(ctl_id):
+        if "ctxtWERKS-LOW" in ctl_id:
+            return mock_werks_low
+        m = MagicMock()
+        m.text = ""
+        return m
+
+    engine._find_by_id_safe = MagicMock(side_effect=fake_find_by_id)
+
+    # 1. Khi explicit_plant=False -> ctxtWERKS-LOW phải bị gán rỗng ""
+    recs = engine.check_history_mb51(["BIW32026700HA"], days=3, plant="", explicit_plant=False)
+    assert len(recs) == 1
+    assert mock_werks_low.text == ""
+
+    # 2. Khi explicit_plant=True và có plant='3093' -> ctxtWERKS-LOW phải là '3093'
+    recs2 = engine.check_history_mb51(["BIW32026700HA"], days=3, plant="3093", explicit_plant=True)
+    assert len(recs2) == 1
+    assert mock_werks_low.text == "3093"
+
+
+def test_check_low_stock_reads_excel_body_and_supports_full_model_list():
+    """Kiểm tra check_low_stock đọc chuẩn file Excel 261008_Stock_FG_MA_BODY.xlsm cho model LIMO."""
+    engine = SapEngine.__new__(SapEngine)
+    # Lấy top 5
+    recs = engine.check_low_stock([], plants=["3093", "3001"], limit=5, model_name="LIMO", shop_name="BODY")
+    assert len(recs) == 5
+    assert recs[0]["model"] == "Limo"
+    assert "status" in recs[0]
+
+    # Lấy full_model_list=True -> trả về 50 mã sắp xếp ưu tiên
+    recs_full = engine.check_low_stock([], plants=["3093", "3001"], limit=20, model_name="LIMO", shop_name="BODY", full_model_list=True)
+    assert len(recs_full) == 50
