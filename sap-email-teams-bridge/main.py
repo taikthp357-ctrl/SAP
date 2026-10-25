@@ -223,14 +223,18 @@ def run_bridge():
 
     seq_counter = 1
     allowed_senders = [s.strip().lower() for s in config.get("allowed_senders", []) if s.strip()]
+    last_sync_time = 0.0
 
     while True:
         try:
-            # Ép Outlook Classic gọi lệnh đồng bộ ngầm (Sync Send/Receive) với Server tức thì
-            try:
-                outlook.SendAndReceive(False)
-            except Exception:
-                pass
+            # Ép Outlook Classic gọi lệnh đồng bộ ngầm (Sync Send/Receive) với Server (mỗi 10s một lần, tránh nghẽn MAPI)
+            now_ts = time.time()
+            if now_ts - last_sync_time >= 10.0:
+                try:
+                    outlook.SendAndReceive(False)
+                    last_sync_time = now_ts
+                except Exception:
+                    pass
 
             # 1. Giữ phiên SAP không bị timeout khi nhàn rỗi
             sap.keep_alive()
@@ -258,10 +262,12 @@ def run_bridge():
                 pass
 
             mail_candidates = []
-            # 1. Quét thư mục bot_folder (SAP_BOT)
+            # 1. Quét thư mục bot_folder (SAP_BOT) - tối đa 30 thư đang chờ
             try:
-                for item in list(folder_items):
+                b_count = folder_items.Count
+                for i in range(1, min(b_count + 1, 31)):
                     try:
+                        item = folder_items.Item(i)
                         if getattr(item, "Class", 0) == 43 or hasattr(item, "Subject"):
                             mail_candidates.append(item)
                     except Exception:
@@ -269,13 +275,16 @@ def run_bridge():
             except Exception:
                 pass
 
-            # 2. TỐC ĐỘ CAO: Quét trực tiếp Inbox để nhặt ngay lập tức các thư [SAP-REQUEST] mới đến mà chưa kịp chuyển rule
+            # 2. TỐC ĐỘ CAO (0ms): Dùng MAPI Restrict để nhặt ngay lập tức các thư [SAP-REQUEST] chưa đọc trong Inbox mà không nạp toàn bộ hòm thư
             if inbox and inbox != bot_folder:
                 try:
-                    for item in list(inbox.Items):
+                    unread_inbox = inbox.Items.Restrict("[UnRead] = True")
+                    u_count = unread_inbox.Count
+                    for i in range(1, min(u_count + 1, 31)):
                         try:
+                            item = unread_inbox.Item(i)
                             subj = str(getattr(item, "Subject", "") or "")
-                            if "[SAP-REQUEST]" in subj or "SAP_REQUEST" in subj:
+                            if "[SAP-REQUEST]" in subj or "SAP_REQUEST" in subj or "SAP" in subj.upper():
                                 mail_candidates.append(item)
                         except Exception:
                             pass

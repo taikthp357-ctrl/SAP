@@ -209,17 +209,44 @@ class TeamsDispatcher:
                 batches = {r.get("batch") for r in records if r.get("batch")}
                 unrest_sum = 0.0
                 unit = ""
+                sloc_totals = {}
                 for r in records:
-                    unrest_sum += parse_sap_float(r.get("unrest"))
+                    sloc = str(r.get("sloc", "")).strip()
+                    u_val = parse_sap_float(r.get("unrest"))
+                    unrest_sum += u_val
+                    if sloc:
+                        sloc_totals[sloc] = sloc_totals.get(sloc, 0.0) + u_val
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
+                # 1. Badge Tổng tồn
                 badges.append(
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
                     f"✅ Tồn: {format_qty_display(unrest_sum)} {unit}</span>"
                 )
+
+                # 2. Phân rã Tồn kho (1005) và Tồn line nhỏ (3001) trước badge Lô nếu có từ 2 kho trở lên
+                if len(sloc_totals) > 1 or ("1005" in sloc_totals and "3001" in sloc_totals):
+                    if "1005" in sloc_totals:
+                        badges.append(
+                            f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                            f"🏢 Tồn kho 1005: {format_qty_display(sloc_totals['1005'])} {unit}</span>"
+                        )
+                    if "3001" in sloc_totals:
+                        badges.append(
+                            f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                            f"🏭 Tồn line nhỏ 3001: {format_qty_display(sloc_totals['3001'])} {unit}</span>"
+                        )
+                    for sloc_k, sloc_qty in sorted(sloc_totals.items()):
+                        if sloc_k not in ("1005", "3001"):
+                            badges.append(
+                                f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                                f"📦 Kho {sloc_k}: {format_qty_display(sloc_qty)} {unit}</span>"
+                            )
+
+                # 3. Badge Số lượng Lô (Batch)
                 badges.append(
-                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
                     f"🏷️ {len(batches)} Lô (Batch)</span>"
                 )
 

@@ -349,3 +349,17 @@ def test_teams_dispatcher_vitri_kpi_badges_total_avail_held():
     assert "Tổng tồn: 1019 EA" in badges_html
     assert "Khả dụng: 619 EA" in badges_html
     # removed held badge
+
+
+def test_teams_dispatcher_mb52_kpi_badges_sloc_kho_and_line():
+    """Kiểm tra Lỗi 1: Tồn kho 1005 và Tồn line nhỏ 3001 hiển thị trước badge Lô."""
+    records = [
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "1005", "batch": "261013-03", "unrest": "28800", "unit": "EA"},
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "1005", "batch": "260929-03", "unrest": "800", "unit": "EA"},
+        {"product": "BIW32012476AA", "plant": "3093", "sloc": "3001", "batch": "PROD_BATCH", "unrest": "8045", "unit": "EA"},
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "TON")
+    assert "Tồn: 37645 EA" in badges_html
+    assert "Tồn kho 1005: 29600 EA" in badges_html
+    assert "Tồn line nhỏ 3001: 8045 EA" in badges_html
+    assert "3 Lô (Batch)" in badges_html
