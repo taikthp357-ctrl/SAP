@@ -340,6 +340,31 @@ class TeamsDispatcher:
                         f"🚚 {transit_count} Mã có hàng chờ xuất</span>"
                     )
 
+            elif any(k in cmd_upper for k in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]):
+                tot_items = len(records)
+                success_count = sum(1 for r in records if "thành công" in str(r.get("overall_status", "")).lower() or "thanh cong" in str(r.get("overall_status", "")).lower())
+                ht_count = sum(1 for r in records if "headtext_done" in str(r.get("headtext_status", "")).lower() or "headtext_ok" in str(r.get("headtext_status", "")).lower() or "mô phỏng" in str(r.get("headtext_msg", "")).lower())
+
+                badges.append(
+                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                    f"📑 {tot_items} Chứng từ MIGO</span>"
+                )
+                if ht_count > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"📝 {ht_count} Số phiếu HeadText</span>"
+                    )
+                if success_count == tot_items:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ 100% Hoàn tất</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚡ {success_count}/{tot_items} Thành công</span>"
+                    )
+
             elif any(k in cmd_upper for k in ["CHECK_OB", "VL06O", "OB"]):
                 ob_set = {r.get("obNo") for r in records if r.get("obNo")}
                 total_qty = sum(parse_sap_float(r.get("qty")) for r in records)
@@ -587,7 +612,10 @@ class TeamsDispatcher:
             elif cmd_u in ["TON_THAP", "LOW_STOCK"]:
                 greeting = f"Sếp ơi, em đã kiểm tra cảnh báo tồn kho Body (Model {meta.get('model', 'LIMO')}) cho sếp rồi ạ 👇"
             elif cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
-                greeting = "Sếp ơi, em đã thực hiện xong tự động đính kèm và điền số phiếu MIGO cho sếp rồi ạ 👇"
+                if not meta.get("folderPath"):
+                    greeting = "Sếp ơi, em đã tự động điền số phiếu vào Header Text MIGO cho sếp rồi ạ 👇"
+                else:
+                    greeting = "Sếp ơi, em đã thực hiện xong tự động đính kèm và điền số phiếu MIGO cho sếp rồi ạ 👇"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 

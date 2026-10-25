@@ -616,7 +616,10 @@ def run_bridge():
                                 "mail_status": "Email (.msg)",
                                 "overall_status": "Trạng thái", "match_notes": "Chi tiết"
                             }
-                            summary = f"Đính kèm VAT, BBBG, Mail & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                            if not folder_path:
+                                summary = f"Điền số phiếu HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                            else:
+                                summary = f"Đính kèm VAT, BBBG, Mail & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
 
                         # Chuẩn bị payload chuẩn và đưa vào hàng đợi Outbox
                         payload, data = TeamsDispatcher.prepare_safe_payload(

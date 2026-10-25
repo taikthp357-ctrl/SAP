@@ -51,6 +51,7 @@ class SmartCommandParser:
             (r"\b(?:posting\s*change|postingchange|check\s*posting|tai\s*posting|ra\s*don\s*migo|migo\s*311|migo|cap\s*migo|chuyen\s*kho\s*311|can\s*doi\s*nvl|check\s*nvl|kiem\s*tra\s*nvl|nvl\s*migo|nvl\s*1005|kho\s*1005)\b", 24),
         ],
         "ATT_MIGO": [
+            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|so\s*phieu|headtext|dien\s*bktxt|bktxt)\b", 35),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 35),
             (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 28),
             (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 22),
@@ -457,7 +458,7 @@ class SmartCommandParser:
             ob_no = ob_m.group(1)
 
         bin_val = ""
-        bin_m = re.search(r"\b(?:bin|ke|o)\s*[:=]?\s*([a-z0-9_-]{3,15})\b|\b(\d{2}-[a-z0-9]+-[a-z0-9]+)\b", norm_text)
+        bin_m = re.search(r"\b(?:bin|ke|\bo\b)\s*[:=]?\s*([a-z0-9_-]{3,15})\b|\b(\d{2}-[a-z0-9]+-[a-z0-9]+)\b", norm_text)
         if bin_m:
             bin_cand = (bin_m.group(1) or bin_m.group(2)).upper()
             if bin_cand not in cls.STOP_WORDS:
@@ -502,19 +503,21 @@ class SmartCommandParser:
         if folder_m:
             folder_path = folder_m.group(0).strip()
 
-        att_docs = re.findall(r"\b500\d{7}\b", command_text)
         att_items = []
         try:
             from app.sap_attachment import parse_attachment_items_from_text
             att_items = parse_attachment_items_from_text(command_text)
         except Exception:
-            att_items = [{"doc": d, "ticket_no": ""} for d in att_docs]
+            att_items = []
 
-        # NẾU CÓ FOLDER PATH VÀ (ATT ITEMS HOẶC INTENT ATT_MIGO HOẶC TỪ KHÓA ATT):
-        if folder_path and (att_items or att_docs or "att" in norm_text or best_intent == "ATT_MIGO"):
+        att_docs = [item["doc"] for item in att_items] if att_items else re.findall(r"\b(?:49\d{8}|500\d{7}|\d{10})\b", command_text)
+
+        # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
+        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|so\s*phieu|headtext|bktxt|att)\b", norm_text))
+        if (folder_path or has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
             best_intent = "ATT_MIGO"
             best_score = max(best_score, 35)
-            matched_keywords.append("ATT_MIGO: Tự động nhận diện thư mục đính kèm & danh sách chứng từ")
+            matched_keywords.append("ATT_MIGO: Tự động nhận diện lệnh điền số phiếu HeadText / đính kèm MIGO")
 
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         explicit_plant = False
@@ -564,6 +567,8 @@ class SmartCommandParser:
             for item in att_items:
                 if item.get("doc"):
                     work_str = work_str.replace(item["doc"], " ")
+                if item.get("ticket_no"):
+                    work_str = work_str.replace(item["ticket_no"].upper(), " ")
         if batch_m and batch:
             work_str = re.sub(r"\b(?:BATCH|SO\s*LO|LO|CHARG|LÔ|SỐ\s*LÔ)\s*[:=]?\s*" + re.escape(batch), " ", work_str, flags=re.I)
         if plant_m:
@@ -609,6 +614,11 @@ class SmartCommandParser:
                         break
 
         # 5. Xử lý Thông minh (Smart Fallback & Coaching):
+        if best_score == 0 and att_items and all(item.get("ticket_no") for item in att_items):
+            best_intent = "ATT_MIGO"
+            best_score = 25
+            matched_keywords.append("Mặc định thông minh (Có cặp Chứng từ và Số phiếu -> Điền số phiếu MIGO)")
+
         is_no_mat_allowed = (
             best_score > 0 and (
                 best_intent == "TON_THAP"
@@ -640,6 +650,9 @@ class SmartCommandParser:
         elif best_score == 0 and bin_val:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")
+
+        if best_intent == "ATT_MIGO":
+            materials = []
 
         meta.update({
             "valid": True,

@@ -197,3 +197,21 @@ def test_sap_session_gos_mock():
         mock_shell.SelectContextMenuItem.assert_called_with("%GOS_PCATTA_CREA")
     finally:
         dummy_file.unlink(missing_ok=True)
+
+
+def test_process_attachment_batch_headtext_only():
+    """Kiểm tra xử lý điền số phiếu HeadText khi không cung cấp thư mục đính kèm file."""
+    runner = MigoAttachmentRunner()
+    batch_res = runner.process_attachment_batch(
+        folder_path="",
+        items=[{"doc": "4995880054", "ticket_no": "OUT_P1_23581"}],
+        dry_run=True
+    )
+    assert batch_res["total_success"] == 1
+    assert batch_res["total_missing"] == 0
+    res0 = batch_res["results"][0]
+    assert res0["doc"] == "4995880054"
+    assert res0["ticket_no"] == "OUT_P1_23581"
+    assert res0["headtext_status"] == "HEADTEXT_DONE"
+    assert res0["bbbg_status"] == "SKIP_NO_ATTACH"
+    assert "Thành Công OUT_P1_23581" in res0["overall_status"]

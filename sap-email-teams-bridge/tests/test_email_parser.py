@@ -596,3 +596,27 @@ def test_parse_ton_model_body_full_list():
     assert res["shop"] == "BODY"
     assert res["fullModelList"] is True
     assert res["limit"] == 100
+
+
+def test_parse_dien_so_phieu_and_raw_excel_row():
+    """Kiểm tra câu lệnh 'điền số phiếu' và cả định dạng copy thẳng từ Excel có mã doc 49xxxxxxx."""
+    # 1. Câu lệnh có chữ 'SAP điền số phiếu'
+    cmd1 = "SAP điền số phiếu 4995880054\tOUT_P1_23581"
+    res1 = EmailCommandParser.parse(cmd1)
+    assert res1 is not None
+    assert res1["valid"] is True
+    assert res1["command"] == "ATT_MIGO"
+    assert res1["materials"] == []
+    assert res1["bin"] == ""
+    assert len(res1["attachmentItems"]) == 1
+    assert res1["attachmentItems"][0]["doc"] == "4995880054"
+    assert res1["attachmentItems"][0]["ticket_no"] == "OUT_P1_23581"
+
+    # 2. Định dạng copy nguyên dòng từ Excel
+    cmd2 = "4995880054\tOUT_P1_23581"
+    res2 = EmailCommandParser.parse(cmd2)
+    assert res2 is not None
+    assert res2["valid"] is True
+    assert res2["command"] == "ATT_MIGO"
+    assert res2["attachmentItems"][0]["doc"] == "4995880054"
+    assert res2["attachmentItems"][0]["ticket_no"] == "OUT_P1_23581"

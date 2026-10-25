@@ -75,16 +75,24 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
         line_s = line.strip()
         if not line_s:
             continue
-        # Bắt số chứng từ 10 chữ số (bắt đầu bằng 500 hoặc bất kỳ 10 số nào)
-        doc_m = re.search(r"\b(500\d{7}|\d{10})\b", line_s)
+        # Bắt số chứng từ 10 chữ số (bắt đầu bằng 49, 500 hoặc bất kỳ 10 số nào)
+        doc_m = re.search(r"\b(49\d{8}|500\d{7}|\d{10})\b", line_s)
         if doc_m:
             doc = doc_m.group(1)
             if doc in seen_docs:
                 continue
             seen_docs.add(doc)
-            # Lấy phần còn lại làm số phiếu (bỏ số doc, dấu : hoặc -)
+            # Lấy phần còn lại làm số phiếu (bỏ số doc, dấu : hoặc -, và các tiền tố lệnh)
             rem = line_s.replace(doc, "").strip(" :-\t,")
-            items.append({"doc": doc, "ticket_no": rem})
+            clean_ticket = rem
+            for _ in range(4):
+                clean_ticket = re.sub(
+                    r"^(?:SAP|BOT|LENH|LỆNH|ĐIỀN\s*SỐ\s*PHIẾU|DIEN\s*SO\s*PHIEU|ĐIỀN\s*PHIẾU|DIEN\s*PHIEU|SỐ\s*PHIẾU|SO\s*PHIEU|PHIẾU|PHIEU|HEADTEXT|BKTXT|ATTACH|ATT|MAIL|EMAIL)\s*[:=]?\s*",
+                    "",
+                    clean_ticket,
+                    flags=re.I
+                ).strip(" :-\t,")
+            items.append({"doc": doc, "ticket_no": clean_ticket or rem})
     return items
 
 
@@ -380,8 +388,12 @@ class MigoAttachmentRunner:
         dry_run: bool = False
     ) -> Dict[str, Any]:
         """Xử lý hàng loạt danh sách chứng từ: Điền số phiếu vào HeadText và Đính kèm file BBBG/VAT/Mail."""
-        index_data = self.index_source_folder(folder_path, recursive=True)
-        print(f"[ATT RUNNER] Đã quét thư mục '{folder_path}': Tìm thấy {index_data['total_files']} files hợp lệ.")
+        if folder_path and Path(folder_path).exists() and Path(folder_path).is_dir():
+            index_data = self.index_source_folder(folder_path, recursive=True)
+            print(f"[ATT RUNNER] Đã quét thư mục '{folder_path}': Tìm thấy {index_data['total_files']} files hợp lệ.")
+        else:
+            index_data = {"total_files": 0, "files": [], "token_map": {}}
+            print(f"[ATT RUNNER] Không có thư mục đính kèm (hoặc chỉ thực hiện kiểm tra và điền số phiếu HeadText).")
 
         session = None
         if not dry_run and self.sap_engine:
@@ -415,7 +427,12 @@ class MigoAttachmentRunner:
                 vat_res = format_status_label(ticket_no, bool(vat_path))
                 if mail_path:
                     mail_res = format_status_label(ticket_no, True)
-                if bbbg_path or vat_path or mail_path:
+                if not folder_path and (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
+                    overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                    bbbg_res = "SKIP_NO_ATTACH"
+                    vat_res = "SKIP_NO_ATTACH"
+                    total_success += 1
+                elif bbbg_path or vat_path or mail_path:
                     overall_status = format_status_label(ticket_no, True)
                     total_success += 1
                 else:
@@ -456,7 +473,12 @@ class MigoAttachmentRunner:
                         m_ok, m_msg = self.attach_file_to_current_migo(session, mail_path)
                         mail_res = format_status_label(ticket_no, m_ok) if m_ok else f"Lỗi: {m_msg}"
 
-                    if b_ok or v_ok or m_ok or headtext_res == "HEADTEXT_DONE":
+                    if not folder_path and (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
+                        overall_status = f"Thành Công {ticket_no}" if ticket_no else "Thành Công"
+                        bbbg_res = "SKIP_NO_ATTACH"
+                        vat_res = "SKIP_NO_ATTACH"
+                        total_success += 1
+                    elif b_ok or v_ok or m_ok or (headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK")):
                         overall_status = format_status_label(ticket_no, True)
                         total_success += 1
                     else:
