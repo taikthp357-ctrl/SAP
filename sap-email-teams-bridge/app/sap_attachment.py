@@ -180,6 +180,151 @@ def find_control_recursive(root, target_name: str, depth: int = 0, max_depth: in
     return None
 
 
+def smart_find(session, element_name: str, element_type: Optional[str] = None):
+    """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
+    và bất chấp người dùng đóng hay mở khung Tree / Detail của MIGO.
+    """
+    if session is None:
+        return None
+    try:
+        w0 = safe_find_by_id(session, "wnd[0]")
+        if w0 is None:
+            return None
+
+        usr = safe_find_by_id(session, "wnd[0]/usr")
+        search_roots = [usr, w0] if usr is not None else [w0]
+
+        for root in search_roots:
+            if element_type:
+                try:
+                    obj = root.findByName(element_name, element_type)
+                    if obj is not None:
+                        return obj
+                except Exception:
+                    pass
+                try:
+                    obj = root.FindByName(element_name, element_type)
+                    if obj is not None:
+                        return obj
+                except Exception:
+                    pass
+            else:
+                for ctrl_type in ("GuiCTextField", "GuiTextField", "GuiComboBox", "GuiButton", "GuiTab"):
+                    try:
+                        obj = root.findByName(element_name, ctrl_type)
+                        if obj is not None:
+                            return obj
+                    except Exception:
+                        pass
+                    try:
+                        obj = root.FindByName(element_name, ctrl_type)
+                        if obj is not None:
+                            return obj
+                    except Exception:
+                        pass
+
+        if element_name in RECORDED_MIGO_IDS:
+            for cid in RECORDED_MIGO_IDS[element_name]:
+                try:
+                    obj = safe_find_by_id(session, cid)
+                    if obj is not None:
+                        return obj
+                except Exception:
+                    pass
+
+        return find_control_recursive(w0, element_name)
+    except Exception:
+        return None
+
+
+def smart_open_gos_create_attachment(session) -> bool:
+    """Tự động mở cửa sổ đính kèm file ở cả High Speed lẫn Low Speed."""
+    if session is None:
+        return False
+    # 1. Thử cách High Speed (Bấm trực tiếp nút GOS trên thanh tiêu đề)
+    gos_shell = safe_find_by_id(session, "wnd[0]/titl/shellcont/shell")
+    if gos_shell is not None:
+        try:
+            gos_shell.PressContextButton("%GOS_TOOLBOX")
+            gos_shell.SelectContextMenuItem("%GOS_PCATTA_CREA")
+            return True
+        except Exception:
+            pass
+
+    # 2. Thử menu System -> Services for Object -> Create Attachment
+    try:
+        mbar_item = safe_find_by_id(session, "wnd[0]/mbar/menu[0]/menu[11]/menu[0]")
+        if mbar_item is not None:
+            mbar_item.Select()
+            return True
+    except Exception:
+        pass
+
+    # 3. Gửi thẳng Function Code vào ô okcd
+    try:
+        okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
+        if okcd is not None:
+            okcd.Text = "%GOS_PCATTA_CREA"
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(0)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def smart_open_gos_view_attachment(session) -> bool:
+    """Tự động mở danh sách đính kèm file ở cả High Speed lẫn Low Speed."""
+    if session is None:
+        return False
+    # 1. Thử nút OK_REF_ATTA
+    btn = smart_find(session, "OK_REF_ATTA", "GuiButton")
+    if btn is not None:
+        enabled = getattr(btn, "Enabled", True)
+        if enabled is False or str(enabled).upper() == "FALSE":
+            return False  # Không có attachment
+        try:
+            btn.Press()
+            return True
+        except Exception:
+            pass
+
+    # 2. Thử GOS shell %GOS_VIEW_ATTA
+    gos_shell = safe_find_by_id(session, "wnd[0]/titl/shellcont/shell")
+    if gos_shell is not None:
+        try:
+            gos_shell.PressContextButton("%GOS_TOOLBOX")
+            gos_shell.SelectContextMenuItem("%GOS_VIEW_ATTA")
+            return True
+        except Exception:
+            pass
+
+    # 3. Thử menu System -> Services for Object -> Attachment List
+    try:
+        mbar_item = safe_find_by_id(session, "wnd[0]/mbar/menu[0]/menu[11]/menu[1]")
+        if mbar_item is not None:
+            mbar_item.Select()
+            return True
+    except Exception:
+        pass
+
+    # 4. Gửi Function Code vào ô okcd
+    try:
+        okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
+        if okcd is not None:
+            okcd.Text = "%GOS_VIEW_ATTA"
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(0)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: float = 3.0):
     """Tìm kiếm control trên SAP MIGO qua 4 tầng: findByName -> candidate IDs -> recursive -> retry."""
     if session is None:
@@ -701,55 +846,8 @@ class MigoAttachmentRunner:
 
         with POPUP_LOCK:
             try:
-                # 1. Tìm nút OK_REF_ATTA (Display Attachment) trên màn hình MIGO
-                button = None
-                for cand_id in [
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
-                    "wnd[0]/usr/btnOK_REF_ATTA"
-                ]:
-                    try:
-                        button = session.findById(cand_id)
-                        if button:
-                            break
-                    except Exception:
-                        pass
-
-                if button is None:
-                    try:
-                        button = session.findById("wnd[0]").findByName("OK_REF_ATTA", "GuiButton")
-                    except Exception:
-                        pass
-
-                has_opened = False
-
-                # Nếu tìm thấy nút OK_REF_ATTA và nút đang sáng (Enabled)
-                if button is not None:
-                    enabled = getattr(button, "Enabled", True)
-                    if enabled is False or str(enabled).upper() == "FALSE":
-                        # Nút bị mờ / disabled -> SAP chưa có đính kèm nào trên chứng từ này
-                        return []
-                    try:
-                        button.Press()
-                        has_opened = True
-                    except Exception:
-                        pass
-
-                # Fallback nếu không bấm được nút OK_REF_ATTA: thử mở qua GOS shell %GOS_VIEW_ATTA
-                if not has_opened:
-                    for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
-                        try:
-                            shell = session.findById(shell_id)
-                            if shell:
-                                try:
-                                    shell.PressContextButton("%GOS_TOOLBOX")
-                                    shell.SelectContextMenuItem("%GOS_VIEW_ATTA")
-                                    has_opened = True
-                                    break
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-
+                # 1. Mở cửa sổ Attachment list thông minh (OK_REF_ATTA / GOS Shell / Menu / Function Code)
+                has_opened = smart_open_gos_view_attachment(session)
                 if not has_opened:
                     return []
 
@@ -844,30 +942,9 @@ class MigoAttachmentRunner:
             # 1. Nhấn nút GOS Toolbox & Chọn Create Attachment bên trong Micro-lock
             with POPUP_LOCK:
                 def _trigger_gos_and_fill():
-                    shell = None
-                    for shell_id in ["wnd[0]/titl/shellcont/shell", "wnd[0]/titl/shell"]:
-                        try:
-                            shell = session.findById(shell_id)
-                            if shell:
-                                break
-                        except Exception:
-                            pass
-
-                    if shell is None:
-                        raise RuntimeError("GOS_SHELL_NOT_FOUND")
-
-                    try:
-                        shell.PressContextButton("%GOS_TOOLBOX")
-                    except Exception:
-                        try:
-                            shell.PressButton("%GOS_TOOLBOX")
-                        except Exception:
-                            pass
-
-                    try:
-                        shell.SelectContextMenuItem("%GOS_PCATTA_CREA")
-                    except Exception:
-                        shell.SelectMenuItem("%GOS_PCATTA_CREA")
+                    opened = smart_open_gos_create_attachment(session)
+                    if not opened:
+                        raise RuntimeError("GOS_TRIGGER_FAILED: Không thể mở hộp thoại đính kèm file GOS")
 
                     time.sleep(0.4)
 
@@ -965,20 +1042,23 @@ class MigoAttachmentRunner:
             return False, "NO_SESSION: Session SAP là None"
         try:
             # 1. Tìm ô nhập số chứng từ GODYNPRO-MAT_DOC
-            doc_fld = None
-            try:
+            doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
+
+            # Nếu chưa thấy hoặc ô đang bị khóa do chứng từ trước chưa thoát
+            if doc_fld is None or not getattr(doc_fld, "Changeable", True):
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
-                    doc_fld = w0.findByName("GODYNPRO-MAT_DOC", "GuiTextField")
-            except Exception:
-                pass
-            if doc_fld is None:
-                doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=1.5)
+                    try:
+                        w0.SendVKey(3)  # F3 Back để đóng chứng từ cũ
+                        time.sleep(0.2)
+                    except Exception:
+                        pass
+                doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
-            # Nếu chưa thấy ô nhập, có thể session chưa được đưa về MIGO A12 -> chuẩn bị lại
-            if doc_fld is None:
+            # Nếu sau F3 vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
+            if doc_fld is None or not getattr(doc_fld, "Changeable", True):
                 self.prepare_migo_session(session, mode=mode)
-                doc_fld = wait_control(session, "GODYNPRO-MAT_DOC", "GuiTextField", timeout_sec=2.5)
+                doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
             if doc_fld is None:
                 return False, "CONTROL_NOT_FOUND: Không tìm thấy ô nhập số chứng từ GODYNPRO-MAT_DOC trên MIGO"
@@ -1015,10 +1095,21 @@ class MigoAttachmentRunner:
                         s_msg = v.strip()
                         break
                 if s_type in ("E", "A"):
+                    if w0:
+                        try:
+                            w0.SendVKey(3)
+                        except Exception:
+                            pass
                     return False, f"DOC_NOT_FOUND: {s_msg}"
 
             return True, "LOADED_OK"
         except Exception as e:
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    w0.SendVKey(3)
+            except Exception:
+                pass
             return False, f"NAV_ERROR: {e}"
 
     def process_single_migo_item(
@@ -1077,6 +1168,15 @@ class MigoAttachmentRunner:
                         headtext_res = "SKIP_NO_TICKET"
                         headtext_msg = "Không có số phiếu để điền"
                         overall_status = "THIẾU_SỐ_PHIẾU"
+
+            if not dry_run and session is not None:
+                try:
+                    w0 = safe_find_by_id(session, "wnd[0]")
+                    if w0:
+                        w0.SendVKey(3)
+                        time.sleep(0.2)
+                except Exception:
+                    pass
 
             return {
                 "doc": doc,
@@ -1251,6 +1351,16 @@ class MigoAttachmentRunner:
                     is_succ = True
                 else:
                     overall_status = "INCOMPLETE"
+
+        # Sau khi xử lý xong chứng từ, gửi F3 để MIGO trở về màn hình ô vàng cho chứng từ tiếp theo
+        if not dry_run and session is not None:
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    w0.SendVKey(3)
+                    time.sleep(0.2)
+            except Exception:
+                pass
 
         return {
             "doc": doc,
