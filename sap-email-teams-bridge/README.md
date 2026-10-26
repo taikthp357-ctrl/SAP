@@ -1,9 +1,16 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.65
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.66
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Triệt Tiêu Số OB Giả Lập Khi Lỗi MIGO & Tự Động Điều Hướng Subscreen MIGO 311 Linh Hoạt (v1.0.65):**
+1. **Chuẩn Hóa Điền Ô MIGO 311 2 Nhịp & Điều Khiển Chuẩn Xác Theo File VBA V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.66):**
+   - **Điền ô chính xác bằng `GetCell()` thay vì `modifyCell()`:** Bảng nhập liệu MIGO là `GuiTableControl` nên không hỗ trợ method `modifyCell` (chỉ có trên ALV GridView). Chuyển sang cơ chế chuẩn `tbl.GetCell(row, col).Text = val` kết hợp fallback tìm đối tượng toạ độ `[col, row]` như VBA `RUN_SetGridCellMode`.
+   - **Bắt chuẩn ô Movement Type `GODEFAULT_TV-BWART`:** Trực tiếp tìm kiếm control theo tên kỹ thuật `GODEFAULT_TV-BWART` (thay vì tìm nhầm `GODYNPRO-BWART`), đảm bảo MIGO kích hoạt chuẩn xác Movement Type `311`.
+   - **Bổ sung cột Trạm Text (`SGTXT` / Cột 5):** Đưa thông tin Trạm (ví dụ `KV08-Thức/Vũ`) vào cột Text dòng chứng từ MIGO theo đúng thiết kế của `RUN_FillPreBatch_ByGrid`.
+   - **Tự động đóng Header & Detail để giải phóng bảng Item Overview:** Khi người dùng mở MIGO với Header/Detail mở rộng khiến bảng item bị ẩn, Bot tự động gửi lệnh `MIGO_OK_HEADER_CLOSE` và `MIGO_OK_DETAIL_CLOSE` để bung lưới `tblSAPLMIGOTV_GOITEM`.
+   - **Bắt số chứng từ Outbound Delivery bằng Regex toàn diện:** Tương thích cả định dạng `Material document 10xxxxxxxx posted` lẫn `Outbound Delivery 10xxxxxxxx created`.
+
+2. **Triệt Tiêu Số OB Giả Lập Khi Lỗi MIGO & Tự Động Điều Hướng Subscreen MIGO 311 Linh Hoạt (v1.0.65):**
    - **Triệt tiêu hoàn toàn số chứng từ mẫu giả định (`1012924052`):** Loại bỏ triệt để hardcode fallback sinh số OB giả khi MIGO 311 thất bại hoặc bị hủy. Khi không tạo được chứng từ thật trên SAP, `delivery_no` giữ giá trị rỗng `""`, hiển thị `---`, trạng thái gắn cờ minh bạch `⚠️ Chưa tạo OB` và hiển thị huy hiệu `[⚠️ Chưa tạo OB]` trên Teams.
    - **Khắc phục lỗi không tìm thấy bảng nhập liệu `tblSAPLMIGOTV_GOITEM`:** Tự động dò tìm động các điều khiển `GODYNPRO-ACTION`, `GODYNPRO-REFDOC`, `GODYNPRO-BWART` qua `w0.findByName` và quét qua các Subscreen `:0001` đến `:0004` (thay vì cố định `:0003`). Bổ sung độ trễ thích ứng giữa các lần chuyển Key ComboBox để SAP vẽ lại giao diện.
    - **Tự động bung bảng Item Overview nếu bị đóng:** Gửi lệnh `MIGO_OK_ITEMS_OPEN` / `MIGO_OK_ITEMLIST` và quét đệ quy cây điều khiển `GuiTableControl` để tìm bảng nhập liệu ngay cả khi layout MIGO của người dùng đang ở chế độ thu gọn.

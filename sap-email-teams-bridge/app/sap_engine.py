@@ -3847,10 +3847,15 @@ class SapEngine:
     ) -> Tuple[bool, str, str]:
         """
         Thực hiện nghiệp vụ MIGO 311 chuyển kho NVL 1005 -> line 3001 (Plant 3093) sinh số OB (10xxxxxxxx).
-        Tuân thủ quy trình nhịp 2 bước của MIGO311_RunPost_V24_ErrorGuard.bas:
-        - Nhịp 1: Điền Material, Qty, Plant, SLoc xuất (1005), SLoc nhập (3001) -> Enter
-        - Nhịp 2: Tìm cột BATCH động, điền số lô -> Enter
-        - Post chứng từ và bắt số chứng từ Outbound 10 chữ số (10xxxxxxxx) từ thanh trạng thái sbar.
+        Tuân thủ chuẩn xác 100% quy trình 2 nhịp từ file 260810_RA_DON_NVL_V31_ZONE (MIGO311_RunPost_V24_ErrorGuard.bas):
+        - Thiết lập MIGO 311: Action=Transfer Posting (A08), RefDoc=Other (R10), Movement Type GODEFAULT_TV-BWART=311.
+        - Đóng Header (MIGO_OK_HEADER_CLOSE) và Detail (MIGO_OK_DETAIL_CLOSE) nếu bảng item bị ẩn.
+        - Tìm bảng item tblSAPLMIGOTV_GOITEM qua ID và đệ quy GuiTableControl.
+        - Nhịp 1: Điền Material, Qty, Text (Trạm: KV08-Thức/Vũ), Plant, SLoc xuất (1005), SLoc nhập (3001) qua GetCell() -> Enter
+        - Nhịp 2: Tìm cột BATCH thật (loại trừ Batch Trfr Pstg), điền số lô qua GetCell() -> Enter
+        - Post chứng từ (tbar[1]/btn[23] hoặc tbar[0]/btn[11])
+        - Tự động xử lý popups (wnd[1]) và warnings (W/I)
+        - Bắt số chứng từ Outbound 10 chữ số (10xxxxxxxx) hoặc Delivery Number từ thanh trạng thái sbar.
         """
         if not ob_items:
             return False, "", "Không có dòng phân bổ NVL nào để tạo đơn MIGO 311"
@@ -3863,214 +3868,437 @@ class SapEngine:
             self._open_transaction("/nMIGO")
             self._wait_idle(10.0)
 
-            # 1. Tìm và chọn Transfer Posting (A08) và Other (R10)
-            def _find_migo_control(name, c_type=None):
-                w0 = self._find_by_id_safe("wnd[0]")
-                if w0 and hasattr(w0, "findByName"):
-                    try:
-                        ctl = w0.findByName(name, c_type) if c_type else w0.findByName(name)
-                        if ctl is not None:
-                            return ctl
-                    except Exception:
-                        pass
-                for sub in ["0001", "0002", "0003", "0004"]:
-                    for first in ["0010", "0011"]:
-                        cand = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:{first}/cmb{name}"
-                        c = self._find_by_id_safe(cand)
-                        if c is not None:
-                            return c
-                        cand_txt = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:{first}/ctxt{name}"
-                        c = self._find_by_id_safe(cand_txt)
-                        if c is not None:
-                            return c
-                return None
-
-            action_cmb = _find_migo_control("GODYNPRO-ACTION", "GuiComboBox")
-            if action_cmb is not None:
-                cur_act = getattr(action_cmb, "Key", getattr(action_cmb, "key", ""))
-                if cur_act != "A08":
-                    try:
-                        action_cmb.key = "A08"  # Transfer Posting
-                        time.sleep(0.5)
-                    except Exception as act_err:
-                        print(f"[SAP MIGO WARN] Lỗi chọn Action A08: {act_err}")
-
-            ref_cmb = _find_migo_control("GODYNPRO-REFDOC", "GuiComboBox")
-            if ref_cmb is not None:
-                cur_ref = getattr(ref_cmb, "Key", getattr(ref_cmb, "key", ""))
-                if cur_ref != "R10":
-                    try:
-                        ref_cmb.key = "R10"  # Other
-                        time.sleep(0.5)
-                    except Exception as ref_err:
-                        print(f"[SAP MIGO WARN] Lỗi chọn RefDoc R10: {ref_err}")
-
-            mvt_txt = _find_migo_control("GODYNPRO-BWART", "GuiCTextField") or _find_migo_control("GODYNPRO-BWART", "GuiTextField")
-            if mvt_txt is not None:
+            # Hàm tìm kiếm control đệ quy theo thuộc tính Name
+            def _find_by_name(root, target_name):
+                if root is None:
+                    return None
                 try:
-                    mvt_txt.text = "311"
+                    c_name = str(getattr(root, "Name", getattr(root, "name", "")) or "")
+                    if c_name.upper() == target_name.upper():
+                        return root
                 except Exception:
                     pass
+                try:
+                    children = getattr(root, "Children", getattr(root, "children", None))
+                    if children:
+                        try:
+                            for child in children:
+                                res = _find_by_name(child, target_name)
+                                if res is not None:
+                                    return res
+                        except TypeError:
+                            cnt = getattr(children, "Count", 0)
+                            for idx in range(cnt):
+                                res = _find_by_name(children(idx), target_name)
+                                if res is not None:
+                                    return res
+                except Exception:
+                    pass
+                return None
+
+            w0 = self._find_by_id_safe("wnd[0]")
+
+            # 1. Action ComboBox: Transfer Posting (A08)
+            action_cmb = _find_by_name(w0, "GODYNPRO-ACTION")
+            if action_cmb is None:
+                for sub in ["0001", "0002", "0003", "0004"]:
+                    action_cmb = self._find_by_id_safe(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION")
+                    if action_cmb is not None:
+                        break
+
+            if action_cmb is not None:
+                act_set = False
+                try:
+                    entries = getattr(action_cmb, "Entries", getattr(action_cmb, "entries", None))
+                    if entries:
+                        cnt = getattr(entries, "Count", getattr(entries, "count", 0))
+                        for idx in range(cnt):
+                            e = entries(idx)
+                            val = str(getattr(e, "Value", getattr(e, "Text", "")) or "").upper()
+                            if "TRANSFER" in val:
+                                action_cmb.key = str(getattr(e, "Key", getattr(e, "key", "A08")))
+                                act_set = True
+                                break
+                except Exception:
+                    pass
+                if not act_set:
+                    try:
+                        cur_act = getattr(action_cmb, "Key", getattr(action_cmb, "key", ""))
+                        if cur_act != "A08":
+                            action_cmb.key = "A08"
+                    except Exception:
+                        pass
+                time.sleep(0.5)
+
+            # 2. RefDoc ComboBox: Other (R10)
+            w0 = self._find_by_id_safe("wnd[0]")
+            ref_cmb = _find_by_name(w0, "GODYNPRO-REFDOC")
+            if ref_cmb is None:
+                for sub in ["0001", "0002", "0003", "0004"]:
+                    ref_cmb = self._find_by_id_safe(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC")
+                    if ref_cmb is not None:
+                        break
+
+            if ref_cmb is not None:
+                ref_set = False
+                try:
+                    entries = getattr(ref_cmb, "Entries", getattr(ref_cmb, "entries", None))
+                    if entries:
+                        cnt = getattr(entries, "Count", getattr(entries, "count", 0))
+                        for idx in range(cnt):
+                            e = entries(idx)
+                            val = str(getattr(e, "Value", getattr(e, "Text", "")) or "").upper()
+                            if "OTHER" in val:
+                                ref_cmb.key = str(getattr(e, "Key", getattr(e, "key", "R10")))
+                                ref_set = True
+                                break
+                except Exception:
+                    pass
+                if not ref_set:
+                    try:
+                        cur_ref = getattr(ref_cmb, "Key", getattr(ref_cmb, "key", ""))
+                        if cur_ref != "R10":
+                            ref_cmb.key = "R10"
+                    except Exception:
+                        pass
+                time.sleep(0.5)
+
+            # 3. Movement Type: GODEFAULT_TV-BWART (Chuẩn VBA 260810_RA_DON_NVL_V31_ZONE)
+            w0 = self._find_by_id_safe("wnd[0]")
+            mvt_field = _find_by_name(w0, "GODEFAULT_TV-BWART") or _find_by_name(w0, "GODYNPRO-BWART")
+            if mvt_field is None:
+                for sub in ["0001", "0002", "0003", "0004"]:
+                    mvt_field = (self._find_by_id_safe(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/ctxtGODEFAULT_TV-BWART")
+                              or self._find_by_id_safe(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/ctxtGODYNPRO-BWART"))
+                    if mvt_field is not None:
+                        break
+
+            if mvt_field is not None:
+                try:
+                    mvt_field.Text = "311"
+                except Exception:
+                    try:
+                        mvt_field.text = "311"
+                    except Exception:
+                        pass
 
             w0 = self._find_by_id_safe("wnd[0]")
             if w0:
-                w0.sendVKey(0)  # Enter để nạp cấu hình giao diện
+                w0.sendVKey(0)  # Enter nạp cấu hình MIGO 311
             self._wait_idle(5.0)
 
-            # 2. Tìm bảng item MIGO: tblSAPLMIGOTV_GOITEM
-            tbl = None
-            if w0 and hasattr(w0, "findByName"):
-                try:
-                    tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
-                except Exception:
-                    pass
-
-            if tbl is None:
-                for sub in ["0001", "0002", "0003", "0004"]:
+            # 4. Tìm bảng item MIGO: tblSAPLMIGOTV_GOITEM
+            def _find_migo_table(root):
+                if root is None:
+                    return None
+                for sub in ["0004", "0003", "0002", "0001"]:
                     for itemlist in ["0200", "0210", "0205"]:
                         cand = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_ITEMLIST:SAPLMIGO:{itemlist}/tblSAPLMIGOTV_GOITEM"
-                        tbl = self._find_by_id_safe(cand)
-                        if tbl is not None:
-                            break
-                    if tbl is not None:
-                        break
+                        t = self._find_by_id_safe(cand)
+                        if t is not None:
+                            return t
 
-            if tbl is None:
-                try:
-                    self.session.SendCommand("MIGO_OK_ITEMS_OPEN")
-                    time.sleep(0.5)
-                    if w0 and hasattr(w0, "findByName"):
-                        tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
-                except Exception:
-                    pass
-
-            if tbl is None:
-                try:
-                    self.session.SendCommand("MIGO_OK_ITEMLIST")
-                    time.sleep(0.5)
-                    if w0 and hasattr(w0, "findByName"):
-                        tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
-                except Exception:
-                    pass
-
-            if tbl is None:
-                def _find_table_control(root, depth=0):
-                    if root is None or depth > 15:
+                def _rec(obj, depth=0):
+                    if obj is None or depth > 20:
                         return None
                     try:
-                        c_type = getattr(root, "Type", getattr(root, "type", ""))
-                        c_name = str(getattr(root, "Name", getattr(root, "name", "")) or "").upper()
-                        if c_type == "GuiTableControl" or "GOITEM" in c_name:
-                            return root
-                        children = getattr(root, "Children", getattr(root, "children", None))
+                        cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
+                        cname = str(getattr(obj, "Name", getattr(obj, "name", "")) or "")
+                        ctype = str(getattr(obj, "Type", getattr(obj, "type", "")) or "").upper()
+                        if "tblSAPLMIGOTV_GOITEM" in cid or "GOITEM" in cname or ctype == "GUITABLECONTROL":
+                            if ctype in ("GUITABLECONTROL", "GUIGRIDVIEW") or "GOITEM" in cid:
+                                return obj
+                    except Exception:
+                        pass
+                    try:
+                        children = getattr(obj, "Children", getattr(obj, "children", None))
                         if children:
-                            cnt = getattr(children, "Count", getattr(children, "count", 0))
-                            for idx in range(cnt):
-                                found = _find_table_control(children(idx), depth + 1)
-                                if found is not None:
-                                    return found
+                            try:
+                                for child in children:
+                                    res = _rec(child, depth + 1)
+                                    if res is not None:
+                                        return res
+                            except TypeError:
+                                cnt = getattr(children, "Count", 0)
+                                for idx in range(cnt):
+                                    res = _rec(children(idx), depth + 1)
+                                    if res is not None:
+                                        return res
                     except Exception:
                         pass
                     return None
-                tbl = _find_table_control(w0)
+                return _rec(root)
+
+            w0 = self._find_by_id_safe("wnd[0]")
+            tbl = _find_migo_table(w0)
+
+            # Nếu bảng item đang bị thu gọn bởi Header/Detail, đóng theo lệnh VBA
+            if tbl is None:
+                try:
+                    self.session.SendCommand("MIGO_OK_HEADER_CLOSE")
+                    time.sleep(0.3)
+                    self.session.SendCommand("MIGO_OK_DETAIL_CLOSE")
+                    time.sleep(0.5)
+                except Exception:
+                    pass
+                w0 = self._find_by_id_safe("wnd[0]")
+                tbl = _find_migo_table(w0)
 
             if tbl is None:
                 status_txt, status_type = self._get_status()
                 err_msg = f"Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO ({status_txt})" if status_txt else "Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO"
                 return False, "", err_msg
 
-            # 3. Phân giải động các cột trong bảng MIGO
-            col_indices = {}
+            # 5. Phân giải động các cột trong bảng MIGO (Chuẩn RUN_GetPreBatchColumnMap)
+            # Default: Product=3, Qty=4, Text/Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=10
+            col_indices = {
+                "material": 3,
+                "qty": 4,
+                "text": 5,
+                "plant": 6,
+                "source_sloc": 7,
+                "dest_sloc": 8,
+                "batch": 10,
+            }
             try:
-                for c_i in range(tbl.Columns.Count):
-                    col_obj = tbl.Columns.Item(c_i)
-                    c_name = str(getattr(col_obj, "Name", "") or "").upper()
-                    c_title = str(getattr(col_obj, "Title", "") or "").upper()
+                col_cnt = getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0))
+                for c_i in range(col_cnt):
+                    col_obj = tbl.Columns.Item(c_i) if hasattr(tbl.Columns, "Item") else tbl.Columns(c_i)
+                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").upper()
+                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").upper()
+
                     if "MATNR" in c_name or "MATERIAL" in c_title or "MÃ" in c_title:
-                        col_indices.setdefault("material", c_i)
+                        col_indices["material"] = c_i
                     elif "ERFMG" in c_name or ("QTY" in c_title and "UNIT" not in c_title) or "SỐ LƯỢNG" in c_title:
-                        col_indices.setdefault("qty", c_i)
+                        col_indices["qty"] = c_i
+                    elif "SGTXT" in c_name or "TEXT" in c_title or "TRẠM" in c_title or "ITEM TEXT" in c_title:
+                        col_indices["text"] = c_i
                     elif "WERKS" in c_name or "PLANT" in c_title:
-                        col_indices.setdefault("plant", c_i)
+                        col_indices["plant"] = c_i
                     elif "UMLGO" in c_name or "REC" in c_title or "DEST" in c_title or "NHẬN" in c_title:
-                        col_indices.setdefault("dest_sloc", c_i)
+                        col_indices["dest_sloc"] = c_i
                     elif "LGORT" in c_name or "SLOC" in c_title or "XUẤT" in c_title:
-                        col_indices.setdefault("source_sloc", c_i)
-                    elif "CHARG" in c_name and "UMCHA" not in c_name and "DEST" not in c_title:
-                        col_indices.setdefault("batch", c_i)
+                        col_indices["source_sloc"] = c_i
+                    elif ("BATCH" in c_title or "CHARG" in c_name) and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and "UMCHA" not in c_name:
+                        col_indices["batch"] = c_i
             except Exception as col_err:
                 print(f"[SAP MIGO WARN] Lỗi đọc tên cột: {col_err}")
 
-            mat_col = col_indices.get("material", 3)
-            qty_col = col_indices.get("qty", 4)
-            plant_col = col_indices.get("plant", 6)
-            src_sloc_col = col_indices.get("source_sloc", 7)
-            dest_sloc_col = col_indices.get("dest_sloc", 8)
-            batch_col = col_indices.get("batch", 10)
-
-            # Nhịp 1: Điền Material, Qty, Plant, SLoc
-            for i, item in enumerate(ob_items):
+            # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Coordinate fallback)
+            def _set_cell(table_ctl, row_no, col_no, value_text):
+                val_str = str(value_text or "").strip()
+                # 1. Thử qua tbl.GetCell(row_no, col_no)
                 try:
-                    tbl.verticalScrollbar.position = i
+                    cell = table_ctl.GetCell(row_no, col_no)
+                    if cell is not None:
+                        try:
+                            cell.Text = val_str
+                            return True
+                        except Exception:
+                            try:
+                                cell.text = val_str
+                                return True
+                            except Exception:
+                                pass
                 except Exception:
                     pass
-                try:
-                    tbl.modifyCell(i, mat_col, str(item.get("material", "")))
-                    tbl.modifyCell(i, qty_col, str(item.get("allocated_qty", "")))
-                    tbl.modifyCell(i, plant_col, plant or "3093")
-                    tbl.modifyCell(i, src_sloc_col, source_sloc or "1005")
-                    tbl.modifyCell(i, dest_sloc_col, dest_sloc or "3001")
-                except Exception as cell_err:
-                    print(f"[SAP MIGO WARN] Lỗi điền cell dòng {i}: {cell_err}")
 
+                # 2. Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
+                suffix = f"[{col_no},{row_no}]"
+                def _find_by_coord(obj, depth=0):
+                    if obj is None or depth > 10:
+                        return None
+                    try:
+                        cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
+                        if cid.endswith(suffix):
+                            return obj
+                    except Exception:
+                        pass
+                    try:
+                        children = getattr(obj, "Children", getattr(obj, "children", None))
+                        if children:
+                            try:
+                                for child in children:
+                                    res = _find_by_coord(child, depth + 1)
+                                    if res is not None:
+                                        return res
+                            except TypeError:
+                                cnt = getattr(children, "Count", 0)
+                                for idx in range(cnt):
+                                    res = _find_by_coord(children(idx), depth + 1)
+                                    if res is not None:
+                                        return res
+                    except Exception:
+                        pass
+                    return None
+
+                ctl = _find_by_coord(table_ctl)
+                if ctl is not None:
+                    try:
+                        ctl.Text = val_str
+                        return True
+                    except Exception:
+                        try:
+                            ctl.text = val_str
+                            return True
+                        except Exception:
+                            pass
+                return False
+
+            def _ensure_visible_row(table_ctl, logical_row):
+                try:
+                    first_row = int(table_ctl.FirstVisibleRow)
+                    visible_rows = int(table_ctl.VisibleRowCount)
+                except Exception:
+                    first_row = 0
+                    visible_rows = 15
+                if logical_row < first_row or logical_row >= first_row + visible_rows:
+                    try:
+                        table_ctl.FirstVisibleRow = logical_row
+                    except Exception:
+                        try:
+                            table_ctl.VerticalScrollbar.Position = logical_row
+                        except Exception:
+                            pass
+                    time.sleep(0.2)
+                    try:
+                        first_row = int(table_ctl.FirstVisibleRow)
+                    except Exception:
+                        first_row = logical_row
+                return logical_row - first_row
+
+            mat_col = col_indices["material"]
+            qty_col = col_indices["qty"]
+            txt_col = col_indices["text"]
+            plant_col = col_indices["plant"]
+            src_sloc_col = col_indices["source_sloc"]
+            dest_sloc_col = col_indices["dest_sloc"]
+            batch_col = col_indices["batch"]
+
+            # 6. Nhịp 1: Điền Material, Qty, Text (Trạm), Plant, SLoc xuất, SLoc nhận
+            for logical_row, item in enumerate(ob_items):
+                table_row = _ensure_visible_row(tbl, logical_row)
+                raw_qty = item.get("allocated_qty") or item.get("qty") or 0
+                try:
+                    qty_str = str(int(float(raw_qty))) if float(raw_qty).is_integer() else str(raw_qty)
+                except Exception:
+                    qty_str = str(raw_qty)
+                tram_str = str(item.get("station") or "").strip()
+
+                _set_cell(tbl, table_row, mat_col, str(item.get("material", "")))
+                _set_cell(tbl, table_row, qty_col, qty_str)
+                if tram_str:
+                    _set_cell(tbl, table_row, txt_col, tram_str)
+                _set_cell(tbl, table_row, plant_col, item.get("plant") or plant or "3093")
+                _set_cell(tbl, table_row, src_sloc_col, item.get("source_sloc") or source_sloc or "1005")
+                _set_cell(tbl, table_row, dest_sloc_col, item.get("dest_sloc") or dest_sloc or "3001")
+
+            w0 = self._find_by_id_safe("wnd[0]")
             if w0:
                 w0.sendVKey(0)  # Enter nhịp 1
             self._wait_idle(5.0)
 
-            # Nhịp 2: Điền số lô Batch
-            for i, item in enumerate(ob_items):
-                batch_val = str(item.get("batch", "")).strip()
-                if batch_val and batch_val != "-":
-                    try:
-                        tbl.modifyCell(i, batch_col, batch_val)
-                    except Exception as b_err:
-                        print(f"[SAP MIGO WARN] Lỗi điền batch dòng {i}: {b_err}")
+            # Lấy lại đối tượng tbl sau Enter 1
+            w0 = self._find_by_id_safe("wnd[0]")
+            tbl = _find_migo_table(w0) or tbl
 
-            if w0:
-                w0.sendVKey(0)  # Enter nhịp 2
-            self._wait_idle(5.0)
+            # 7. Nhịp 2: Điền số lô Batch động (nếu có lô)
+            has_any_batch = any(bool(str(it.get("batch") or "").strip() and str(it.get("batch") or "").strip() != "-") for it in ob_items)
+            if has_any_batch and tbl is not None:
+                for logical_row, item in enumerate(ob_items):
+                    batch_val = str(item.get("batch", "")).strip()
+                    if batch_val and batch_val != "-":
+                        table_row = _ensure_visible_row(tbl, logical_row)
+                        _set_cell(tbl, table_row, batch_col, batch_val)
 
-            # Nhấn nút Post (btn[11] trên tbar[0] hoặc btn[23] trên tbar[1])
-            post_btn = self._find_by_id_safe("wnd[0]/tbar[0]/btn[11]") or self._find_by_id_safe("wnd[0]/tbar[1]/btn[23]")
-            if post_btn:
-                post_btn.press()
-            elif w0:
+                w0 = self._find_by_id_safe("wnd[0]")
+                if w0:
+                    w0.sendVKey(0)  # Enter nhịp 2
+                self._wait_idle(5.0)
+
+            # 8. Nhấn nút Post (btn[23] trên tbar[1] hoặc btn[11] trên tbar[0])
+            post_pressed = False
+            try:
+                post_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[23]")
+                if post_btn:
+                    post_btn.Press()
+                    post_pressed = True
+            except Exception:
+                pass
+
+            if not post_pressed:
+                try:
+                    save_btn = self._find_by_id_safe("wnd[0]/tbar[0]/btn[11]")
+                    if save_btn:
+                        save_btn.Press()
+                        post_pressed = True
+                except Exception:
+                    pass
+
+            if not post_pressed and w0:
                 w0.sendVKey(11)
 
             self._wait_idle(5.0)
 
-            # Vượt qua warning popups màu vàng nếu có
-            for _ in range(5):
+            # 9. Vượt qua Popups và Warnings (Chuẩn VBA RUN_AcceptPopupIfAny)
+            for _ in range(8):
+                handled_popup = False
+                try:
+                    act_wnd = getattr(self.session, "ActiveWindow", None)
+                    act_name = getattr(act_wnd, "Name", "") if act_wnd else ""
+                    children_cnt = getattr(self.session.Children, "Count", getattr(self.session.children, "count", 0))
+                    if children_cnt > 1 or act_name == "wnd[1]":
+                        try:
+                            self.session.findById("wnd[1]/tbar[0]/btn[0]").Press()
+                            handled_popup = True
+                        except Exception:
+                            try:
+                                self.session.findById("wnd[1]/usr/btnSPOP-OPTION1").Press()
+                                handled_popup = True
+                            except Exception:
+                                try:
+                                    self.session.findById("wnd[1]").sendVKey(0)
+                                    handled_popup = True
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
+                if handled_popup:
+                    self._wait_idle(2.0)
+                    continue
+
                 sbar = self._find_by_id_safe("wnd[0]/sbar")
-                if sbar and getattr(sbar, "messageType", "") in ("W", "I"):
+                msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
+                if msg_type in ("W", "I"):
+                    w0 = self._find_by_id_safe("wnd[0]")
                     if w0:
                         w0.sendVKey(0)
                     self._wait_idle(2.0)
                 else:
                     break
 
-            # Đọc kết quả từ thanh trạng thái
+            # 10. Đọc kết quả từ thanh trạng thái
             sbar = self._find_by_id_safe("wnd[0]/sbar")
-            sbar_text = getattr(sbar, "text", "") if sbar else ""
-            msg_type = getattr(sbar, "messageType", "") if sbar else ""
+            sbar_text = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
+            msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
+
+            # Bắt số chứng từ Outbound Delivery hoặc Material Document từ StatusBar
+            doc_match = re.search(r"(?:OUTBOUND\s+DELIVERY|DELIVERY|DELIV\.?)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
+            if doc_match:
+                doc_no = doc_match.group(1)
+                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
 
             doc_match = re.search(r"\b(10\d{8}|49\d{8}|500\d{7}|\d{10})\b", sbar_text)
             if doc_match:
                 doc_no = doc_match.group(1)
-                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO"
+                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
 
             if msg_type in ("E", "A"):
                 return False, "", f"Lỗi SAP MIGO: {sbar_text}"
+
+            if msg_type == "S":
+                return True, "", f"Thao tác MIGO 311 thành công: {sbar_text}"
 
             return False, "", f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ OB'}"
 

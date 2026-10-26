@@ -1534,3 +1534,161 @@ def test_post_migo_311_ob_group_simulation():
     assert ok is True
     assert doc_no == ""
     assert "Mô phỏng" in msg
+
+
+def test_post_migo_311_ob_group_v31_standard_mock():
+    """Kiểm tra post_migo_311_ob_group tuân thủ chuẩn xác 100% VBA MIGO311_RunPost_V24_ErrorGuard.bas:
+    - Tìm động GODEFAULT_TV-BWART, điền '311'
+    - Điền GetCell: Material(3), Qty(4), Trạm Text(5), Plant(6), SLoc xuất(7), SLoc nhận(8), Batch(10)
+    - Nhấn Post và trích xuất đúng số chứng từ Outbound Delivery từ StatusBar.
+    """
+    engine = SapEngine.__new__(SapEngine)
+    engine.ensure_session = MagicMock()
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+
+    class MockControl:
+        def __init__(self, name="", c_type="", text="", key=""):
+            self.Name = name
+            self.name = name
+            self.Type = c_type
+            self.type = c_type
+            self.Text = text
+            self.text = text
+            self.Key = key
+            self.key = key
+            self.Children = []
+            self.children = []
+            self.Entries = []
+            self.entries = []
+            self.Id = f"wnd[0]/{name}"
+            self.id = self.Id
+        def Press(self):
+            pass
+        def press(self):
+            pass
+
+    class MockCell:
+        def __init__(self):
+            self.Text = ""
+            self.text = ""
+
+    class MockCol:
+        def __init__(self, name, title):
+            self.Name = name
+            self.name = name
+            self.Title = title
+            self.title = title
+
+    class MockTable:
+        def __init__(self):
+            self.Name = "tblSAPLMIGOTV_GOITEM"
+            self.name = self.Name
+            self.Type = "GuiTableControl"
+            self.type = self.Type
+            self.Id = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
+            self.id = self.Id
+            self.FirstVisibleRow = 0
+            self.VisibleRowCount = 10
+            self.cells = {}
+            self.cols = [
+                MockCol("LINE", "Line"), MockCol("STATUS", "Status"), MockCol("OK", "OK"),
+                MockCol("MATNR", "Material"), MockCol("ERFMG", "Quantity"), MockCol("SGTXT", "Item Text"),
+                MockCol("WERKS", "Plant"), MockCol("LGORT", "Storage Loc"), MockCol("UMLGO", "Rec. SLoc"),
+                MockCol("UOM", "Unit"), MockCol("CHARG", "Batch")
+            ]
+        @property
+        def Columns(self):
+            cols_list = self.cols
+            class ColColl:
+                Count = len(cols_list)
+                count = len(cols_list)
+                def Item(self, idx):
+                    return cols_list[idx]
+                def __call__(self, idx):
+                    return cols_list[idx]
+            return ColColl()
+
+        def GetCell(self, row, col):
+            if (row, col) not in self.cells:
+                self.cells[(row, col)] = MockCell()
+            return self.cells[(row, col)]
+
+    class MockSbar:
+        def __init__(self):
+            self.Text = "Material document 1013115228 posted"
+            self.text = self.Text
+            self.MessageType = "S"
+            self.messageType = "S"
+
+    action_cmb = MockControl(name="GODYNPRO-ACTION", c_type="GuiComboBox", key="A01")
+    ref_cmb = MockControl(name="GODYNPRO-REFDOC", c_type="GuiComboBox", key="R01")
+    mvt_field = MockControl(name="GODEFAULT_TV-BWART", c_type="GuiCTextField", text="")
+    tbl = MockTable()
+    sbar = MockSbar()
+
+    mock_w0 = MockControl(name="wnd[0]", c_type="GuiMainWindow")
+    mock_w0.sendVKey = MagicMock()
+    mock_w0.Children = [action_cmb, ref_cmb, mvt_field, tbl, sbar]
+    mock_w0.children = mock_w0.Children
+
+    mock_session = MagicMock()
+    mock_session.ActiveWindow.Name = "wnd[0]"
+    mock_session.Children.Count = 1
+    mock_session.children.count = 1
+
+    def mock_find_by_id_safe(cid):
+        if cid == "wnd[0]":
+            return mock_w0
+        if cid == "wnd[0]/sbar":
+            return sbar
+        if "tblSAPLMIGOTV_GOITEM" in cid:
+            return tbl
+        return None
+
+    engine.session = mock_session
+    engine._find_by_id_safe = mock_find_by_id_safe
+
+    items = [
+        {
+            "material": "BIW75111244AA",
+            "allocated_qty": 100,
+            "batch": "261023-15",
+            "bin": "APFL-P23-01-12",
+            "station": "KV08-Thức/Vũ",
+            "unit": "EA"
+        }
+    ]
+
+    ok, doc_no, msg = engine.post_migo_311_ob_group(
+        items,
+        plant="3093",
+        source_sloc="1005",
+        dest_sloc="3001",
+        dry_run=False
+    )
+
+    assert ok is True
+    assert doc_no == "1013115228"
+    assert "1013115228" in msg
+
+    # Kiểm tra đã điền đúng GODEFAULT_TV-BWART = 311
+    assert mvt_field.Text == "311" or mvt_field.text == "311"
+    # Kiểm tra Action và RefDoc được cấu hình A08 và R10
+    assert action_cmb.key == "A08"
+    assert ref_cmb.key == "R10"
+    # Kiểm tra ô Material (col 3)
+    assert tbl.GetCell(0, 3).Text == "BIW75111244AA" or tbl.GetCell(0, 3).text == "BIW75111244AA"
+    # Kiểm tra ô Qty (col 4)
+    assert tbl.GetCell(0, 4).Text == "100" or tbl.GetCell(0, 4).text == "100"
+    # Kiểm tra ô Trạm Text (col 5)
+    assert tbl.GetCell(0, 5).Text == "KV08-Thức/Vũ" or tbl.GetCell(0, 5).text == "KV08-Thức/Vũ"
+    # Kiểm tra ô Plant (col 6)
+    assert tbl.GetCell(0, 6).Text == "3093" or tbl.GetCell(0, 6).text == "3093"
+    # Kiểm tra ô SLoc nguồn (col 7)
+    assert tbl.GetCell(0, 7).Text == "1005" or tbl.GetCell(0, 7).text == "1005"
+    # Kiểm tra ô SLoc đích (col 8)
+    assert tbl.GetCell(0, 8).Text == "3001" or tbl.GetCell(0, 8).text == "3001"
+    # Kiểm tra ô Batch (col 10)
+    assert tbl.GetCell(0, 10).Text == "261023-15" or tbl.GetCell(0, 10).text == "261023-15"
+
