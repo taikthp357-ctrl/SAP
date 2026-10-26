@@ -1391,3 +1391,44 @@ def test_check_attachment_status_migo_fallback_mock():
     finally:
         MigoAttachmentRunner.open_migo_document = original_open
         MigoAttachmentRunner.read_sap_attachment_titles = original_read
+
+
+def test_check_stock_mb52_preserves_transit_row():
+    """Kiểm tra: Dòng Hàng chờ xuất/Transit (SLoc trống nhưng Transit > 0) không bị loại bỏ, được gán SLoc TRANSIT."""
+    engine = SapEngine.__new__(SapEngine)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._clear_all_selection_inputs = MagicMock()
+    engine._find_by_id_safe = MagicMock(return_value=MagicMock())
+    engine._dismiss_popups = MagicMock()
+    engine._get_status = MagicMock(return_value=("", "S"))
+    engine._export_alv_to_excel = MagicMock(return_value=None)
+    engine._reset_to_session_manager = MagicMock()
+
+    # Dữ liệu mô phỏng từ màn hình MB52 thực tế:
+    # Dòng 0: Transit cấp Plant 4007 (SLoc trống, Transit 78 EA)
+    # Dòng 1: Kho 4004 (4 EA)
+    # Dòng 2: Kho 4007 (136 EA)
+    engine._extract_alv_grid = MagicMock(return_value=[
+        {"product": "BIW32022638AB", "plant": "4007", "sloc": "", "batch": "", "unrest": "0", "transit": "78", "unit": "EA"},
+        {"product": "", "plant": "4007", "sloc": "4004", "batch": "IN31025038", "unrest": "4", "transit": "0", "unit": "EA"},
+        {"product": "", "plant": "4007", "sloc": "4007", "batch": "IN31025039", "unrest": "136", "transit": "0", "unit": "EA"},
+    ])
+
+    recs = engine.check_stock_mb52(materials=["BIW32022638AB"], plant="4007")
+
+    # Bắt buộc phải giữ đủ cả 3 dòng (kể cả dòng Transit)
+    assert len(recs) == 3
+
+    # Dòng Transit được đưa lên đầu với sloc TRANSIT
+    assert recs[0]["sloc"] == "TRANSIT"
+    assert recs[0]["unrest"] == "78"
+    assert recs[0]["transit"] == "78"
+    assert recs[0]["batch"] == "Chờ xuất (từ 3093)"
+    assert recs[0]["product"] == "BIW32022638AB"
+
+    # Các dòng kho vật lý tiếp theo
+    assert recs[1]["sloc"] == "4004"
+    assert recs[1]["unrest"] == "4"
+    assert recs[2]["sloc"] == "4007"
+    assert recs[2]["unrest"] == "136"

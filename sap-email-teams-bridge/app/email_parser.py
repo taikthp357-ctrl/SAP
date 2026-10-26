@@ -133,7 +133,8 @@ class SmartCommandParser:
         "IB", "TREO", "IBTREO", "STO", "INBOUND", "VL06I", "ME2N", "MB5T", "DIEUCHUYEN", "DIEU", "CHUYEN", "DON",
         "TAI", "TÀI", "@TAI", "@TÀI", "TOI", "TÔI", "MINH", "MÌNH", "SEP", "SẾP", "NHO", "NHỜ",
         "BAN", "BẠN", "GIÚP", "VỚI", "CÓ", "ĐANG", "CHỜ", "TOP", "TOP20", "TOP10", "THAP", "THẤP",
-        "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT", "POSTING", "POSTINGCHANGE", "MIGO", "NVL", "CHANGE"
+        "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT", "POSTING", "POSTINGCHANGE", "MIGO", "NVL", "CHANGE",
+        "PLAN", "PLAT", "PL", "NHAMAY", "NHA", "MAY"
     }
 
     @staticmethod
@@ -515,10 +516,19 @@ class SmartCommandParser:
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         explicit_plant = False
         plant = default_plant
-        plant_m = re.search(r"\b(?:plant|nha\s*may|werks)\s*[:=]?\s*(\d{4})\b", norm_text)
+        # 1. Bắt theo từ khóa: chấp nhận plant, plan (gõ thiếu t), plat, pl, werks, nha may, kho
+        plant_m = re.search(r"\b(?:plant|plan|plat|pl|werks|nha\s*may|kho)\s*[:=-]?\s*(\d{4})\b", norm_text)
         if plant_m:
             plant = plant_m.group(1)
             explicit_plant = True
+        else:
+            # 2. Dự phòng: Nếu trong câu có đứng độc lập một mã Plant 4 số thuộc whitelist (3093, 4007, 4004, 2001, 3001, 2301, 4001)
+            known_plants = {"3093", "4007", "4004", "2001", "3001", "2301", "4001"}
+            for token in re.findall(r"\b(\d{4})\b", norm_text):
+                if token in known_plants:
+                    plant = token
+                    explicit_plant = True
+                    break
 
         # Kiểm tra nếu người dùng yêu cầu nguyên list / toàn bộ cho Model Tồn thấp
         is_full_model_list = bool(re.search(r"\b(?:nguyen\s*list|toan\s*bo|full\s*list|tat\s*ca|tatca|full)\b", norm_text))
@@ -564,8 +574,9 @@ class SmartCommandParser:
                     work_str = work_str.replace(item["ticket_no"].upper(), " ")
         if batch_m and batch:
             work_str = re.sub(r"\b(?:BATCH|SO\s*LO|LO|CHARG|LÔ|SỐ\s*LÔ)\s*[:=]?\s*" + re.escape(batch), " ", work_str, flags=re.I)
-        if plant_m:
-            work_str = re.sub(r"\b(?:PLANT|WERKS|NHA\s*MAY|NHÀ\s*MÁY)\s*[:=]?\s*" + re.escape(plant), " ", work_str, flags=re.I)
+        if plant_m or explicit_plant:
+            work_str = re.sub(r"\b(?:PLANT|PLAN|PLAT|PL|WERKS|NHA\s*MAY|NHÀ\s*MÁY|KHO)\s*[:=-]?\s*" + re.escape(plant), " ", work_str, flags=re.I)
+            work_str = re.sub(r"\b" + re.escape(plant) + r"\b", " ", work_str)
         if days_m:
             work_str = re.sub(r"\b\d{1,3}\s*(?:NGAY|NGÀY|DAYS|DAY|HOM|HÔM)\b", " ", work_str, flags=re.I)
         if inbound_no:

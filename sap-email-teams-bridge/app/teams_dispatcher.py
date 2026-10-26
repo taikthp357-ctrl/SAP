@@ -230,27 +230,51 @@ class TeamsDispatcher:
                 )
 
             elif (any(k in cmd_upper for k in ["TON", "MB52"]) and "THAP" not in cmd_upper):
-                batches = {r.get("batch") for r in records if r.get("batch")}
+                batches = {r.get("batch") for r in records if r.get("batch") and not r.get("is_transit") and str(r.get("sloc", "")).upper() != "TRANSIT"}
                 unrest_sum = 0.0
+                transit_sum = 0.0
                 unit = ""
                 sloc_totals = {}
+                target_plant = ""
                 for r in records:
                     sloc = str(r.get("sloc", "")).strip()
+                    is_tr = bool(r.get("is_transit") or sloc.upper() == "TRANSIT")
                     u_val = parse_sap_float(r.get("unrest"))
-                    unrest_sum += u_val
-                    if sloc:
-                        sloc_totals[sloc] = sloc_totals.get(sloc, 0.0) + u_val
+                    t_val = parse_sap_float(r.get("transit", "0"))
+                    if not target_plant and r.get("plant"):
+                        target_plant = str(r.get("plant")).strip()
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
-                # 1. Badge Tổng tồn
-                badges.append(
-                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"✅ Tồn: {format_qty_display(unrest_sum)} {unit}</span>"
-                )
+                    if is_tr:
+                        transit_sum += (t_val if t_val > 0 else u_val)
+                    else:
+                        unrest_sum += u_val
+                        if sloc:
+                            sloc_totals[sloc] = sloc_totals.get(sloc, 0.0) + u_val
 
-                # 2. Phân rã Tồn kho (1005) và Tồn line nhỏ (3001) trước badge Lô nếu có từ 2 kho trở lên
-                if len(sloc_totals) > 1 or ("1005" in sloc_totals and "3001" in sloc_totals):
+                # 1. Badge Tổng tồn khả dụng (nếu có hàng transit thì ghi rõ Tồn khả dụng để không cộng lẫn)
+                if transit_sum > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Tồn khả dụng: {format_qty_display(unrest_sum)} {unit}</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Tồn: {format_qty_display(unrest_sum)} {unit}</span>"
+                    )
+
+                # 2. Badge Hàng đang đi đường / In-Transit (tách biệt rõ ràng)
+                if transit_sum > 0:
+                    transit_label = "🚚 Chờ nhập (Transit từ 3093)" if target_plant in ("4007", "4004") else "🚚 Chờ nhập (Transit)"
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"{transit_label}: {format_qty_display(transit_sum)} {unit}</span>"
+                    )
+
+                # 3. Phân rã theo SLoc (nếu có từ 2 kho trở lên hoặc có transit)
+                if len(sloc_totals) > 1 or transit_sum > 0 or ("1005" in sloc_totals and "3001" in sloc_totals):
                     if "1005" in sloc_totals:
                         badges.append(
                             f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
@@ -268,11 +292,12 @@ class TeamsDispatcher:
                                 f"📦 SLoc {sloc_k}: {format_qty_display(sloc_qty)} {unit}</span>"
                             )
 
-                # 3. Badge Số lượng Lô (Batch)
-                badges.append(
-                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
-                    f"🏷️ {len(batches)} Lô (Batch)</span>"
-                )
+                # 4. Badge Số lượng Lô (Batch)
+                if batches:
+                    badges.append(
+                        f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                        f"🏷️ {len(batches)} Lô (Batch)</span>"
+                    )
 
             elif any(k in cmd_upper for k in ["LICHSU", "MB51"]):
                 docs = {r.get("docNo") for r in records if r.get("docNo")}

@@ -451,3 +451,22 @@ def test_teams_dispatcher_queue_kpi_badges():
     ]
     badges_html = TeamsDispatcher.build_kpi_badges(records, "CHECK_QUEUE")
     assert "1 Lỗi Queue kẹt" in badges_html
+
+
+def test_teams_dispatcher_mb52_with_transit_badges():
+    """Kiểm tra: Khi có hàng Transit, badge phân tách Tồn khả dụng, Chờ nhập (Transit) và các SLoc riêng biệt."""
+    records = [
+        {"product": "BIW32022638AB", "plant": "4007", "sloc": "TRANSIT", "batch": "Chờ xuất (từ 3093)", "unrest": "78", "transit": "78", "unit": "EA", "is_transit": True},
+        {"product": "BIW32022638AB", "plant": "4007", "sloc": "4004", "batch": "IN31025038", "unrest": "4", "transit": "0", "unit": "EA"},
+        {"product": "BIW32022638AB", "plant": "4007", "sloc": "4007", "batch": "IN31025039", "unrest": "136", "transit": "0", "unit": "EA"},
+    ]
+    badges_html = TeamsDispatcher.build_kpi_badges(records, "TON")
+    # 1. Tồn khả dụng chỉ gồm 4 + 136 = 140 EA (không cộng lẫn 78 EA)
+    assert "✅ Tồn khả dụng: 140 EA" in badges_html
+    # 2. Hàng transit hiển thị riêng biệt
+    assert "🚚 Chờ nhập (Transit từ 3093): 78 EA" in badges_html
+    # 3. Phân rã theo từng SLoc
+    assert "📦 SLoc 4004: 4 EA" in badges_html
+    assert "📦 SLoc 4007: 136 EA" in badges_html
+    # 4. Chỉ tính 2 lô vật lý thực tế
+    assert "2 Lô (Batch)" in badges_html

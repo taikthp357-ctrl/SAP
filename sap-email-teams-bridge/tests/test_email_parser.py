@@ -766,3 +766,30 @@ def test_parse_att_migo_live_vs_preview():
     assert prev_res["command"] == "ATT_MIGO"
     assert prev_res["dryRun"] is True
     assert prev_res["executionMode"] == "WRITE_PREVIEW"
+
+
+def test_parse_typo_plan_4007():
+    """Kiểm tra nhận diện đúng Plant 4007 khi người dùng gõ thiếu chữ t thành plan 4007."""
+    cmd = "Sap tra tồn BIW32022638AB plan 4007"
+    res = EmailCommandParser.parse(cmd)
+    assert res is not None
+    assert res["command"] == "TON"
+    assert res["plant"] == "4007"
+    assert res["explicitPlant"] is True
+    assert res["materials"] == ["BIW32022638AB"]
+
+
+def test_parse_plant_variants_and_standalone():
+    """Kiểm tra các biến thể nhận diện Plant: plat, pl, kho, và số plant độc lập."""
+    for cmd, expected_p in [
+        ("Sap tra tồn BIW32022638AB plat 4007", "4007"),
+        ("Sap tra tồn BIW32022638AB pl 4004", "4004"),
+        ("Sap tra tồn BIW32022638AB kho 4007", "4007"),
+        ("Sap tra tồn BIW32022638AB 4007", "4007"),
+        ("Sap tra tồn BIW32022638AB nhà máy 4004", "4004"),
+    ]:
+        res = EmailCommandParser.parse(cmd)
+        assert res is not None
+        assert res["plant"] == expected_p
+        assert res["explicitPlant"] is True
+        assert res["materials"] == ["BIW32022638AB"]

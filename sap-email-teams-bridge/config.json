@@ -33,7 +33,10 @@
     "701B": "Hàng hold line Dập",
     "3006": "Sloc PE",
     "P000": "Try out công đoạn Dập",
-    "200E": "Waiting"
+    "200E": "Waiting",
+    "TRANSIT": "Hàng đang trung chuyển (In-Transit)",
+    "4007": "Kho Xưởng 4007",
+    "4004": "Kho Xưởng 4004"
   },
   "auto_create_session": true,
   "prefer_dedicated_session": false,

@@ -1468,7 +1468,10 @@ class SapEngine:
                     "UNRESTRICTED STOCK", "UNRESTRICTED USE", "UNRESTRICTED USE STOCK",
                     "KHA DUNG", "KHẢ DỤNG", "KHO DUNG", "CLABS", "KALAB"
                 ],
-                "transit": ["TRAME", "STOCK IN TRANSIT", "TRANSIT/TRANSF.", "TRANSIT"],
+                "transit": [
+                    "UMLMC", "TRAME", "UMLMD", "STOCK IN TRANSIT", "TRANSIT/TRANSF.", "TRANSIT/TRANSF",
+                    "TRANSIT", "IN TRANSIT", "CHUYEN KHO", "HANG DI DUONG"
+                ],
                 "qual":    ["INSME", "QUALITY INSPECTION", "IN QUALITY INSP."],
                 "blocked": ["SPEME", "BLOCKED"],
                 "unit":    ["MEINS", "BASE UNIT OF MEASURE", "BASE UNIT", "UNIT"]
@@ -1496,25 +1499,68 @@ class SapEngine:
                 records = self._extract_alv_grid(alv_grid, col_map, max_rows=max_rows)
                 print(f"[SAP MB52] Đã trích xuất {len(records)} dòng qua COM ALV Grid.")
 
-            # LỌC BỎ TRIỆT ĐỂ DÒNG TỔNG CỘNG TRONG MB52: Bắt buộc phải có Kho (Sloc)
-            records = [r for r in records if str(r.get("sloc", "")).strip()]
+            # 1. Forward-fill mã hàng (product), plant và unit cho các dòng bị gộp/ẩn tiêu đề
+            last_prod = ""
+            last_pl = ""
+            last_u = ""
+            for r in records:
+                if r.get("product"):
+                    last_prod = r["product"]
+                elif last_prod:
+                    r["product"] = last_prod
 
+                if r.get("plant"):
+                    last_pl = r["plant"]
+                elif last_pl:
+                    r["plant"] = last_pl
+
+                if r.get("unit"):
+                    last_u = r["unit"]
+                elif last_u:
+                    r["unit"] = last_u
+
+            # 2. Xử lý dòng Hàng đang trung chuyển / Transit (Plant level, SLoc/Batch trống nhưng Transit > 0)
+            valid_records = []
+            for r in records:
+                sloc_raw = str(r.get("sloc", "")).strip()
+                unrest_f = parse_sap_float(r.get("unrest", "0"))
+                transit_f = parse_sap_float(r.get("transit", "0"))
+                pl_code = str(r.get("plant", plant)).strip()
+
+                if not sloc_raw:
+                    # Nếu dòng không có SLoc nhưng có số lượng Transit/Transf. > 0 (như dòng 78 EA ở Plant 4007)
+                    if transit_f > 0:
+                        r["sloc"] = "TRANSIT"
+                        if not r.get("batch"):
+                            r["batch"] = "Chờ xuất (từ 3093)" if pl_code in ("4007", "4004") else "Chờ nhập (Transit)"
+                        r["unrest"] = format_qty_display(transit_f)
+                        r["transit"] = format_qty_display(transit_f)
+                        r["is_transit"] = True
+                        valid_records.append(r)
+                    # Nếu cả sloc rỗng và transit == 0 -> dòng tổng cộng/rỗng (subtotal), bỏ qua
+                    continue
+
+                # Dòng kho bình thường có SLoc
+                r["unrest"] = format_qty_display(unrest_f)
+                r["transit"] = format_qty_display(transit_f)
+                valid_records.append(r)
+
+            records = valid_records
+
+            # 3. Lọc theo kho (nếu có yêu cầu cụ thể)
             if slocs:
                 clean_slocs_set = {s.strip().upper() for s in slocs if s.strip()}
                 records = [r for r in records if str(r.get("sloc", "")).strip().upper() in clean_slocs_set]
                 print(f"[SAP MB52] Sau khi lọc theo kho {clean_slocs_set}: còn {len(records)} dòng.")
 
-            # Chuẩn hóa định dạng số lượng tồn cho tất cả các dòng
-            for r in records:
-                u_f = parse_sap_float(r.get("unrest", 0.0))
-                r["unrest"] = format_qty_display(u_f)
-
-            # SẮP XẾP GOM THEO KHO (SLOC): Các dòng cùng kho đứng cạnh nhau, trong cùng kho thì lượng tồn lớn lên trước
+            # 4. SẮP XẾP GOM THEO KHO (SLOC):
+            # TRANSIT lên đầu tiên (như màn hình gốc MB52), tiếp theo là các kho thực tế với số lượng giảm dần
             def _mb52_sort_key(item):
                 sloc_val = str(item.get("sloc", "")).strip().upper()
-                unrest_f = parse_sap_float(item.get("unrest", 0.0))
+                unrest_val = parse_sap_float(item.get("unrest", 0.0))
                 batch_val = str(item.get("batch", "")).strip().upper()
-                return (sloc_val, -unrest_f, batch_val)
+                is_tr = 0 if (item.get("is_transit") or sloc_val == "TRANSIT") else 1
+                return (is_tr, sloc_val, -unrest_val, batch_val)
 
             records.sort(key=_mb52_sort_key)
             return records
@@ -2191,7 +2237,7 @@ class SapEngine:
                     mats_to_evaluate.append(matched_mat)
 
             # SLoc 9999 / QC / Scrap được lưu vào transit riêng, không cộng vào tồn khả dụng
-            if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE"]:
+            if sloc in ["9999", "QC", "BLOCK", "SCRAP", "QUARANTINE", "TRANSIT"]:
                 sloc_detail_by_mat[matched_mat]["transit"] += qty
                 continue
 

@@ -1,9 +1,19 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.54
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.55
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Thiết kế bảo mật & an toàn (Zero Inbound Port Architecture):**
+1. **Nhận diện linh hoạt Plant & Sửa lỗi gõ thiếu "plan" (v1.0.55):**
+   - **Chống nhận diện nhầm về Plant mặc định 3093:** Mở rộng Regex bóc tách Plant trong [`email_parser.py`](file:///G:/SAP/sap-email-teams-bridge/app/email_parser.py) để nhận diện các biến thể gõ nhanh của nhân viên kho (`plan`, `plat`, `pl`, `kho`, `nha may`) hoặc đứng độc lập một mã Plant 4 số thuộc whitelist (`3093`, `4007`, `4004`, `2001`, `3001`...).
+   - **Xử lý sạch sẽ câu lệnh:** Khi người dùng gửi *"Sap tra tồn BIW32022638AB plan 4007"*, hệ thống bóc tách chính xác `plant = "4007"`, `explicitPlant = True` và loại trừ hoàn toàn các từ khóa khỏi mã hàng.
+
+2. **Bảo toàn dòng Hàng In-Transit trên MB52 & Thẻ KPI phân tách (v1.0.55):**
+   - **Nhận diện đầy đủ cột `Transit/Transf.`:** Bổ sung ánh xạ mã cột SAP `UMLMC`, `UMLMD`, `TRAME`, `TRANSIT/TRANSF.` vào [`sap_engine.py`](file:///G:/SAP/sap-email-teams-bridge/app/sap_engine.py).
+   - **Không lọc bỏ dòng Transit:** Xử lý triệt để trường hợp hàng đang chuyển kho ở cấp độ Plant (chưa nhập vào SLoc cụ thể nên `SLoc == ""` và `Batch == ""`): Tự động tạo dòng đặc biệt `SLoc = "TRANSIT"`, `Batch = "Chờ xuất (từ 3093)"` (với Plant 4007/4004), forward-fill mã hàng từ dòng đầu.
+   - **Thẻ KPI Teams tách bạch rõ ràng:** Header kết quả trên Teams hiển thị tách biệt Tồn khả dụng sẵn sàng xuất và Hàng đang trung chuyển:
+     `✅ Tồn khả dụng: 140 EA` | `🚚 Chờ nhập (Transit từ 3093): 78 EA` | `📦 SLoc 4004: 4 EA` | `📦 SLoc 4007: 136 EA` | `🏷️ 2 Lô (Batch)`.
+
+3. **Thiết kế bảo mật & an toàn (Zero Inbound Port Architecture):**
    - **0 Open Port:** Không mở cổng mạng lắng nghe (không socket server), chỉ gửi Outbound HTTPS POST duy nhất tới Power Automate Webhook.
    - **0 PowerShell:** Điều khiển SAP GUI và Outlook hoàn toàn qua Windows COM Object trong RAM, không gọi bất kỳ tiến trình PowerShell hay subprocess nhạy cảm nào.
    - **Bảo vệ phiên người dùng (Strict Session Ownership Guard):** Khi bật chế độ an toàn, hệ thống chỉ sử dụng phiên rảnh (Idle), tự động xin mở phiên mới nếu cho phép, tuyệt đối không can thiệp hoặc cướp màn hình làm việc của người dùng đang thao tác.
@@ -64,7 +74,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (233 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (237 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm
