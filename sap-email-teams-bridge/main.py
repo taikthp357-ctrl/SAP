@@ -122,6 +122,98 @@ def move_mail_to_failed(mail, bot_folder):
     move_mail_to_folder(mail, failed)
 
 
+def complete_mail_item(mail, bot_folder, status: str = "processed", outlook_ns=None):
+    """
+    Đánh dấu mail đã xử lý và di chuyển an toàn vào thư mục con (Processed hoặc Failed).
+    Bọc thép chống văng lỗi COM 'Property Item.UnRead can not be set' hoặc object disconnected.
+    """
+    if mail is None:
+        return
+
+    # 1. Thử đánh dấu đã đọc an toàn
+    try:
+        mail.UnRead = False
+        mail.Save()
+    except Exception as read_err:
+        entry_id = getattr(mail, "EntryID", None)
+        recovered = False
+        if entry_id and outlook_ns:
+            try:
+                fresh = outlook_ns.GetItemFromID(entry_id)
+                fresh.UnRead = False
+                fresh.Save()
+                mail = fresh
+                recovered = True
+            except Exception:
+                pass
+        if not recovered:
+            print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead ({status}): {read_err}")
+
+    # 2. Di chuyển vào thư mục con tương ứng
+    try:
+        if str(status).lower() == "processed":
+            move_mail_to_processed(mail, bot_folder)
+        else:
+            move_mail_to_failed(mail, bot_folder)
+    except Exception as move_err:
+        print(f"[OUTLOOK WARN] Bỏ qua lỗi di chuyển thư sang {status}: {move_err}")
+
+
+def reconnect_outlook_session(folder_name: str, max_retries: int = 3, retry_delay: float = 2.0):
+    """
+    Tái tạo kết nối COM Outlook sạch hoàn toàn (Clean Apartment Teardown).
+    Chống hiện tượng rò rỉ hoặc truy cập con trỏ COM RPC chết dẫn đến lỗi ngắt Access Violation (0xC0000005).
+    """
+    print("[OUTLOOK RECONNECT] Phát hiện mất kết nối COM Outlook. Đang kết nối lại...")
+    app = None
+    ns = None
+    inbox = None
+    bot_f = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            pythoncom.CoInitialize()
+
+            app = win32com.client.Dispatch("Outlook.Application")
+            ns = app.GetNamespace("MAPI")
+            inbox = ns.GetDefaultFolder(6)  # 6 = olFolderInbox
+
+            # 1. Quét tìm trong Inbox
+            try:
+                for f in inbox.Folders:
+                    if f.Name.strip().lower() == folder_name.strip().lower():
+                        bot_f = f
+                        break
+            except Exception:
+                pass
+
+            # 2. Quét tìm trong Store root (Parent của Inbox)
+            if bot_f is None:
+                try:
+                    for f in inbox.Parent.Folders:
+                        if f.Name.strip().lower() == folder_name.strip().lower():
+                            bot_f = f
+                            break
+                except Exception:
+                    pass
+
+            if bot_f is not None:
+                print(f"[OUTLOOK RECONNECT] Đã kết nối lại Outlook thành công (thư mục: '{getattr(bot_f, 'Name', '')}').")
+                return app, ns, inbox, bot_f
+            else:
+                print(f"[OUTLOOK RECONNECT WARN] Đã kết nối MAPI (lần {attempt}/{max_retries}) nhưng chưa tìm thấy thư mục '{folder_name}'.")
+        except Exception as recon_err:
+            print(f"[OUTLOOK RECONNECT WARN] Thử kết nối lại lần {attempt}/{max_retries} thất bại: {recon_err}")
+
+        time.sleep(retry_delay)
+
+    return app, ns, inbox, bot_f
+
+
 def deliver_outbox(state_mgr, max_attempts=3):
     for item in state_mgr.get_pending_outbox(max_attempts=max_attempts):
         token = state_mgr.begin_delivery(item["req_id"])
@@ -329,12 +421,7 @@ def run_bridge():
                     break
                 entry_id = getattr(mail, "EntryID", "")
                 if entry_id and state_mgr.is_message_processed("", entry_id):
-                    try:
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
-                    except Exception as out_err:
-                        print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead thư cũ: {out_err}")
+                    complete_mail_item(mail, bot_folder, "processed", outlook_ns=outlook)
                     continue
 
                 req_id = StateManager.request_id(str(data_dir), "", entry_id) if entry_id else "UNIDENTIFIED"
@@ -346,12 +433,7 @@ def run_bridge():
                         actual_sender = actual_sender_address(mail)
                         if actual_sender not in allowed_senders:
                             print(f"[SECURITY] {req_id} | Người gửi '{actual_sender}' không thuộc allowed_senders. Chuyển thư sang Failed.")
-                            try:
-                                mail.UnRead = False
-                                mail.Save()
-                                move_mail_to_failed(mail, bot_folder)
-                            except Exception as out_err:
-                                print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead thư security: {out_err}")
+                            complete_mail_item(mail, bot_folder, "failed", outlook_ns=outlook)
                             continue
 
                     raw_body = getattr(mail, "Body", "")
@@ -363,30 +445,21 @@ def run_bridge():
                     # LOOP GUARD: Nếu phát hiện tin nhắn Bot tự trả lời -> Bỏ qua ngay lập tức
                     if meta and meta.get("isBotEcho"):
                         print(f"[LOOP GUARD] {req_id} | Phát hiện tin nhắn phản hồi của Bot. Bỏ qua ngay lập tức để chống lặp!")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
+                        complete_mail_item(mail, bot_folder, "processed", outlook_ns=outlook)
                         continue
 
                     # Kiểm tra trùng lặp qua SQLite
                     msg_id = meta.get("messageId", "") if meta else ""
                     if (msg_id or entry_id) and state_mgr.is_message_processed(msg_id, entry_id):
                         print(f"[DUPLICATE] {req_id} | Message ID '{msg_id or (entry_id[:12] if entry_id else '')}' đã xử lý thành công trước đó. Bỏ qua.")
-                        try:
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_processed(mail, bot_folder)
-                        except Exception as out_err:
-                            pass
+                        complete_mail_item(mail, bot_folder, "processed", outlook_ns=outlook)
                         continue
 
                     if not meta or not meta.get("valid"):
                         reason = meta.get("reason", "Không rõ") if meta else "Thư rỗng hoặc không liên quan"
                         print(f"[SKIP] {req_id} | Bỏ qua yêu cầu không có mã hợp lệ: {reason}. Không gửi trợ giúp lên Teams.")
                         state_mgr.mark_message_processed(msg_id, entry_id, req_id, "SKIP", "INVALID_INPUT")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
+                        complete_mail_item(mail, bot_folder, "processed", outlook_ns=outlook)
                         continue
 
                     store_id = str(getattr(getattr(mail, "Parent", None), "StoreID", "") or data_dir)
@@ -395,17 +468,9 @@ def run_bridge():
                         claim_status = state_mgr.get_claim_status(req_id)
                         has_outbox = state_mgr.has_outbox_result(req_id)
                         print(f"[RECOVERY] {req_id}: kết quả đã lưu hoặc cần kiểm tra lần chạy gián đoạn (claim: {claim_status}, outbox: {has_outbox}); không chạy SAP lại.")
-                        try:
-                            mail.UnRead = False
-                            mail.Save()
-                            if claim_status == "COMPLETED" or has_outbox:
-                                move_mail_to_processed(mail, bot_folder)
-                                print(f"[RECOVERY] {req_id}: Đã chuyển thư sang thư mục 'Processed'.")
-                            else:
-                                move_mail_to_failed(mail, bot_folder)
-                                print(f"[RECOVERY] {req_id}: Đã chuyển thư sang thư mục 'Failed' để chờ đối soát / tránh lặp vô tận.")
-                        except Exception as move_err:
-                            print(f"[OUTLOOK WARN] Bỏ qua lỗi chuyển thư recovery: {move_err}")
+                        rec_status = "processed" if (claim_status == "COMPLETED" or has_outbox) else "failed"
+                        complete_mail_item(mail, bot_folder, rec_status, outlook_ns=outlook)
+                        print(f"[RECOVERY] {req_id}: Đã chuyển thư sang thư mục '{rec_status.capitalize()}'.")
                         continue
                     cmd = meta["command"]
                     raw_mats = meta["materials"]
@@ -983,13 +1048,7 @@ def run_bridge():
                         )
                         state_mgr.complete_request(msg_id, entry_id, req_id, cmd, result_status, webhook_url, payload)
                         deliver_outbox(state_mgr, max_retries)
-
-                        try:
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_processed(mail, bot_folder)
-                        except Exception as out_err:
-                            print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead sau khi hoàn tất SAP: {out_err}")
+                        complete_mail_item(mail, bot_folder, "processed", outlook_ns=outlook)
 
                     except Exception as sap_err:
                         print(f"[SAP ERROR] {req_id} | {sap_err}")
@@ -1002,21 +1061,11 @@ def run_bridge():
                             state_mgr.complete_request(msg_id, entry_id, req_id, cmd, "FAILED", webhook_url, fail_payload)
                             deliver_outbox(state_mgr, max_retries)
 
-                        try:
-                            mail.UnRead = False
-                            mail.Save()
-                            move_mail_to_failed(mail, bot_folder)
-                        except Exception as out_err:
-                            print(f"[OUTLOOK WARN] Bỏ qua lỗi cập nhật UnRead sau lỗi SAP: {out_err}")
+                        complete_mail_item(mail, bot_folder, "failed", outlook_ns=outlook)
 
                 except Exception as mail_err:
                     print(f"[MAIL ERROR] {req_id} | Lỗi khi xử lý thư: {mail_err}")
-                    try:
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_failed(mail, bot_folder)
-                    except Exception:
-                        pass
+                    complete_mail_item(mail, bot_folder, "failed", outlook_ns=outlook)
 
         except Exception as loop_err:
             print(f"[LOOP WARN] {loop_err}")
@@ -1028,39 +1077,26 @@ def run_bridge():
                 or "disconnected" in err_str.lower()
                 or "rpc" in err_str.lower()
                 or "nonetype" in err_str.lower()
+                or "-2147467260" in err_str
+                or "operation aborted" in err_str.lower()
             ):
-                print("[OUTLOOK RECONNECT] Phát hiện mất kết nối COM Outlook. Đang kết nối lại...")
-                try:
-                    pythoncom.CoInitialize()
-                    outlook_app = win32com.client.Dispatch("Outlook.Application")
-                    outlook_ns = outlook_app.GetNamespace("MAPI")
-                    outlook = outlook_ns
-                    inbox = outlook_ns.GetDefaultFolder(6)
-                    bot_folder = None
-                    try:
-                        for f in inbox.Parent.Folders:
-                            if f.Name.strip().lower() == folder_name.strip().lower():
-                                bot_folder = f
-                                break
-                    except Exception:
-                        pass
-                    if bot_folder is None:
-                        for f in inbox.Folders:
-                            if f.Name.strip().lower() == folder_name.strip().lower():
-                                bot_folder = f
-                                break
-                    if bot_folder is not None:
-                        print(f"[OUTLOOK RECONNECT] Đã kết nối lại Outlook thành công (thư mục: '{getattr(bot_folder, 'Name', '')}').")
-                    else:
-                        print(f"[OUTLOOK RECONNECT WARN] Đã kết nối MAPI nhưng chưa tìm thấy thư mục '{folder_name}'. Sẽ thử lại vòng lặp kế tiếp.")
-                except Exception as recon_err:
-                    print(f"[OUTLOOK RECONNECT FAIL] {recon_err}")
+                outlook_app = None
+                outlook_ns = None
+                outlook = None
+                inbox = None
+                bot_folder = None
+                new_app, new_ns, new_inbox, new_bot_f = reconnect_outlook_session(folder_name)
+                if new_app and new_ns and new_inbox:
+                    outlook_app = new_app
+                    outlook_ns = new_ns
+                    outlook = new_ns
+                    inbox = new_inbox
+                    bot_folder = new_bot_f
 
-        # Tối ưu giải phóng RAM và COM object sau mỗi vòng lặp chạy nền
+        # Tối ưu giải phóng RAM sau mỗi chu kỳ; loại bỏ CoFreeUnusedLibraries để chống crash combase.dll
         try:
             import gc
             gc.collect()
-            pythoncom.CoFreeUnusedLibraries()
         except Exception:
             pass
 
@@ -1079,12 +1115,14 @@ if __name__ == "__main__":
     elif "--test-parser" in sys.argv:
         run_self_test()
     else:
-        try:
-            run_bridge()
-        except KeyboardInterrupt:
-            print("\n[STOP] Đã nhận tín hiệu dừng từ người dùng.")
-        except Exception as fatal_err:
-            print(f"\n[FATAL ERROR] Lỗi không mong muốn trong worker: {fatal_err}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
+        while True:
+            try:
+                run_bridge()
+                break
+            except KeyboardInterrupt:
+                print("\n[STOP] Đã nhận tín hiệu dừng từ người dùng.")
+                break
+            except Exception as fatal_e:
+                print(f"\n[FATAL SHIELD] Tiến trình worker gặp lỗi ngoại cảnh: {fatal_e}")
+                print("[FATAL SHIELD] Đang tự động phục hồi trong 5 giây...")
+                time.sleep(5)

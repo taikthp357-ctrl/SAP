@@ -1,9 +1,16 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.70
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.71
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Khắc Phục Lỗi Kho Nhận `1003` & Khóa Chuẩn Token TableField MIGO Bất Biến (v1.0.70):**
+1. **Khắc Phục Triệt Để Lỗi Ngắt Tiến Trình COM Outlook (RPC Disconnect) & Watchdog 24/7 (v1.0.71):**
+   - **Xử lý an toàn thuộc tính Mail (`complete_mail_item`):** Bọc thép 100% các thao tác thay đổi trạng thái mail (`Item.UnRead = False`, `Item.Save()`, `Item.Move()`). Nếu Outlook lock mail do đồng bộ nền gây ra lỗi *"Property 'Item.UnRead' can not be set"*, bot tự động lấy lại tham chiếu tươi qua `EntryID` hoặc bỏ qua an toàn và tiếp tục di chuyển thư vào `Processed`/`Failed` mà không làm crash hay dừng luồng bot.
+   - **Tái lập kết nối COM Outlook sạch (Clean Apartment Teardown):** Viết lại hoàn toàn `reconnect_outlook_session`: Giải phóng toàn bộ tham chiếu cũ (`outlook_app`, `outlook_ns`, `inbox`, `bot_folder`), dọn sạch STA COM Apartment bằng `CoUninitialize()` rồi `CoInitialize()`, retry 3 lần với exponential backoff.
+   - **Triệt tiêu lỗi sập native `0xC0000005` (Access Violation trong `combase.dll`):** Loại bỏ việc gọi `pythoncom.CoFreeUnusedLibraries()` sau sự cố ngắt RPC để ngăn ngừa việc Windows COM subsystem dereference con trỏ stub chết dẫn tới crash tiến trình C++.
+   - **Lá chắn chống sập toàn diện (Top-Level Fatal Shield):** Bọc toàn bộ vòng lặp thực thi của worker trong `main.py` bằng `try...except Exception as fatal_e:`, tự động phục hồi trong 5 giây mà không kết thúc tiến trình.
+   - **Giám sát tự động 24/7 (Watchdog Supervisor trong `START_BRIDGE.cmd`):** Bổ sung vòng lặp `:WATCHDOG_LOOP` trong file batch khởi động. Nếu tiến trình Python bị ngắt do lỗi ngoại cảnh hoặc người dùng vô tình đóng Outlook, script tự động đếm ngược 5 giây và khởi động lại ngay lập tức, đảm bảo bot hoạt động liên tục 24/7 không cần người can thiệp thủ công.
+
+2. **Khắc Phục Lỗi Kho Nhận `1003` & Khóa Chuẩn Token TableField MIGO Bất Biến (v1.0.70):**
    - **Triệt tiêu lỗi kho nhận `1003`:** Khắc phục dứt điểm việc `default_dest_sloc` bị đặt nhầm thành `1003` khiến SAP báo lỗi *"No hits were found for storage location 1003 in plant 3093"*. Chuẩn hóa mặc định `dest_plant="3093"`, `dest_sloc="3001"` (Kho Line Body) và tự động chuẩn hóa giá trị `1003` về `3001`.
    - **Ưu tiên hàng đầu Token TableField kỹ thuật SAP:** Đưa cơ chế tìm control theo Token bất biến (`GOITEM-UMLGO` cho Kho nhận, `GOITEM-CHARG` cho Số lô, `GOITEM-LGORT` cho Kho xuất, `GOITEM-WERKS` cho Plant, `GOITEM-MATNR` cho Material, `GOITEM-ERFMG` cho Qty) lên ưu tiên số 1 trước khi fallback sang GetCell. Đảm bảo dù layout SAP của người dùng có bật/tắt bao nhiêu cột mô tả thì dữ liệu luôn điền trúng 100% vào đúng ô.
    - **Khắc phục lỗi lệch cột Batch:** Phân giải cột đơn lượt với khóa chốt First-Match-Wins, khớp chuẩn `Material=3, Qty=5, Trạm=6, Plant=7, KhoXuất=8, KhoNhận=9, Lô=10`, triệt tiêu hoàn toàn cảnh báo *"Không thể điền 'Batch' tại row=0, col=9"*.

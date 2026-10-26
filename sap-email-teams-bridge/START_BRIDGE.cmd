@@ -72,9 +72,28 @@ echo [OK] Phat hien Python: %PYTHON_EXE%
 echo [INFO] Dang khoi chay tien trinh main.py...
 echo.
 
+:WATCHDOG_LOOP
 %PYTHON_EXE% main.py %*
-if %ERRORLEVEL% NEQ 0 (
+set "EXIT_CODE=%ERRORLEVEL%"
+
+:: Neu dung chu dong (code 0)
+if %EXIT_CODE% EQU 0 (
     echo.
-    echo [ERROR] Tien trinh bi ngat hoac xay ra loi. Nhan phim bat ky de thoat...
-    pause >nul
+    echo [STOP] Tien trinh da ket thuc binh thuong.
+    exit /b 0
 )
+
+echo.
+echo ==================================================================
+echo  [WATCHDOG 24/7] Canh bao: Tien trinh bi ngat hoac thoat (ExitCode: %EXIT_CODE%).
+echo  [WATCHDOG 24/7] He thong se tu dong khoi dong lai sau 5 giay...
+echo  [WATCHDOG 24/7] (Nhan to hop phim Ctrl+C neu ban muon dong hoan toan)
+echo ==================================================================
+timeout /t 5 /nobreak >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    ping -n 6 127.0.0.1 >nul 2>nul
+)
+echo.
+echo [WATCHDOG 24/7] Dang tai khoi dong tien trinh...
+echo.
+goto :WATCHDOG_LOOP
