@@ -22,7 +22,7 @@ try:
 except Exception:
     SLOC_MASTER = {}
 
-MAX_DISPLAY_RECORDS = 50          # Số dòng tối đa hiển thị trực quan trên Teams
+MAX_DISPLAY_RECORDS = 100         # Số dòng tối đa hiển thị trực quan trên Teams
 MAX_TEAMS_PAYLOAD_BYTES = 26000   # Trần dung lượng an toàn (dưới mốc 28 KB của Teams)
 
 
@@ -43,11 +43,11 @@ class TeamsDispatcher:
         displayed = len(records)
 
         th_style = (
-            "background-color:#005a9e;color:#ffffff;padding:5px 8px;"
-            "border:1px solid #d0d7de;text-align:left;font-size:12px;white-space:nowrap;"
+            "background:#005a9e;color:#fff;padding:3px 6px;"
+            "border:1px solid #d0d7de;font-size:12px;white-space:nowrap;"
         )
         td_style = (
-            "padding:5px 8px;border:1px solid #d0d7de;text-align:left;font-size:12px;"
+            "padding:3px 6px;border:1px solid #d0d7de;font-size:12px;"
         )
 
         tbl = ["<table style='border-collapse:collapse;width:100%;font-family:Segoe UI,sans-serif;'>"]
@@ -57,8 +57,8 @@ class TeamsDispatcher:
         tbl.append("</tr></thead><tbody>")
 
         for idx, row in enumerate(records):
-            bg_color = "#f6f8fa" if idx % 2 == 1 else "#ffffff"
-            tbl.append(f"<tr style='background-color:{bg_color};'>")
+            tr_style = " style='background:#f6f8fa;'" if idx % 2 == 1 else ""
+            tbl.append(f"<tr{tr_style}>")
             for key in headers_map.keys():
                 val = row.get(key, "")
                 desc = SLOC_MASTER.get(str(val).strip().upper(), "") if key == "sloc" else ""
@@ -731,7 +731,15 @@ class TeamsDispatcher:
         def _make_payload(cur_recs, cur_tbl_html, cur_sum, include_records_array=True):
             cmd_u = (command or "").upper()
             if status == "FAILED":
-                greeting = "Sếp ơi, lần này em chưa tra cứu được SAP ạ. Chi tiết em để bên dưới nhé."
+                if cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
+                    greeting = "Sếp ơi, đính kèm MIGO gặp sự cố hoặc chưa tìm thấy file đính kèm phù hợp ạ 👇"
+                else:
+                    greeting = "Sếp ơi, lần này em chưa tra cứu được SAP ạ. Chi tiết em để bên dưới nhé."
+            elif status == "PARTIAL":
+                if cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
+                    greeting = "Sếp ơi, em đã thực hiện xong tự động đính kèm và điền số phiếu MIGO cho sếp rồi ạ (có một số chứng từ cần lưu ý) 👇"
+                else:
+                    greeting = "Sếp ơi, em đã thực hiện một phần yêu cầu cho sếp rồi ạ 👇"
             elif status == "INFO":
                 greeting = "Sếp ơi, em gửi hướng dẫn tra cứu bên dưới ạ 👇"
             elif cmd_u == "PING":
@@ -803,20 +811,20 @@ class TeamsDispatcher:
         if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
             return payload, data
 
-        # Giai đoạn 1: Giảm dần số dòng hiển thị từ 12 xuống 1 (nếu có records)
-        while len(display_records) > 1:
-            display_records = display_records[:max(1, len(display_records) - 2)]
-            if not custom_html:
-                cur_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
-
-            payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=True)
-            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
-                return payload, data
-
-        # Giai đoạn 2: Bỏ mảng JSON `records` nếu payload vẫn > 26 KB (chỉ giữ lại table_html)
+        # Giai đoạn 1: Bỏ mảng JSON `records` (chỉ giữ lại table_html) để bảo toàn 100% toàn bộ 42-100 dòng hiển thị
         payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=False)
         if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
             return payload, data
+
+        # Giai đoạn 2: Giảm dần số dòng hiển thị từng nấc 5 dòng nếu HTML bảng vẫn > 26 KB
+        while len(display_records) > 1:
+            display_records = display_records[:max(1, len(display_records) - 5)]
+            if not custom_html:
+                cur_html = kpi_html + cls.build_html_table(display_records, headers_map, total_count=total_records)
+
+            payload, data = _make_payload(display_records, cur_html, cur_summary, include_records_array=False)
+            if len(data) <= MAX_TEAMS_PAYLOAD_BYTES:
+                return payload, data
 
         # Giai đoạn 3: Cắt ngắn độ dài ký tự trong các ô nếu vẫn > 26 KB
         if display_records:

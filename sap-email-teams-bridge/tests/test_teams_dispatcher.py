@@ -470,3 +470,61 @@ def test_teams_dispatcher_mb52_with_transit_badges():
     assert "📦 SLoc 4007: 136 EA" in badges_html
     # 4. Chỉ tính 2 lô vật lý thực tế
     assert "2 Lô (Batch)" in badges_html
+
+
+def test_teams_dispatcher_42_records_full_display_without_truncation():
+    """Kiểm tra: Danh sách 42 chứng từ MIGO không bị cắt giảm dòng (hiển thị trọn vẹn 42 dòng) và payload < 26 KB."""
+    records_42 = []
+    for i in range(1, 43):
+        records_42.append({
+            "doc": f"50070450{i:02d}",
+            "ticket_no": f"60{i:02d}",
+            "bbbg_status": "DONE (1/1)",
+            "vat_status": "DONE (1/1)",
+            "headtext_status": "OK",
+            "overall_status": "DONE",
+            "notes": "BBBG: 1 file | VAT: 1 file"
+        })
+
+    headers = {
+        "doc": "Số DOC",
+        "ticket_no": "Số phiếu",
+        "headtext_status": "Điền HeadText",
+        "bbbg_status": "BBBG",
+        "vat_status": "VAT",
+        "overall_status": "Trạng thái"
+    }
+    meta = {"command": "ATT_MIGO", "folderPath": r"\\server\share"}
+    payload, data = TeamsDispatcher.prepare_safe_payload(
+        request_id="REQ-MIGO-42",
+        meta=meta,
+        status="SUCCEEDED",
+        summary="Đính kèm 42 chứng từ",
+        records=records_42,
+        headers_map=headers
+    )
+
+    # Đảm bảo payload dưới 26 KB
+    assert len(data) <= MAX_TEAMS_PAYLOAD_BYTES
+    # Đảm bảo KHÔNG bị cắt giảm số dòng hiển thị: đủ 42 dòng
+    assert payload["displayedRecords"] == 42
+    assert payload["totalRecords"] == 42
+    # Bảng HTML phải chứa chứng từ đầu tiên và chứng từ cuối cùng
+    assert "5007045001" in payload["table_html"]
+    assert "5007045042" in payload["table_html"]
+
+
+def test_teams_dispatcher_att_migo_greetings():
+    """Kiểm tra câu chào riêng biệt cho ATT_MIGO khi FAILED và PARTIAL."""
+    meta = {"command": "ATT_MIGO", "folderPath": r"\\server\share"}
+    p_partial, _ = TeamsDispatcher.prepare_safe_payload(
+        request_id="REQ-P", meta=meta, status="PARTIAL", summary="41/42 thành công",
+        records=[{"doc": "123"}], headers_map={"doc": "DOC"}
+    )
+    assert "có một số chứng từ cần lưu ý" in p_partial["greeting"]
+
+    p_failed, _ = TeamsDispatcher.prepare_safe_payload(
+        request_id="REQ-F", meta=meta, status="FAILED", summary="0/42 thành công",
+        records=[{"doc": "123"}], headers_map={"doc": "DOC"}
+    )
+    assert "gặp sự cố hoặc chưa tìm thấy file" in p_failed["greeting"]

@@ -38,10 +38,7 @@ except ImportError:
 # =====================================================================
 POPUP_LOCK = threading.Lock()          # Micro-lock bảo vệ cửa sổ wnd[1] & Context Menu
 FAST_LANE_LOCK = threading.Lock()      # Khóa riêng cho Tab 0 (Fast Lane)
-BATCH_TAB_LOCKS = {                    # Khóa riêng cho từng Tab trong Batch Pool
-    1: threading.Lock(),
-    2: threading.Lock()
-}
+BATCH_TAB_LOCKS = {i: threading.Lock() for i in range(6)}  # Khóa riêng cho từng Tab 0..5 trong Batch Pool
 
 
 def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
@@ -391,8 +388,8 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
     return None
 
 
-def ensure_sap_tabs(target_tabs: int = 3) -> int:
-    """Đảm bảo mở sẵn đủ số Tab cần thiết (Tab 0: Fast Lane, Tab 1 & 2: Batch Pool)."""
+def ensure_sap_tabs(target_tabs: int = 5) -> int:
+    """Đảm bảo mở sẵn đủ số Tab cần thiết (Tabs 0-2: User Reserved, Tabs 3-4: Bot Batch Pool, Tab 5: Bot Fast Lane)."""
     if pythoncom is None or win32com is None:
         return 1
     pythoncom.CoInitialize()
@@ -868,7 +865,15 @@ class MigoAttachmentRunner:
     def __init__(self, sap_engine=None, expected_session_identity=None):
         self.sap_engine = sap_engine
         self.expected_session_identity = dict(expected_session_identity or {})
-        self._active_document = None
+        self._local = threading.local()
+
+    @property
+    def _active_document(self):
+        return getattr(self._local, "active_document", None)
+
+    @_active_document.setter
+    def _active_document(self, val):
+        self._local.active_document = val
 
     def verify_session_identity(self, session, require_migo=False):
         if session is None:
@@ -1089,7 +1094,12 @@ class MigoAttachmentRunner:
             if current_text:
                 curr_tokens, curr_compact = extract_search_tokens(current_text)
                 tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
-                if curr_compact == tick_compact:
+                is_matched = (
+                    curr_compact == tick_compact
+                    or (tick_compact and tick_compact in curr_compact)
+                    or (tick_tokens and set(tick_tokens).issubset(set(curr_tokens)))
+                )
+                if is_matched:
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
                 else:
                     # Quy tắc Đợt 2 (A01): Nếu đã có HeadText khác nội dung -> Báo REVIEW, tuyệt đối không ghi đè ngầm
@@ -1920,16 +1930,21 @@ class MigoAttachmentRunner:
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
-            available_tabs = ensure_sap_tabs(3)
-            if available_tabs >= 3:
-                # Tab 0 dành riêng cho Fast Lane! Tab 1 và Tab 2 dùng cho Batch Pool
-                active_tab_indices = [1, 2]
-                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải trên Tab 1 & Tab 2 (Chừa Tab 0 cho Fast Lane).")
-            elif available_tabs >= 2:
-                active_tab_indices = [1]
-                print(f"[ATT RUNNER] SAP có 2 tabs: Chạy Batch trên Tab 1 (Chừa Tab 0 cho Fast Lane).")
+            user_reserved = getattr(self.sap_engine, "user_reserved_sessions", 3)
+            # Yêu cầu mở đủ ít nhất user_reserved + 2 tabs (ví dụ 3 + 2 = 5 tabs để có tab 4 & 5 cho Batch)
+            target_tabs = min(6, user_reserved + 2)
+            available_tabs = ensure_sap_tabs(target_tabs)
+            bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]
+            if len(bot_tabs) >= 2:
+                active_tab_indices = bot_tabs[:2]  # Ví dụ: [3, 4] (Tab 4 & Tab 5)
+                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải trên Tab {active_tab_indices[0]+1} & Tab {active_tab_indices[1]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
+            elif len(bot_tabs) == 1:
+                active_tab_indices = [bot_tabs[0]] # Ví dụ: [3] (Tab 4)
+                print(f"[ATT RUNNER] SAP có Tab {active_tab_indices[0]+1} khả dụng: Chạy Batch trên Tab {active_tab_indices[0]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             else:
-                active_tab_indices = [0]
+                fallback_tab = max(0, available_tabs - 1)
+                active_tab_indices = [fallback_tab]
+                print(f"[ATT RUNNER WARN] Không có tab trong dải Bot >= {user_reserved}, tạm thời dùng Tab {fallback_tab+1}.")
 
         # ---------------------------------------------------------------------
         # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)

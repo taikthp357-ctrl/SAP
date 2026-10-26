@@ -951,3 +951,50 @@ def test_incremental_multi_vat_attachment():
         assert r0["vat_status"] == "DONE (Đính thêm 1, đã có 1)"
         assert r0["overall_status"] == "DONE"
         assert res["total_success"] == 1
+
+
+def test_handle_migo_headtext_substring_containment():
+    """Kiểm tra: Khi SAP Header Text đã có 'Thành Công IN-6058' và lệnh truyền '6058', nhận diện là HEADTEXT_OK."""
+    mock_session = MagicMock()
+    mock_field = MagicMock()
+    mock_field.Text = "Thành Công IN-6058"
+    mock_wnd0 = MagicMock()
+    mock_wnd0.findByName.return_value = mock_field
+    mock_session.findById.return_value = mock_wnd0
+
+    runner = owned_runner(mock_session)
+    status, msg = runner.handle_migo_headtext(mock_session, "6058")
+    assert status == "HEADTEXT_OK"
+    assert "Đã có đúng số phiếu ('Thành Công IN-6058')" in msg
+    mock_wnd0.SendVKey.assert_not_called()
+
+
+def test_migo_runner_active_document_thread_isolation():
+    """Kiểm tra: Multi-tab đa luồng có active_document được cách ly qua threading.local()."""
+    import threading
+    import time
+    runner = MigoAttachmentRunner()
+
+    results = {}
+
+    def worker_1():
+        runner._active_document = ("5007000001", "2026")
+        time.sleep(0.05)
+        results["t1"] = runner._active_document
+
+    def worker_2():
+        time.sleep(0.02)
+        runner._active_document = ("5007000002", "2026")
+        time.sleep(0.05)
+        results["t2"] = runner._active_document
+
+    t1 = threading.Thread(target=worker_1)
+    t2 = threading.Thread(target=worker_2)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert results["t1"] == ("5007000001", "2026")
+    assert results["t2"] == ("5007000002", "2026")
+    assert runner._active_document is None

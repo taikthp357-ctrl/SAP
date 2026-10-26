@@ -1,9 +1,17 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.62
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.63
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Phân Tách Ranh Giới Phiên User & Bot Thông Minh (Multi-Tab Session Isolation - v1.0.62):**
+1. **Tối Ưu Hiển Thị Bảng Teams & Xử Lý Đính Kèm MIGO Đa Tab Toàn Diện (v1.0.63):**
+   - **Bảo toàn 100% dòng hiển thị không bị cắt ngắn (Full 42+ Rows):** Tối ưu hóa dung lượng Inline CSS của từng ô `<td>` và ưu tiên loại bỏ mảng JSON thô trước khi cắt giảm dòng. Đảm bảo toàn bộ 42-100 chứng từ hiển thị trọn vẹn trên Teams mà không bao giờ vượt trần 26 KB.
+   - **Nhận diện số phiếu linh hoạt trong HeadText MIGO (`HEADTEXT_OK`):** So khớp thông minh dạng tập con/chuỗi con. Khi SAP đã có sẵn `Thành Công IN-6058` và người dùng gửi số phiếu `6058`, hệ thống tự động nhận diện chính xác là `HEADTEXT_OK` thay vì đánh nhãn `HEADTEXT_REVIEW`.
+   - **Cách ly luồng tuyệt đối (`threading.local()`):** Khắc phục triệt để hiện tượng xung đột đa luồng khi chạy song song Multi-Tab (Tab 2 reset chứng từ làm mất trạng thái của Tab 1 dẫn đến `HEADTEXT_BLOCKED` / `DOCUMENT_NOT_VERIFIED`).
+   - **Tự động phục hồi kết nối Outlook COM:** Ngăn ngừa ngắt tiến độ khi Outlook ngắt kết nối sau các lô chạy SAP kéo dài.
+   - **Điều hướng Multi-Tab chuẩn xác:** Tự động sử dụng Tab 4 & Tab 5 (`index >= 3`) cho Batch Pool, bảo toàn tuyệt đối Tab 1..3 cho nhân sự kho thao tác.
+   - **Chuẩn hóa thông điệp phản hồi:** Khi hoàn thành phần lớn chứng từ (ví dụ 41/42), bot gửi lời chào chúc mừng với trạng thái `PARTIAL`, chỉ báo lỗi khi toàn bộ lô thất bại.
+
+2. **Phân Tách Ranh Giới Phiên User & Bot Thông Minh (Multi-Tab Session Isolation - v1.0.62):**
    - **Triệt tiêu dứt điểm lỗi "Tất cả các phiên SAP đều đang bận thao tác của người dùng":** Khắc phục lỗi khi nhân sự kho đang mở 3 tab đầu (Session 1, 2, 3 / `index 0, 1, 2`) để làm việc khiến Bot bị chặn không thể thực thi yêu cầu mới (như lệnh `SAP att mail` trong ảnh).
    - **Bảo lưu tuyệt đối 3 tab đầu cho User (`USER_RESERVED_SESSIONS = 3`):** Bot không bao giờ can thiệp hay cướp màn hình làm việc của nhân viên kho khi đang mở dở chứng từ.
    - **Chuyển toàn bộ tác vụ của Bot sang dải 3 tab tiếp theo (`index >= 3` / Tab 4, 5, 6):** Khai thác tối đa trần 6 phiên của SAP GUI (`MAX_SAP_SESSIONS = 6`). Khi người dùng mở 1, 2 hoặc 3 tab đầu, Bot tự động gọi `CreateSession()` mở Tab thứ 4 (`index = 3`) dành riêng cho Bot chạy nền.

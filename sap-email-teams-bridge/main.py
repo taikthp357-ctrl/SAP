@@ -286,6 +286,8 @@ def run_bridge():
             # 3. Quét tất cả các thư trong thư mục SAP_BOT (kể cả thư đã mở xem lẫn thư chưa đọc)
             # Mọi thư đã xử lý xong đều được chuyển tự động sang thư mục con 'Processed'.
             # Do đó, bất kỳ thư nào còn nằm trong 'SAP_BOT' đều là yêu cầu đang chờ xử lý!
+            if bot_folder is None:
+                raise RuntimeError("Outlook bot_folder is not connected (-2147220995)")
             folder_items = bot_folder.Items
             try:
                 folder_items.Sort("[ReceivedTime]", False)  # Sắp xếp từ cũ đến mới (FIFO)
@@ -828,7 +830,14 @@ def run_bridge():
                                 progress_callback=on_att_progress
                             )
                             records = att_summary["results"]
-                            result_status = "SIMULATED" if is_preview else ("SUCCEEDED" if att_summary["total_success"] == att_summary["total_items"] else "FAILED")
+                            if is_preview:
+                                result_status = "SIMULATED"
+                            elif att_summary["total_success"] == att_summary["total_items"]:
+                                result_status = "SUCCEEDED"
+                            elif att_summary["total_success"] > 0:
+                                result_status = "PARTIAL"
+                            else:
+                                result_status = "FAILED"
                             if not folder_path:
                                 headers = {
                                     "doc": "Số DOC",
@@ -1006,8 +1015,15 @@ def run_bridge():
         except Exception as loop_err:
             print(f"[LOOP WARN] {loop_err}")
             err_str = str(loop_err)
-            if "-2147220995" in err_str or "not connected to server" in err_str.lower():
-                print("[OUTLOOK RECONNECT] Phát hiện mất kết nối COM Outlook (-2147220995). Đang kết nối lại...")
+            if (
+                bot_folder is None
+                or "-2147220995" in err_str
+                or "not connected to server" in err_str.lower()
+                or "disconnected" in err_str.lower()
+                or "rpc" in err_str.lower()
+                or "nonetype" in err_str.lower()
+            ):
+                print("[OUTLOOK RECONNECT] Phát hiện mất kết nối COM Outlook. Đang kết nối lại...")
                 try:
                     pythoncom.CoInitialize()
                     outlook_app = win32com.client.Dispatch("Outlook.Application")
@@ -1027,7 +1043,10 @@ def run_bridge():
                             if f.Name.strip().lower() == folder_name.strip().lower():
                                 bot_folder = f
                                 break
-                    print(f"[OUTLOOK RECONNECT] Đã kết nối lại Outlook thành công (thư mục: '{getattr(bot_folder, 'Name', '')}').")
+                    if bot_folder is not None:
+                        print(f"[OUTLOOK RECONNECT] Đã kết nối lại Outlook thành công (thư mục: '{getattr(bot_folder, 'Name', '')}').")
+                    else:
+                        print(f"[OUTLOOK RECONNECT WARN] Đã kết nối MAPI nhưng chưa tìm thấy thư mục '{folder_name}'. Sẽ thử lại vòng lặp kế tiếp.")
                 except Exception as recon_err:
                     print(f"[OUTLOOK RECONNECT FAIL] {recon_err}")
 
@@ -1054,4 +1073,12 @@ if __name__ == "__main__":
     elif "--test-parser" in sys.argv:
         run_self_test()
     else:
-        run_bridge()
+        try:
+            run_bridge()
+        except KeyboardInterrupt:
+            print("\n[STOP] Đã nhận tín hiệu dừng từ người dùng.")
+        except Exception as fatal_err:
+            print(f"\n[FATAL ERROR] Lỗi không mong muốn trong worker: {fatal_err}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
