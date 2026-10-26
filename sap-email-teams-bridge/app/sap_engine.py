@@ -64,6 +64,8 @@ class SapExecutionError(RuntimeError):
 class SapEngine:
     """Quản lý kết nối và điều khiển tự động SAP GUI theo chuẩn BBBG."""
     MAX_BOT_SESSIONS: int = 3
+    MAX_SAP_SESSIONS: int = 6
+    USER_RESERVED_SESSIONS: int = 3
 
     def __init__(
         self,
@@ -74,6 +76,8 @@ class SapEngine:
         strict_session_safety: bool = True,
         auto_create_session: bool = True,
         prefer_dedicated_session: bool = True,
+        user_reserved_sessions: int = 3,
+        max_sap_sessions: int = 6,
         expected_system: str = "",
         expected_client: str = "",
         expected_user: str = ""
@@ -85,6 +89,8 @@ class SapEngine:
         self.strict_session_safety = strict_session_safety
         self.auto_create_session = auto_create_session
         self.prefer_dedicated_session = prefer_dedicated_session
+        self.user_reserved_sessions = user_reserved_sessions
+        self.max_sap_sessions = max_sap_sessions
         self.session = None
         self.last_activity = time.time()
         self.last_popup_message = ""
@@ -112,7 +118,7 @@ class SapEngine:
         return current
 
     def _connect_sap(self):
-        """Only configured connection; never hunt across other systems/tabs."""
+        """Kết nối tới phiên SAP GUI an toàn, ưu tiên dải tab dành riêng cho Bot (tab 4, 5, 6)."""
         try:
             app = win32com.client.GetObject("SAPGUI").GetScriptingEngine
         except Exception as exc:
@@ -120,43 +126,41 @@ class SapEngine:
         if not 0 <= self.connection_index < app.Children.Count:
             raise SapExecutionError("SAP connection_index không tồn tại")
         conn = app.Children(self.connection_index)
-        if not 0 <= self.session_index < conn.Children.Count:
-            raise SapExecutionError("SAP session_index không tồn tại")
+        total_open = conn.Children.Count
+        if total_open <= 0:
+            raise SapExecutionError("Không tìm thấy phiên SAP nào đang mở")
 
         selected = None
-        # Check configured session index
-        seed = conn.Children(self.session_index)
-        is_busy = bool(getattr(seed, "Busy", False))
-        info = getattr(seed, "Info", None)
-        tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+        user_reserved = getattr(self, "user_reserved_sessions", 3)
+        max_sap = getattr(self, "max_sap_sessions", 6)
 
-        if not is_busy and (tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True)):
-            selected = seed
-
-        # Hunt idle session in configured connection
-        if selected is None and not getattr(self, "prefer_dedicated_session", False):
-            for s_i in range(conn.Children.Count):
+        # 1. Ưu tiên số 1: Quét tìm phiên rảnh trong dải dành riêng cho Bot (index >= user_reserved, ví dụ tab 4, 5, 6: index 3, 4, 5)
+        if total_open > user_reserved:
+            for s_i in range(user_reserved, total_open):
                 sess = conn.Children(s_i)
                 try:
                     if not bool(getattr(sess, "Busy", False)):
                         s_info = getattr(sess, "Info", None)
                         s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
-                        if s_tcode in ("SESSION_MANAGER", ""):
+                        if s_tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True):
                             selected = sess
                             break
+                        # Tab trong dải của bot (>= user_reserved) không bận là hợp lệ để tái sử dụng
+                        selected = sess
+                        break
                 except Exception:
                     pass
 
-        # Create new session if auto_create_session is True
-        max_bot = getattr(self, "MAX_BOT_SESSIONS", 3)
-        if selected is None and getattr(self, "auto_create_session", True) and conn.Children.Count < max_bot:
+        # 2. Ưu tiên số 2: Nếu chưa có tab nào trong dải Bot (hoặc các tab bot đều bận) và tổng số tab < max_sap (6):
+        # Tự động gọi CreateSession() để mở thêm tab mới cho Bot (tab 4, 5, 6)
+        if selected is None and getattr(self, "auto_create_session", True) and total_open < max_sap:
             orig_count = conn.Children.Count
             for s_i in range(conn.Children.Count):
                 s_cand = conn.Children(s_i)
                 if hasattr(s_cand, "CreateSession"):
                     try:
                         s_cand.CreateSession()
-                        for _ in range(12):
+                        for _ in range(16):
                             time.sleep(0.25)
                             if conn.Children.Count > orig_count:
                                 selected = conn.Children(conn.Children.Count - 1)
@@ -165,6 +169,57 @@ class SapEngine:
                         pass
                 if selected is not None:
                     break
+
+        # 3. Ưu tiên số 3: Nếu tổng số tab đã đạt trần tối đa (6 tab):
+        # Tái sử dụng bất kỳ tab nào trong dải Bot (>= user_reserved) không bị khóa Busy
+        if selected is None and total_open >= max_sap:
+            for s_i in range(user_reserved, total_open):
+                sess = conn.Children(s_i)
+                try:
+                    if not bool(getattr(sess, "Busy", False)):
+                        selected = sess
+                        break
+                except Exception:
+                    pass
+
+        # 4. Fallback: Nếu không tìm thấy trong dải Bot (hoặc môi trường test chỉ có 1-2 tab):
+        if selected is None:
+            # Kiểm tra session_index cấu hình nếu hợp lệ và rảnh rỗi
+            if 0 <= self.session_index < total_open:
+                seed = conn.Children(self.session_index)
+                is_busy = bool(getattr(seed, "Busy", False))
+                info = getattr(seed, "Info", None)
+                tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                if not is_busy and (tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True)):
+                    selected = seed
+
+            # Quét tìm các phiên rảnh ở các tab đầu nếu không bận và ở SESSION_MANAGER
+            if selected is None and not getattr(self, "prefer_dedicated_session", False):
+                for s_i in range(total_open):
+                    sess = conn.Children(s_i)
+                    try:
+                        if not bool(getattr(sess, "Busy", False)):
+                            s_info = getattr(sess, "Info", None)
+                            s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
+                            if s_tcode in ("SESSION_MANAGER", ""):
+                                selected = sess
+                                break
+                    except Exception:
+                        pass
+
+            # Dự phòng cuối: Nếu prefer_dedicated_session=True nhưng vẫn chưa có tab nào, thử quét tìm tab SESSION_MANAGER ở các tab đầu
+            if selected is None:
+                for s_i in range(total_open):
+                    sess = conn.Children(s_i)
+                    try:
+                        if not bool(getattr(sess, "Busy", False)):
+                            s_info = getattr(sess, "Info", None)
+                            s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
+                            if s_tcode in ("SESSION_MANAGER", ""):
+                                selected = sess
+                                break
+                    except Exception:
+                        pass
 
         if selected is None:
             if getattr(self, "strict_session_safety", True):

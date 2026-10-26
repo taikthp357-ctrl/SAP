@@ -257,6 +257,8 @@ def run_bridge():
         strict_session_safety=config.get("strict_session_safety", True),
         auto_create_session=config.get("auto_create_session", True),
         prefer_dedicated_session=config.get("prefer_dedicated_session", True),
+        user_reserved_sessions=config.get("user_reserved_sessions", 3),
+        max_sap_sessions=config.get("max_sap_sessions", 6),
         expected_system=config.get("sap_system", ""),
         expected_client=config.get("sap_client", ""),
         expected_user=config.get("sap_user", "")

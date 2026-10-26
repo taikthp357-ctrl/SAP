@@ -1156,6 +1156,92 @@ def test_connect_sap_creates_new_session_when_all_sessions_busy():
         mock_sess0.CreateSession.assert_called_once()
 
 
+def test_connect_sap_preserves_first_three_user_tabs_and_creates_tab_4():
+    """Kiểm tra: Khi người dùng đang dùng 3 tab đầu (0, 1, 2), Bot tự động tạo và dùng tab 4 (index 3)."""
+    engine = SapEngine(
+        connection_index=0,
+        session_index=0,
+        strict_session_safety=True,
+        auto_create_session=True,
+        prefer_dedicated_session=True,
+        user_reserved_sessions=3,
+        max_sap_sessions=6
+    )
+
+    sess0 = MagicMock(); sess0.Busy = True; sess0.Info.Transaction = "MIGO"
+    sess1 = MagicMock(); sess1.Busy = False; sess1.Info.Transaction = "MD04"
+    sess2 = MagicMock(); sess2.Busy = True; sess2.Info.Transaction = "ZFIR266"
+    sess_bot = MagicMock(); sess_bot.Busy = False; sess_bot.Info.Transaction = "SESSION_MANAGER"
+
+    class DynamicConnMock:
+        def __init__(self):
+            self.sessions = [sess0, sess1, sess2]
+
+        @property
+        def Count(self):
+            return len(self.sessions)
+
+        def __call__(self, idx):
+            return self.sessions[idx]
+
+    conn_dyn = DynamicConnMock()
+    mock_conn = MagicMock()
+    mock_conn.Children = conn_dyn
+
+    def fake_create_session():
+        conn_dyn.sessions.append(sess_bot)
+
+    sess0.CreateSession = MagicMock(side_effect=fake_create_session)
+
+    mock_app = MagicMock()
+    mock_app.Children.Count = 1
+    mock_app.Children.side_effect = lambda idx: [mock_conn][idx]
+
+    with pytest.MonkeyPatch().context() as m:
+        mock_sap_gui_auto = MagicMock()
+        mock_sap_gui_auto.GetScriptingEngine = mock_app
+        m.setattr("win32com.client.GetObject", lambda name: mock_sap_gui_auto)
+
+        selected = engine._connect_sap()
+        assert selected == sess_bot
+        sess0.CreateSession.assert_called_once()
+        assert conn_dyn.Count == 4
+
+
+def test_connect_sap_reuses_existing_tab_in_bot_range():
+    """Kiểm tra: Khi tab 4 (index 3) đã tồn tại và rảnh rỗi, Bot tái sử dụng ngay, không can thiệp 3 tab đầu."""
+    engine = SapEngine(
+        connection_index=0,
+        session_index=0,
+        strict_session_safety=True,
+        auto_create_session=True,
+        prefer_dedicated_session=True,
+        user_reserved_sessions=3,
+        max_sap_sessions=6
+    )
+
+    sess0 = MagicMock(); sess0.Busy = True; sess0.Info.Transaction = "MIGO"
+    sess1 = MagicMock(); sess1.Busy = False; sess1.Info.Transaction = "MD04"
+    sess2 = MagicMock(); sess2.Busy = True; sess2.Info.Transaction = "ZFIR266"
+    sess3_bot = MagicMock(); sess3_bot.Busy = False; sess3_bot.Info.Transaction = "SESSION_MANAGER"
+
+    mock_conn = MagicMock()
+    mock_conn.Children.Count = 4
+    mock_conn.Children.side_effect = lambda idx: [sess0, sess1, sess2, sess3_bot][idx]
+
+    mock_app = MagicMock()
+    mock_app.Children.Count = 1
+    mock_app.Children.side_effect = lambda idx: [mock_conn][idx]
+
+    with pytest.MonkeyPatch().context() as m:
+        mock_sap_gui_auto = MagicMock()
+        mock_sap_gui_auto.GetScriptingEngine = mock_app
+        m.setattr("win32com.client.GetObject", lambda name: mock_sap_gui_auto)
+
+        selected = engine._connect_sap()
+        assert selected == sess3_bot
+
+
 
 def test_check_history_mb51_clears_plant_when_not_explicit():
     """Kiểm tra check_history_mb51 xóa trường WERKS-LOW để tìm đa nhà máy khi explicit_plant=False."""

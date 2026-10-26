@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.61
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.62
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Xử lý Bảng Đơn Hàng NVL Đa Dòng Dán Trực Tiếp Từ Excel / Teams & Tạo Đơn OB 10xxxxxxxx (v1.0.61):**
+1. **Phân Tách Ranh Giới Phiên User & Bot Thông Minh (Multi-Tab Session Isolation - v1.0.62):**
+   - **Triệt tiêu dứt điểm lỗi "Tất cả các phiên SAP đều đang bận thao tác của người dùng":** Khắc phục lỗi khi nhân sự kho đang mở 3 tab đầu (Session 1, 2, 3 / `index 0, 1, 2`) để làm việc khiến Bot bị chặn không thể thực thi yêu cầu mới (như lệnh `SAP att mail` trong ảnh).
+   - **Bảo lưu tuyệt đối 3 tab đầu cho User (`USER_RESERVED_SESSIONS = 3`):** Bot không bao giờ can thiệp hay cướp màn hình làm việc của nhân viên kho khi đang mở dở chứng từ.
+   - **Chuyển toàn bộ tác vụ của Bot sang dải 3 tab tiếp theo (`index >= 3` / Tab 4, 5, 6):** Khai thác tối đa trần 6 phiên của SAP GUI (`MAX_SAP_SESSIONS = 6`). Khi người dùng mở 1, 2 hoặc 3 tab đầu, Bot tự động gọi `CreateSession()` mở Tab thứ 4 (`index = 3`) dành riêng cho Bot chạy nền.
+   - **Tái sử dụng tab Bot thông minh:** Các lần gọi tiếp theo sẽ tái sử dụng ngay Tab thứ 4 mà không mở thêm tab thừa hay làm rung giật giao diện của User.
+
+2. **Xử lý Bảng Đơn Hàng NVL Đa Dòng Dán Trực Tiếp Từ Excel / Teams & Tạo Đơn OB 10xxxxxxxx (v1.0.61):**
    - **Bóc tách bảng dữ liệu tự động (`parse_nvl_table_rows`):** Tự động nhận diện cấu trúc 3 cột dán trực tiếp từ Excel (`Mã NVL | Số lượng | Trạm`, ví dụ `BIW75111244AA | 100 | KV08-Thức/Vũ`) và cả biến thể 4 cột có `STT/OB` đứng đầu (`1 | BIW... | 100 | ...`).
    - **Khắc phục triệt để nhiễm bẩn mã hàng (Material Token Pollution):** Cô lập triệt để cột Trạm (`KV08-Thức/Vũ`), ngăn không cho regex bóc tách token tự nhiên biến chuỗi trạm thành mã vật tư giả (`KV08-TH`).
    - **Gom cụm OB & Cộng dồn Lô/Bin Tự Động (`group_into_ob_groups`):** Khi nhiều dòng đơn hàng cùng mã và trạm được phân bổ từ cùng một Lô (Batch) và Vị trí Bin, hệ thống tự động cộng dồn số lượng thành 1 dòng duy nhất (ví dụ: 3 dòng 100 cái từ Lô `240801` $\rightarrow$ 1 dòng 300 cái). Đánh số cụm OB chuẩn rút gọn 3 ký tự (`OB1`, `OB2`, ...).
