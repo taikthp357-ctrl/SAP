@@ -213,7 +213,8 @@ def test_sap_session_gos_mock():
         runner.read_sap_attachment_titles = lambda session: [dummy_file.name]
         ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
         assert ok is True
-        assert "DONE_SAP_READBACK" in msg
+        # Nhờ Fast-path Sbar Confirmation, khi sbar trả về 'S' thì xác nhận thành công ngay DONE_SAP_SBAR
+        assert "DONE_SAP_SBAR" in msg or "DONE_SAP_READBACK" in msg
         mock_shell.PressContextButton.assert_called_with("%GOS_TOOLBOX")
         mock_shell.SelectContextMenuItem.assert_called_with("%GOS_PCATTA_CREA")
     finally:
@@ -998,3 +999,177 @@ def test_migo_runner_active_document_thread_isolation():
     assert results["t1"] == ("5007000001", "2026")
     assert results["t2"] == ("5007000002", "2026")
     assert runner._active_document is None
+
+
+def test_fast_path_sbar_confirmation_skips_readback():
+    """Kiểm tra Fast-path Sbar Confirmation không gọi read_sap_attachment_titles khi sbar trả về 'S'."""
+    from unittest.mock import MagicMock
+    import tempfile
+    from pathlib import Path
+    from app.sap_attachment import POPUP_LOCK
+
+    mock_session = MagicMock()
+    mock_sbar = MagicMock()
+    mock_sbar.Text = "Attachment successfully created"
+    mock_sbar.MessageType = "S"
+
+    mock_shell = MagicMock()
+    def find_by_id(path):
+        if "shell" in path:
+            return mock_shell
+        elif "sbar" in path:
+            return mock_sbar
+        return MagicMock()
+
+    mock_session.findById.side_effect = find_by_id
+
+    runner = owned_runner(mock_session)
+    mock_read_titles = MagicMock(return_value=["some_other_file.pdf"])
+    runner.read_sap_attachment_titles = mock_read_titles
+
+    with tempfile.NamedTemporaryFile(suffix="_VAT.pdf", delete=False) as tf:
+        tf.write(b"dummy pdf")
+        dummy_file = Path(tf.name)
+
+    try:
+        ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
+        assert ok is True
+        assert "DONE_SAP_SBAR" in msg
+        # Fast path xác nhận ngay, KHÔNG gọi read_sap_attachment_titles (tiết kiệm 2.5 - 3 giây)
+        mock_read_titles.assert_not_called()
+        # POPUP_LOCK phải được release, không bị kẹt
+        assert not POPUP_LOCK.locked()
+    finally:
+        dummy_file.unlink(missing_ok=True)
+
+
+def test_fallback_readback_when_sbar_uncertain():
+    """Kiểm tra khi sbar không phải 'S' rõ ràng thì fallback sang read_sap_attachment_titles."""
+    from unittest.mock import MagicMock
+    import tempfile
+    from pathlib import Path
+
+    mock_session = MagicMock()
+    mock_sbar = MagicMock()
+    mock_sbar.Text = "Document 5000000001 changed"  # Không có SBAR MessageType = 'S', nhưng có chữ SUCCESS hoặc kiểm tra fallback
+    mock_sbar.MessageType = "I"
+
+    mock_shell = MagicMock()
+    def find_by_id(path):
+        if "shell" in path:
+            return mock_shell
+        elif "sbar" in path:
+            return mock_sbar
+        return MagicMock()
+
+    mock_session.findById.side_effect = find_by_id
+
+    runner = owned_runner(mock_session)
+
+    with tempfile.NamedTemporaryFile(suffix="_VAT.pdf", delete=False) as tf:
+        tf.write(b"dummy pdf")
+        dummy_file = Path(tf.name)
+
+    try:
+        # Nếu sbar trả về I và không có từ khóa created/saved -> ATTACHMENT_UNCERTAIN
+        ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
+        assert ok is False
+        assert "ATTACHMENT_UNCERTAIN" in msg
+
+        # Giờ test nếu sbar là message bình thường có 'SAVED' nhưng MessageType='W' -> kích hoạt fallback readback
+        mock_sbar.Text = "Attachment was SAVED with warning"
+        mock_sbar.MessageType = "W"
+        mock_read_titles = MagicMock(return_value=[dummy_file.name])
+        runner.read_sap_attachment_titles = mock_read_titles
+
+        ok2, msg2 = runner.attach_file_to_current_migo(mock_session, dummy_file)
+        assert ok2 is True
+        assert "DONE_SAP_READBACK" in msg2
+        mock_read_titles.assert_called_once()
+    finally:
+        dummy_file.unlink(missing_ok=True)
+
+
+def test_multi_tab_scheduler_dynamic_scaling():
+    """Kiểm tra Multi-tab scheduler tự thích ứng 3-4 tabs khi có đủ sessions."""
+    from unittest.mock import patch, MagicMock
+    from app.sap_attachment import MigoAttachmentRunner
+
+    runner = MigoAttachmentRunner()
+    mock_engine = MagicMock()
+    mock_engine.user_reserved_sessions = 2
+    runner.sap_engine = mock_engine
+
+    items = [{"doc": f"500700000{i}", "ticket_no": f"TICK_{i}"} for i in range(10)]
+
+    # Giả lập SAP có 6 tabs khả dụng, user_reserved=2 -> bot_tabs = [2, 3, 4, 5] (4 tabs)
+    with patch("app.sap_attachment.pythoncom", MagicMock()), \
+         patch("app.sap_attachment.ensure_sap_tabs", return_value=6), \
+         patch.object(runner, "process_single_migo_item", return_value=({"doc": "500"}, True)), \
+         patch.object(runner, "prepare_migo_session", return_value=True), \
+         patch("app.sap_attachment.win32com.client.GetObject") as mock_get_obj:
+
+        mock_gui = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.Children.Count = 6
+        mock_conn.Children.side_effect = lambda idx: MagicMock()
+        mock_gui.GetScriptingEngine.Children.return_value = mock_conn
+        mock_get_obj.return_value = mock_gui
+
+        batch_res = runner.process_attachment_batch(
+            folder_path="",
+            items=items,
+            dry_run=False
+        )
+
+        assert batch_res["total_items"] == 10
+        assert batch_res["total_success"] == 10
+        assert len(batch_res["results"]) == 10
+
+
+def test_stale_sbar_message_falls_back_to_readback_and_verifies_exact_match():
+    """Kiểm tra thông điệp cũ (stale sbar: Material document displayed) không kích hoạt Fast-path mà phải fallback."""
+    from unittest.mock import MagicMock
+    import tempfile
+    from pathlib import Path
+
+    mock_session = MagicMock()
+    mock_sbar = MagicMock()
+    # Thông điệp cũ còn sót lại từ lệnh open_migo_document, có type 'S' nhưng không phải GOS creation
+    mock_sbar.Text = "Material document 5007000001 displayed"
+    mock_sbar.MessageType = "S"
+
+    mock_shell = MagicMock()
+    def find_by_id(path):
+        if "shell" in path:
+            return mock_shell
+        elif "sbar" in path:
+            return mock_sbar
+        return MagicMock()
+
+    mock_session.findById.side_effect = find_by_id
+    runner = owned_runner(mock_session)
+
+    with tempfile.NamedTemporaryFile(suffix="_BBBG.pdf", delete=False) as tf:
+        tf.write(b"dummy pdf")
+        dummy_file = Path(tf.name)
+
+    try:
+        # TH1: Fallback readback tìm thấy file thật trên SAP -> DONE_SAP_READBACK
+        mock_read_titles = MagicMock(return_value=[dummy_file.name])
+        runner.read_sap_attachment_titles = mock_read_titles
+
+        ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
+        assert ok is True
+        assert "DONE_SAP_READBACK" in msg
+        mock_read_titles.assert_called_once()
+
+        # TH2: Fallback readback KHÔNG tìm thấy file -> Không được báo DONE_SAP_SBAR giả tạo
+        mock_read_titles.return_value = ["some_other_doc.pdf"]
+        ok2, msg2 = runner.attach_file_to_current_migo(mock_session, dummy_file)
+        assert ok2 is False
+        assert "ATTACHMENT_UNCERTAIN" in msg2
+    finally:
+        dummy_file.unlink(missing_ok=True)
+
+

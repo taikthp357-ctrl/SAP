@@ -87,6 +87,7 @@ class SapEngine:
         prefer_dedicated_session: bool = True,
         user_reserved_sessions: int = 3,
         max_sap_sessions: int = 6,
+        max_batch_tabs: int = 3,
         expected_system: str = "",
         expected_client: str = "",
         expected_user: str = ""
@@ -100,6 +101,7 @@ class SapEngine:
         self.prefer_dedicated_session = prefer_dedicated_session
         self.user_reserved_sessions = user_reserved_sessions
         self.max_sap_sessions = max_sap_sessions
+        self.max_batch_tabs = max_batch_tabs
         self.session = None
         self.last_activity = time.time()
         self.last_popup_message = ""

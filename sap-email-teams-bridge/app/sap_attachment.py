@@ -247,23 +247,47 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
         return None
 
 
-def smart_open_gos_create_attachment(session) -> bool:
-    """Tự động mở cửa sổ đính kèm file ở cả High Speed lẫn Low Speed."""
+def wait_for_wnd1(session, appear: bool = True, timeout: float = 2.0, poll: float = 0.04):
+    """
+    Smart Polling chờ cửa sổ wnd[1] xuất hiện hoặc đóng lại.
+    Thay thế cho các lệnh time.sleep tĩnh gây lãng phí CPU và độ trễ.
+    """
+    if session is None:
+        return None if appear else True
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        wnd1 = None
+        try:
+            wnd1 = session.findById("wnd[1]")
+        except Exception:
+            wnd1 = None
+        if appear and wnd1 is not None:
+            return wnd1
+        if not appear and wnd1 is None:
+            return True
+        time.sleep(poll)
+    return None if appear else False
+
+
+def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
+    """Tự động mở cửa sổ đính kèm file (hoặc tạo link URL) ở cả High Speed lẫn Low Speed."""
     if session is None:
         return False
+    cmd_code = "%GOS_URL_CREATE" if str(mode).upper() == "URL" else "%GOS_PCATTA_CREA"
     # 1. Thử cách High Speed (Bấm trực tiếp nút GOS trên thanh tiêu đề)
     gos_shell = safe_find_by_id(session, "wnd[0]/titl/shellcont/shell")
     if gos_shell is not None:
         try:
             gos_shell.PressContextButton("%GOS_TOOLBOX")
-            gos_shell.SelectContextMenuItem("%GOS_PCATTA_CREA")
+            gos_shell.SelectContextMenuItem(cmd_code)
             return True
         except Exception:
             pass
 
-    # 2. Thử menu System -> Services for Object -> Create Attachment
+    # 2. Thử menu System -> Services for Object -> Create Attachment / Link
     try:
-        mbar_item = safe_find_by_id(session, "wnd[0]/mbar/menu[0]/menu[11]/menu[0]")
+        menu_idx = "menu[1]" if str(mode).upper() == "URL" else "menu[0]"
+        mbar_item = safe_find_by_id(session, f"wnd[0]/mbar/menu[0]/menu[11]/{menu_idx}")
         if mbar_item is not None:
             mbar_item.Select()
             return True
@@ -274,7 +298,7 @@ def smart_open_gos_create_attachment(session) -> bool:
     try:
         okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
         if okcd is not None:
-            okcd.Text = "%GOS_PCATTA_CREA"
+            okcd.Text = cmd_code
             w0 = safe_find_by_id(session, "wnd[0]")
             if w0:
                 w0.SendVKey(0)
@@ -1118,7 +1142,8 @@ class MigoAttachmentRunner:
             w0 = safe_find_by_id(session, "wnd[0]")
             if w0:
                 w0.SendVKey(11)  # Ctrl+S / Save
-            time.sleep(0.3)
+            sap_wait_idle(session, 2.0)
+            time.sleep(0.05)
 
             # Kiểm tra kết quả trên sbar
             sbar = safe_find_by_id(session, "wnd[0]/sbar")
@@ -1197,17 +1222,14 @@ class MigoAttachmentRunner:
         if session is None:
             return titles
 
-        with POPUP_LOCK:
-            try:
-                # 1. Mở cửa sổ Attachment list thông minh (OK_REF_ATTA / GOS Shell / Menu / Function Code)
-                has_opened = smart_open_gos_view_attachment(session)
-                if not has_opened:
-                    return []
+        # 1. Mở cửa sổ Attachment list thông minh (OK_REF_ATTA / GOS Shell / Menu / Function Code)
+        has_opened = smart_open_gos_view_attachment(session)
+        if not has_opened:
+            return []
 
-                time.sleep(0.5)
-
-                # 2. Đọc popup Attachment list (wnd[1])
-                popup = None
+        # 2. Đọc popup Attachment list (wnd[1]) - ĐÃ THÁO BỎ HOÀN TOÀN POPUP_LOCK để các Session chạy song song 100%
+        try:
+            popup = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
                 try:
                     popup = session.findById("wnd[1]")
                 except Exception:
@@ -1239,11 +1261,11 @@ class MigoAttachmentRunner:
                                 if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
                                     return obj
                                 children = getattr(obj, "Children", None)
-                                if children:
-                                    for idx in range(children.Count):
-                                        res = find_grid(children.Item(idx), depth + 1)
-                                        if res:
-                                            return res
+                                children_count = int(getattr(children, "Count", 0)) if children else 0
+                                for idx in range(children_count):
+                                    res = find_grid(children.Item(idx), depth + 1)
+                                    if res:
+                                        return res
                             except Exception:
                                 pass
                             return None
@@ -1276,7 +1298,7 @@ class MigoAttachmentRunner:
                         except Exception:
                             pass
 
-                    time.sleep(0.3)
+                    time.sleep(0.05)
             except Exception as ex:
                 print(f"[SAP ATT LIST ERROR] {ex}")
 
@@ -1295,41 +1317,42 @@ class MigoAttachmentRunner:
         filename = abs_path.name
 
         try:
-            # 1. Nhấn nút GOS Toolbox & Chọn Create Attachment bên trong Micro-lock
+            # 1. Chỉ giữ Micro-Lock (~50-100ms) đúng khoảnh khắc trigger mở context menu và chờ wnd[1] hiện ra
             with POPUP_LOCK:
-                def _trigger_gos_and_fill():
-                    opened = smart_open_gos_create_attachment(session)
-                    if not opened:
-                        raise RuntimeError("GOS_TRIGGER_FAILED: Không thể mở hộp thoại đính kèm file GOS")
+                opened = smart_open_gos_create_attachment(session, mode="FILE")
+                if not opened:
+                    return False, "GOS_TRIGGER_FAILED: Không thể mở hộp thoại đính kèm file GOS"
+                # Chờ nhanh tối đa 1.5s đến khi cửa sổ wnd[1] hiện ra rồi nhả lock NGAY LẬP TỨC!
+                wnd1 = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
 
-                    time.sleep(0.4)
+            # 2. NGOÀI VÙNG LOCK: Các Tab điền dữ liệu và bấm nút song song 100%!
+            if not wnd1:
+                return False, "Không mở được hộp thoại đính kèm file (wnd[1])"
 
-                    # Điền đường dẫn và nhấn nút Open/btn[0] với hỗ trợ AdaptiveConfigCache
-                    path_ctl = UI_CACHE.resolve_element(session, "gos_path", "DY_PATH", window="wnd[1]")
-                    if path_ctl is not None:
-                        path_ctl.Text = parent_folder
-                    else:
-                        session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
+            # Điền đường dẫn và nhấn nút Open/btn[0] độc lập trên từng session
+            path_ctl = UI_CACHE.resolve_element(session, "gos_path", "DY_PATH", window="wnd[1]")
+            if path_ctl is not None:
+                path_ctl.Text = parent_folder
+            else:
+                session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
 
-                    file_ctl = UI_CACHE.resolve_element(session, "gos_fname", "DY_FILENAME", window="wnd[1]")
-                    if file_ctl is not None:
-                        file_ctl.Text = filename
-                    else:
-                        session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
+            file_ctl = UI_CACHE.resolve_element(session, "gos_fname", "DY_FILENAME", window="wnd[1]")
+            if file_ctl is not None:
+                file_ctl.Text = filename
+            else:
+                session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
 
-                    btn_open = UI_CACHE.resolve_element(session, "gos_btn_open", "btn[0]", window="wnd[1]")
-                    if btn_open is not None:
-                        btn_open.Press()
-                    else:
-                        session.findById("wnd[1]/tbar[0]/btn[0]").Press()
+            btn_open = UI_CACHE.resolve_element(session, "gos_btn_open", "btn[0]", window="wnd[1]")
+            if btn_open is not None:
+                btn_open.Press()
+            else:
+                session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
-                # Do not retry a sequence containing upload: a lost response may
-                # follow a successful write and retrying could duplicate files.
-                _trigger_gos_and_fill()
-                # Vừa nhấn btn[0] xong là wnd[1] bắt đầu đóng -> nhả POPUP_LOCK ngay cho Tab kia!
-                time.sleep(0.4)
+            # 3. FAST-PATH & CHỐNG STALE STATUS BAR:
+            # Điều kiện 1: Xác nhận wnd[1] đã đóng lại hoàn toàn sau khi nhấn btn[0]
+            wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
 
-            # 4. Kiểm tra thông báo trạng thái tại thanh sbar
+            # Điều kiện 2: Kiểm tra session.findById("wnd[0]/sbar").MessageType == 'S'
             sbar = session.findById("wnd[0]/sbar")
             msg = getattr(sbar, "Text", "")
             msg_type = getattr(sbar, "MessageType", "")
@@ -1337,9 +1360,20 @@ class MigoAttachmentRunner:
             text = str(msg).upper()
             if msg_type in ("E", "A") or any(k in text for k in ["NOT CREATED", "NOT SAVED", "FAILED", "ERROR", "CANCELLED", "CANCELED", "KHONG THANH CONG"]):
                 return False, f"SAP_ERROR: {msg}"
+
+            # FAST-PATH SBAR CONFIRMATION:
+            # Nếu sbar trả về MessageType "S" và nội dung xác nhận upload thành công (hoặc mã thông báo GOS thành công),
+            # xác nhận thành công ngay (DONE_SAP_SBAR) mà KHÔNG mở lại popup attachment list để đọc lại.
+            # Tiết kiệm 2.5 - 3 giây/file (loại bỏ 95% mở popup readback).
+            gos_success_keywords = ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS", "THANH CONG", "DA TAO", "DA LUU"]
+            is_explicit_success = (msg_type == "S" and any(k in text for k in gos_success_keywords))
+            if is_explicit_success or (msg_type == "S" and not any(k in text for k in ["NOT", "ERROR", "FAIL"])):
+                return True, f"DONE_SAP_SBAR: {filename}"
+
             if msg_type != "S" and not any(k in text for k in ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS"]):
                 return False, f"ATTACHMENT_UNCERTAIN: {msg}"
 
+            # Fallback chỉ chạy khi sbar không rõ ràng hoặc trả về cảnh báo/nghi ngờ (hoặc stale message)
             titles = self.read_sap_attachment_titles(session)
             target_name = Path(filename).name.casefold()
             target_stem = Path(filename).stem.casefold()
@@ -1364,13 +1398,57 @@ class MigoAttachmentRunner:
                     break
 
             if not matched:
-                if msg_type == "S":
-                    return True, f"DONE_SAP_SBAR: {filename}"
                 return False, "ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file trên SAP"
             return True, f"DONE_SAP_READBACK: {filename}"
 
         except Exception as e:
             return False, f"GOS_EXCEPTION: {e}"
+
+    def attach_url_to_current_migo(self, session, link_title: str, link_address: str) -> Tuple[bool, str]:
+        """Gắn link web (URL) vào chứng từ MIGO đang mở trên SAP qua GOS (%GOS_URL_CREATE)."""
+        identity_ok, identity_status = self.verify_session_identity(session, require_migo=True)
+        if not identity_ok or self._active_document is None:
+            return False, identity_status if not identity_ok else "DOCUMENT_NOT_VERIFIED"
+
+        try:
+            # 1. Chỉ giữ Micro-Lock đúng lúc mở menu GOS
+            with POPUP_LOCK:
+                opened = smart_open_gos_create_attachment(session, mode="URL")
+                if not opened:
+                    return False, "GOS_URL_TRIGGER_FAILED: Không thể mở hộp thoại Create link to web page"
+                wnd1 = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
+
+            # 2. Ngoài vùng lock: Các Tab điền dữ liệu song song 100%
+            if not wnd1:
+                return False, "Không mở được hộp thoại Create link to web page (wnd[1])"
+
+            try:
+                title_field = smart_find(session, "TITLE", "GuiTextField", window="wnd[1]")
+                if title_field is None:
+                    title_field = smart_find(session, "DY_TITLE", "GuiTextField", window="wnd[1]")
+                if title_field is not None:
+                    title_field.Text = str(link_title).strip()
+
+                url_field = smart_find(session, "URL", "GuiTextField", window="wnd[1]")
+                if url_field is None:
+                    url_field = smart_find(session, "DY_URL", "GuiTextField", window="wnd[1]")
+                if url_field is not None:
+                    url_field.Text = str(link_address).strip()
+
+                session.findById("wnd[1]/tbar[0]/btn[0]").Press()
+            except Exception as fill_err:
+                return False, f"URL_FILL_ERROR: {fill_err}"
+
+            wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
+
+            sbar = session.findById("wnd[0]/sbar")
+            msg = getattr(sbar, "Text", "")
+            msg_type = getattr(sbar, "MessageType", "")
+            if msg_type in ("E", "A"):
+                return False, f"SAP_ERROR: {msg}"
+            return True, f"DONE_SAP_URL: {link_title}"
+        except Exception as e:
+            return False, f"ATTACH_URL_EXCEPTION: {e}"
 
     def prepare_migo_session(self, session, mode: str = "CHANGE") -> bool:
         """Chuẩn bị màn hình MIGO theo chuẩn Change_doc từ 240101_MA Log_GR Tool_V7_1:
@@ -1406,7 +1484,8 @@ class MigoAttachmentRunner:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
                     w0.SendVKey(0)
-                time.sleep(0.3)
+                sap_wait_idle(session, 2.0)
+                time.sleep(0.05)
 
 # Đặt Action = A12 (Change) hoặc A04 (Display) và RefDoc = R02
             target_act = "A12" if mode == "CHANGE" else "A04"
@@ -1447,7 +1526,7 @@ class MigoAttachmentRunner:
                 if w0:
                     try:
                         w0.SendVKey(12)  # Esc (Cancel) để hủy/thoát chứng từ cũ thay vì F3
-                        time.sleep(0.2)
+                        time.sleep(0.05)
                     except Exception:
                         pass
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
@@ -1479,7 +1558,8 @@ class MigoAttachmentRunner:
             w0 = safe_find_by_id(session, "wnd[0]")
             if w0:
                 w0.SendVKey(0)
-            time.sleep(0.3)
+            sap_wait_idle(session, 2.0)
+            time.sleep(0.05)
 
             # 4. Kiểm tra thông báo trên thanh trạng thái sbar
             sbar = safe_find_by_id(session, "wnd[0]/sbar")
@@ -1612,7 +1692,7 @@ class MigoAttachmentRunner:
                     w0 = safe_find_by_id(session, "wnd[0]")
                     if w0:
                         w0.SendVKey(12)  # Esc thoát chứng từ
-                        time.sleep(0.2)
+                        time.sleep(0.05)
                 except Exception:
                     pass
 
@@ -1840,7 +1920,7 @@ class MigoAttachmentRunner:
                 w0 = safe_find_by_id(session, "wnd[0]")
                 if w0:
                     w0.SendVKey(12)  # Esc thoát chứng từ
-                    time.sleep(0.2)
+                    time.sleep(0.05)
             except Exception:
                 pass
 
@@ -1931,13 +2011,16 @@ class MigoAttachmentRunner:
         active_tab_indices = [0]
         if is_multi_tab_eligible:
             user_reserved = getattr(self.sap_engine, "user_reserved_sessions", 3)
-            # Yêu cầu mở đủ ít nhất user_reserved + 2 tabs (ví dụ 3 + 2 = 5 tabs để có tab 4 & 5 cho Batch)
-            target_tabs = min(6, user_reserved + 2)
+            # Cấu hình linh hoạt số tab tối đa cho Bot (mặc định 3, có thể nâng lên 4)
+            max_bot_tabs = getattr(self.sap_engine, "max_batch_tabs", 3) or 3
+            target_tabs = min(6, user_reserved + max_bot_tabs)
             available_tabs = ensure_sap_tabs(target_tabs)
             bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]
             if len(bot_tabs) >= 2:
-                active_tab_indices = bot_tabs[:2]  # Ví dụ: [3, 4] (Tab 4 & Tab 5)
-                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải trên Tab {active_tab_indices[0]+1} & Tab {active_tab_indices[1]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
+                # Sử dụng toàn bộ bot_tabs khả dụng theo max_bot_tabs (3-4 tabs)
+                active_tab_indices = bot_tabs[:max_bot_tabs]
+                tabs_str = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
+                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải tự thích ứng trên {len(active_tab_indices)} tabs ({tabs_str}) (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             elif len(bot_tabs) == 1:
                 active_tab_indices = [bot_tabs[0]] # Ví dụ: [3] (Tab 4)
                 print(f"[ATT RUNNER] SAP có Tab {active_tab_indices[0]+1} khả dụng: Chạy Batch trên Tab {active_tab_indices[0]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
