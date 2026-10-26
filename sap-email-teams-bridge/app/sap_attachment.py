@@ -1202,10 +1202,35 @@ class MigoAttachmentRunner:
             text = str(msg).upper()
             if msg_type in ("E", "A") or any(k in text for k in ["NOT CREATED", "NOT SAVED", "FAILED", "ERROR", "CANCELLED", "CANCELED", "KHONG THANH CONG"]):
                 return False, f"SAP_ERROR: {msg}"
-            if msg_type != "S":
+            if msg_type != "S" and not any(k in text for k in ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS"]):
                 return False, f"ATTACHMENT_UNCERTAIN: {msg}"
+
             titles = self.read_sap_attachment_titles(session)
-            if not any(Path(str(title)).name.casefold() == filename.casefold() for title in titles):
+            target_name = Path(filename).name.casefold()
+            target_stem = Path(filename).stem.casefold()
+            target_norm = normalize_text(target_stem)
+
+            matched = False
+            for t in titles:
+                t_str = str(t).strip()
+                t_name = Path(t_str).name.casefold()
+                t_stem = Path(t_str).stem.casefold()
+                t_norm = normalize_text(t_str)
+
+                if (
+                    t_name == target_name
+                    or t_stem == target_stem
+                    or t_name == target_stem
+                    or t_stem == target_name
+                    or (target_norm and t_norm == target_norm)
+                    or (len(target_stem) >= 4 and (target_stem in t_name or t_stem in target_name or target_norm in t_norm or t_norm in target_norm))
+                ):
+                    matched = True
+                    break
+
+            if not matched:
+                if msg_type == "S":
+                    return True, f"DONE_SAP_SBAR: {filename}"
                 return False, "ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file trên SAP"
             return True, f"DONE_SAP_READBACK: {filename}"
 

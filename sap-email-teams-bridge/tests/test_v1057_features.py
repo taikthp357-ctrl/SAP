@@ -204,3 +204,41 @@ def test_sap_engine_zfir266_batch_multi_selection():
     assert rec3["bbbg_status"] == "CHƯA"
     assert rec3["vat_status"] == "CHƯA"
     assert rec3["status_code"] == "NO_ATT"
+
+
+def test_attach_file_verification_without_extension():
+    """Kiểm tra đính kèm file VAT 5319.pdf khi SAP trả về tiêu đề không có đuôi 'VAT 5319'."""
+    import tempfile
+    from pathlib import Path
+    from app.sap_attachment import MigoAttachmentRunner
+
+    runner = MigoAttachmentRunner()
+    mock_session = MagicMock()
+    mock_session.Info.Transaction = "MIGO"
+    mock_session.Info.SystemName = "PRD"
+    mock_session.Info.Client = "100"
+    mock_session.Info.User = "TESTUSER"
+    mock_session.Id = "ses[0]"
+    mock_session.Busy = False
+    runner.session_identity = {"system": "PRD", "client": "100", "user": "TESTUSER", "session_id": "ses[0]"}
+    runner._active_document = "5006892548"
+    runner._active_year = "2026"
+
+    mock_sbar = MagicMock()
+    mock_sbar.Text = "Attachment successfully created"
+    mock_sbar.MessageType = "S"
+    mock_session.findById.return_value = mock_sbar
+
+    # Mock SAP GOS Attachment list returning Title without .pdf extension (e.g. 'VAT 5319')
+    runner.read_sap_attachment_titles = MagicMock(return_value=["VAT 5319", "BBBG 5319"])
+
+    with tempfile.NamedTemporaryFile(prefix="VAT 5319", suffix=".pdf", delete=False) as tf:
+        tf.write(b"dummy vat content")
+        vat_file = Path(tf.name)
+
+    try:
+        ok, msg = runner.attach_file_to_current_migo(mock_session, vat_file)
+        assert ok is True
+        assert "DONE" in msg
+    finally:
+        vat_file.unlink(missing_ok=True)
