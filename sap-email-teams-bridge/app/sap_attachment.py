@@ -1230,77 +1230,72 @@ class MigoAttachmentRunner:
         # 2. Đọc popup Attachment list (wnd[1]) - ĐÃ THÁO BỎ HOÀN TOÀN POPUP_LOCK để các Session chạy song song 100%
         try:
             popup = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
-                try:
-                    popup = session.findById("wnd[1]")
-                except Exception:
-                    pass
-
-                if popup is not None:
-                    grid = None
-                    for cand_grid_id in [
-                        "wnd[1]/usr/cntlCONTAINER_0100/shellcont/shell",
-                        "wnd[1]/usr/cntlCONTAINER/shellcont/shell",
-                        "wnd[1]/usr/cntlCONTAINER_0100/shellcont",
-                        "wnd[1]/usr/shell"
-                    ]:
-                        try:
-                            g = session.findById(cand_grid_id)
-                            if g:
-                                grid = g
-                                break
-                        except Exception:
-                            pass
-
-                    if grid is None:
-                        def find_grid(obj, depth=0):
-                            if depth > 10 or obj is None:
-                                return None
-                            try:
-                                c_type = str(getattr(obj, "Type", ""))
-                                c_sub = str(getattr(obj, "SubType", ""))
-                                if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
-                                    return obj
-                                children = getattr(obj, "Children", None)
-                                children_count = int(getattr(children, "Count", 0)) if children else 0
-                                for idx in range(children_count):
-                                    res = find_grid(children.Item(idx), depth + 1)
-                                    if res:
-                                        return res
-                            except Exception:
-                                pass
-                            return None
-                        grid = find_grid(popup)
-
-                    if grid:
-                        try:
-                            row_count = int(getattr(grid, "RowCount", 0))
-                            for r in range(row_count):
-                                title_val = ""
-                                for col_name in ["BITM_DESCR", "OBJDES", "TITLE", "DESCRIPT", "FILENAME"]:
-                                    try:
-                                        val = grid.GetCellValue(r, col_name)
-                                        if val and str(val).strip():
-                                            title_val = str(val).strip()
-                                            break
-                                    except Exception:
-                                        continue
-                                if title_val:
-                                    titles.append(title_val)
-                        except Exception as e:
-                            print(f"[SAP ATT LIST WARN] Lỗi đọc grid: {e}")
-
-                    # 3. Đóng popup wnd[1]
+            if popup is not None:
+                grid = None
+                for cand_grid_id in [
+                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont/shell",
+                    "wnd[1]/usr/cntlCONTAINER/shellcont/shell",
+                    "wnd[1]/usr/cntlCONTAINER_0100/shellcont",
+                    "wnd[1]/usr/shell"
+                ]:
                     try:
-                        popup.Close()
+                        g = session.findById(cand_grid_id)
+                        if g:
+                            grid = g
+                            break
                     except Exception:
+                        pass
+
+                if grid is None:
+                    def find_grid(obj, depth=0):
+                        if depth > 10 or obj is None:
+                            return None
                         try:
-                            session.findById("wnd[1]").SendVKey(12)
+                            c_type = str(getattr(obj, "Type", ""))
+                            c_sub = str(getattr(obj, "SubType", ""))
+                            if "Grid" in c_type or "Grid" in c_sub or c_type in ("GuiGridView", "GuiTableControl"):
+                                return obj
+                            children = getattr(obj, "Children", None)
+                            children_count = int(getattr(children, "Count", 0)) if children else 0
+                            for idx in range(children_count):
+                                res = find_grid(children.Item(idx), depth + 1)
+                                if res:
+                                    return res
                         except Exception:
                             pass
+                        return None
+                    grid = find_grid(popup)
 
-                    time.sleep(0.05)
-            except Exception as ex:
-                print(f"[SAP ATT LIST ERROR] {ex}")
+                if grid:
+                    try:
+                        row_count = int(getattr(grid, "RowCount", 0))
+                        for r in range(row_count):
+                            title_val = ""
+                            for col_name in ["BITM_DESCR", "OBJDES", "TITLE", "DESCRIPT", "FILENAME"]:
+                                try:
+                                    val = grid.GetCellValue(r, col_name)
+                                    if val and str(val).strip():
+                                        title_val = str(val).strip()
+                                        break
+                                except Exception:
+                                    continue
+                            if title_val:
+                                titles.append(title_val)
+                    except Exception as e:
+                        print(f"[SAP ATT LIST WARN] Lỗi đọc grid: {e}")
+
+                # 3. Đóng popup wnd[1]
+                try:
+                    popup.Close()
+                except Exception:
+                    try:
+                        session.findById("wnd[1]").SendVKey(12)
+                    except Exception:
+                        pass
+
+                wait_for_wnd1(session, appear=False, timeout=1.0, poll=0.04)
+        except Exception as ex:
+            print(f"[SAP ATT LIST ERROR] {ex}")
 
         return titles
 
@@ -1367,7 +1362,7 @@ class MigoAttachmentRunner:
             # Tiết kiệm 2.5 - 3 giây/file (loại bỏ 95% mở popup readback).
             gos_success_keywords = ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS", "THANH CONG", "DA TAO", "DA LUU"]
             is_explicit_success = (msg_type == "S" and any(k in text for k in gos_success_keywords))
-            if is_explicit_success or (msg_type == "S" and not any(k in text for k in ["NOT", "ERROR", "FAIL"])):
+            if is_explicit_success:
                 return True, f"DONE_SAP_SBAR: {filename}"
 
             if msg_type != "S" and not any(k in text for k in ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS"]):
@@ -2010,9 +2005,11 @@ class MigoAttachmentRunner:
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
-            user_reserved = getattr(self.sap_engine, "user_reserved_sessions", 3)
+            user_res_val = getattr(self.sap_engine, "user_reserved_sessions", 3)
+            user_reserved = user_res_val if isinstance(user_res_val, int) else 3
             # Cấu hình linh hoạt số tab tối đa cho Bot (mặc định 3, có thể nâng lên 4)
-            max_bot_tabs = getattr(self.sap_engine, "max_batch_tabs", 3) or 3
+            max_bot_val = getattr(self.sap_engine, "max_batch_tabs", 3)
+            max_bot_tabs = max_bot_val if isinstance(max_bot_val, int) else 3
             target_tabs = min(6, user_reserved + max_bot_tabs)
             available_tabs = ensure_sap_tabs(target_tabs)
             bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]

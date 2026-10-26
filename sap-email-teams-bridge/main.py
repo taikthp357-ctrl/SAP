@@ -351,6 +351,7 @@ def run_bridge():
         prefer_dedicated_session=config.get("prefer_dedicated_session", True),
         user_reserved_sessions=config.get("user_reserved_sessions", 3),
         max_sap_sessions=config.get("max_sap_sessions", 6),
+        max_batch_tabs=config.get("max_batch_tabs", 3),
         expected_system=config.get("sap_system", ""),
         expected_client=config.get("sap_client", ""),
         expected_user=config.get("sap_user", "")
