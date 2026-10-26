@@ -41,6 +41,21 @@ RC65_VL06O_COLUMNS = {
     "CREATE_DATE": "ERDAT",               # Ngày tạo chứng từ
 }
 
+# Danh mục cột ALV VL06O chuẩn hóa theo RC65 (khóa cứng ưu tiên mã kỹ thuật SAP)
+RC65_VL06O_COLUMN_MAPPING = {
+    "obNo":       ["VBELN", "DELIVERY", "OUTBOUND DELIVERY"],
+    "item":       ["POSNR", "DELIVERY ITEM", "ITEM"],
+    "product":    ["MATNR", "MATERIAL", "PRODUCT"],
+    "qty":        ["LFIMG", "DELIVERY QTY", "DLV.QTY", "ACTUAL DELIVERED QTY", "MENGE", "QUANTITY"],
+    "unit":       ["VRKME", "SALES UNIT", "DELIVERY UNIT", "MEINS", "BASE UNIT", "UNIT"],
+    "sloc":       ["LGORT", "STORAGE LOCATION", "SLOC"],
+    "batch":      ["S_CHARG", "CHARG", "BATCH"],
+    "shipTo":     ["KUNNR", "KUNWE", "SHIP-TO PARTY", "SHIP TO"],
+    "gmStatus":   ["WBSTA", "WBSTK", "GOODS MOVEMENT STATUS", "GM STATUS"],
+    "refSTO":     ["VGBEL", "REFERENCE DOCUMENT", "STO"],
+    "createDate": ["ERDAT", "CREATED ON", "DATE"]
+}
+
 # ID và Token bảng TableControl chuẩn RC65
 RC65_TABLE_OVERVIEW_ID = (
     "wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER"
@@ -108,7 +123,7 @@ class ObService:
                         try:
                             row_coord = int(parts[1])
                             if row_coord == visible_row:
-                                if tbl_id and cid.startswith(tbl_id):
+                                if tbl_id and cid.upper().startswith(tbl_id.upper()):
                                     rel_part = cid[len(tbl_id) + 1:]
                                     comma_idx = rel_part.rfind(",")
                                     if comma_idx != -1:
@@ -157,7 +172,7 @@ class ObService:
                     fld = cls.get_table_field(tbl, RC65_FIELD_TOKENS["ITEM_NO"], cand_row)
                     if fld is not None:
                         val = str(getattr(fld, "Text", getattr(fld, "text", "")) or "").strip()
-                        if val.lstrip("0") == target_item.lstrip("0"):
+                        if (val.lstrip("0") or "0") == (target_item.lstrip("0") or "0"):
                             return cand_row
             except Exception:
                 pass
@@ -167,7 +182,7 @@ class ObService:
             fld = cls.get_table_field(tbl, RC65_FIELD_TOKENS["ITEM_NO"], r)
             if fld is not None:
                 val = str(getattr(fld, "Text", getattr(fld, "text", "")) or "").strip()
-                if val.lstrip("0") == target_item.lstrip("0"):
+                if (val.lstrip("0") or "0") == (target_item.lstrip("0") or "0"):
                     return r
         return -1
 
@@ -209,7 +224,8 @@ class ObService:
                 row_data["sloc"] = str(getattr(fld_sloc, "Text", getattr(fld_sloc, "text", "")) or "").strip() if fld_sloc else ""
                 row_data["batch"] = str(getattr(fld_batch, "Text", getattr(fld_batch, "text", "")) or "").strip() if fld_batch else ""
 
-            result[item_no.lstrip("0")] = row_data
+            clean_key = item_no.lstrip("0") or "0"
+            result[clean_key] = row_data
 
         return result
     @classmethod

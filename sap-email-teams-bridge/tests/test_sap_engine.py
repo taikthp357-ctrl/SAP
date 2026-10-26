@@ -2051,5 +2051,17 @@ def test_resolve_grid_columns_rc65_strict_exact_locking():
     assert resolved["shipTo"] == "KUNWE"
     assert resolved["gmStatus"] == "WBSTA"
 
+    # Kiểm tra biến thể kỹ thuật RC65: S_CHARG thay vì CHARG, KUNNR thay vì KUNWE
+    mock_alv_alt = MagicMock()
+    mock_alv_alt.ColumnOrder = MockColOrder([
+        "VBELN", "POSNR", "MATNR", "LFIMG", "VRKME", "LGORT", "S_CHARG", "KUNNR", "WBSTA", "VGBEL", "ERDAT"
+    ])
+    from app.ob_service import RC65_VL06O_COLUMN_MAPPING
+    resolved_alt = engine._resolve_grid_columns(mock_alv_alt, RC65_VL06O_COLUMN_MAPPING)
+    assert resolved_alt["batch"] == "S_CHARG"
+    assert resolved_alt["shipTo"] == "KUNNR"
+    assert resolved_alt["refSTO"] == "VGBEL"
+    assert resolved_alt["createDate"] == "ERDAT"
+
 
 

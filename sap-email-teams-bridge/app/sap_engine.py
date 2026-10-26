@@ -27,6 +27,7 @@ from app.ob_service import (
     ObService,
     RC65_FIELD_TOKENS,
     RC65_VL06O_COLUMNS,
+    RC65_VL06O_COLUMN_MAPPING,
     RC65_TABLE_OVERVIEW_ID,
     RC65_TABLE_OVERVIEW_TOKEN,
     RC65_TABLE_SPLIT_TOKEN,
@@ -308,7 +309,7 @@ class SapEngine:
             return None
         tbl = self._find_by_id_safe(RC65_TABLE_OVERVIEW_ID)
         if tbl is None:
-            tbl = self._find_by_id_safe("wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER")
+            tbl = self._find_by_id_safe(r"wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER")
         if tbl is None:
             tbl = self._find_by_id_safe(f"wnd[0]/usr/{RC65_TABLE_OVERVIEW_TOKEN}")
         return tbl
@@ -481,13 +482,15 @@ class SapEngine:
         for out_key, candidates in column_mapping.items():
             matched_col = None
 
-            # Lượt 0: Khóa cứng theo mã kỹ thuật chuẩn RC65 (nếu candidate đầu tiên khớp trực tiếp tech_cols)
-            if candidates:
-                primary = str(candidates[0]).strip().upper()
+            # Lượt 0: Khóa cứng theo mã kỹ thuật chuẩn RC65 (khớp trực tiếp tech_cols với candidates)
+            for cand in candidates:
+                cand_clean = str(cand).strip().upper()
                 for tc in tech_cols:
-                    if tc.upper() == primary:
+                    if tc.upper() == cand_clean:
                         matched_col = tc
                         break
+                if matched_col:
+                    break
 
             cand_norms = [self._normalize_header(c) for c in candidates if self._normalize_header(c)]
 
@@ -2531,7 +2534,16 @@ class SapEngine:
         try:
             cols = getattr(grid, "ColumnOrder", None)
             if cols is not None:
-                col_names = {str(cols(i)).strip().upper() for i in range(cols.Count)}
+                col_names = set()
+                cnt = getattr(cols, "Count", getattr(cols, "count", 0))
+                for i in range(cnt):
+                    try:
+                        col_names.add(str(cols.ElementAt(i)).strip().upper())
+                    except Exception:
+                        try:
+                            col_names.add(str(cols(i)).strip().upper())
+                        except Exception:
+                            pass
                 if "MATNR" in col_names or "POSNR" in col_names:
                     return True
             resolved = self._resolve_grid_columns(
@@ -2820,20 +2832,8 @@ class SapEngine:
                     print(f"[SAP VL06O TRACE Nấc 2] Không có đơn nào cho mã {clean_mats} sau khi áp dụng bộ lọc ALV.")
                     return []
 
-            # 11. Trích xuất toàn bộ dữ liệu từ lưới Item View đã lọc
-            col_map = {
-                "obNo":       ["VBELN", "DELIVERY", "OUTBOUND DELIVERY"],
-                "item":       ["POSNR", "DELIVERY ITEM", "ITEM"],
-                "product":    ["MATNR", "MATERIAL", "PRODUCT"],
-                "qty":        ["LFIMG", "DLV.QTY", "DELIVERY QTY", "ACTUAL DELIVERED QTY", "MENGE", "QUANTITY"],
-                "unit":       ["VRKME", "MEINS", "SALES UNIT", "DELIVERY UNIT", "BASE UNIT", "UNIT"],
-                "sloc":       ["LGORT", "SLOC", "STORAGE LOCATION"],
-                "batch":      ["CHARG", "S_CHARG", "BATCH"],
-                "shipTo":     ["KUNWE", "KUNNR", "SHIP-TO PARTY", "SHIP TO"],
-                "gmStatus":   ["WBSTA", "WBSTK", "GOODS MOVEMENT STATUS", "GM STATUS"],
-                "refSTO":     ["VGBEL", "REFERENCE DOCUMENT", "STO"],
-                "createDate": ["ERDAT", "CREATED ON", "DATE"]
-            }
+            # 11. Trích xuất toàn bộ dữ liệu từ lưới Item View đã lọc theo mapping cột chuẩn RC65
+            col_map = dict(RC65_VL06O_COLUMN_MAPPING)
             all_records = self._extract_alv_grid(alv_grid, col_map)
             print(f"[SAP VL06O TRACE Nấc 3] Extractor đã đọc {len(all_records)}/{row_count_after} dòng từ lưới ALV.")
 
