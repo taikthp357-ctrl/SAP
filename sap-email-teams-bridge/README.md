@@ -1,9 +1,17 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.60
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.61
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Đính kèm Lũy Kế Đa Hóa Đơn (Multi-VAT & Incremental Upload) & Lọc Trùng Lặp Thông Minh (v1.0.60):**
+1. **Xử lý Bảng Đơn Hàng NVL Đa Dòng Dán Trực Tiếp Từ Excel / Teams & Tạo Đơn OB 10xxxxxxxx (v1.0.61):**
+   - **Bóc tách bảng dữ liệu tự động (`parse_nvl_table_rows`):** Tự động nhận diện cấu trúc 3 cột dán trực tiếp từ Excel (`Mã NVL | Số lượng | Trạm`, ví dụ `BIW75111244AA | 100 | KV08-Thức/Vũ`) và cả biến thể 4 cột có `STT/OB` đứng đầu (`1 | BIW... | 100 | ...`).
+   - **Khắc phục triệt để nhiễm bẩn mã hàng (Material Token Pollution):** Cô lập triệt để cột Trạm (`KV08-Thức/Vũ`), ngăn không cho regex bóc tách token tự nhiên biến chuỗi trạm thành mã vật tư giả (`KV08-TH`).
+   - **Gom cụm OB & Cộng dồn Lô/Bin Tự Động (`group_into_ob_groups`):** Khi nhiều dòng đơn hàng cùng mã và trạm được phân bổ từ cùng một Lô (Batch) và Vị trí Bin, hệ thống tự động cộng dồn số lượng thành 1 dòng duy nhất (ví dụ: 3 dòng 100 cái từ Lô `240801` $\rightarrow$ 1 dòng 300 cái). Đánh số cụm OB chuẩn rút gọn 3 ký tự (`OB1`, `OB2`, ...).
+   - **Chuẩn hóa số chứng từ Outbound Delivery `10xxxxxxxx`:** Bắt và gán số chứng từ Outbound thật từ SAP MIGO 311 (ví dụ: `1012924052`) vào toàn bộ các dòng của cụm OB.
+   - **Huy hiệu KPI Badges & Bảng rút gọn trên Teams:** Hiển thị thẻ tóm tắt trực quan `[✅ Số OB: 1012924052]` `[🏭 Cụm: OB1 (2 dòng)]` `[📦 Tổng cấp: 400 PC]` kèm bảng dữ liệu với các cột rút gọn: `OB`, `Số OB`, `Mã NVL`, `SL`, `Lô`, `Bin`, `Trạm`, `TT`.
+   - **Thực thi MIGO 311 2 Nhịp An Toàn (`post_migo_311_ob_group`):** Điền dữ liệu 2 nhịp (Nhịp 1: Mã, SL, Plant 3093, Kho xuất 1005, Kho nhận 3001; Nhịp 2: tìm động cột BATCH điền số lô; Post và bắt số chứng từ qua Regex trên StatusBar).
+
+2. **Đính kèm Lũy Kế Đa Hóa Đơn (Multi-VAT & Incremental Upload) & Lọc Trùng Lặp Thông Minh (v1.0.60):**
    - **Xử lý trọn vẹn nghiệp vụ "Att thêm 1 VAT nữa":** Loại bỏ hoàn toàn cơ chế kiểm tra nhị phân cũ (`if sap_vat: skip`). Khi một chứng từ DOC đã có sẵn 1 file VAT trên SAP GOS (như `VAT_5122`), hệ thống áp dụng thuật toán *Claim-based Matching* để so khớp từng file local với từng file trên SAP GOS. Các file VAT mới hoặc hóa đơn bổ sung (như `VAT 5122(1).pdf`, `VAT 1213.pdf`, hoặc file VAT của mã hàng thứ hai trong DOC) sẽ **được tự động đính thêm vào ngay** mà không bị bỏ qua.
    - **Lọc trùng lặp file vật lý bằng Content Hash (SHA-256):** Tự động phát hiện và loại trừ các bản sao trùng lặp 100% nội dung (như người dùng vô tình copy hoặc đổi tên giữa `VAT_5122.pdf` và `VAT 5122.pdf`) trước khi tải lên, ngăn ngừa triệt để rác cơ sở dữ liệu SAP GOS. Đồng thời, giữ lại và tải lên đầy đủ khi hai file có nội dung hoặc dung lượng khác nhau.
    - **Nhận diện toàn diện các biến thể tên file theo số phiếu:** Bắt chuẩn xác mọi cách đặt tên file theo số phiếu HeadText của nhân sự kho: `VAT_5122.pdf`, `VAT 5122.pdf`, `VAT 5122(1).pdf`, `VAT_5122(1).pdf`, `VAT 5122_1.pdf`, `VAT_5122_1234.pdf`, v.v.

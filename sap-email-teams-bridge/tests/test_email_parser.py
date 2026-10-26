@@ -793,3 +793,55 @@ def test_parse_plant_variants_and_standalone():
         assert res["plant"] == expected_p
         assert res["explicitPlant"] is True
         assert res["materials"] == ["BIW32022638AB"]
+
+
+def test_parse_nvl_table_rows():
+    """Kiểm tra hàm parse_nvl_table_rows với các dạng bảng tab, pipe, space, header và STT."""
+    # 1. Bảng copy từ Excel (dấu Tab)
+    tab_text = (
+        "Ra đơn NVL\n"
+        "BIW75111244AA\t100\tKV08-Thức/Vũ\n"
+        "BIW75111244AA\t100\tKV08-Thức/Vũ\n"
+    )
+    rows = EmailCommandParser.parse_nvl_table_rows(tab_text)
+    assert len(rows) == 2
+    assert rows[0] == {"material": "BIW75111244AA", "qty": 100, "station": "KV08-Thức/Vũ"}
+    assert rows[1] == {"material": "BIW75111244AA", "qty": 100, "station": "KV08-Thức/Vũ"}
+
+    # 2. Bảng có cột STT đứng đầu
+    stt_text = (
+        "1\tBIW75111244AA\t100\tKV08-Thức/Vũ\n"
+        "2\tBIW32013765AA\t250\tKV09-Hùng\n"
+    )
+    rows_stt = EmailCommandParser.parse_nvl_table_rows(stt_text)
+    assert len(rows_stt) == 2
+    assert rows_stt[0]["material"] == "BIW75111244AA"
+    assert rows_stt[0]["qty"] == 100
+    assert rows_stt[1]["material"] == "BIW32013765AA"
+    assert rows_stt[1]["qty"] == 250
+
+    # 3. Bảng phân cách bằng Pipe |
+    pipe_text = "BIW75111244AA | 150 | KV08-Thức/Vũ"
+    rows_pipe = EmailCommandParser.parse_nvl_table_rows(pipe_text)
+    assert len(rows_pipe) == 1
+    assert rows_pipe[0]["qty"] == 150
+
+
+def test_parse_ra_don_nvl_table_end_to_end():
+    """Kiểm tra parse hoàn chỉnh lệnh Ra đơn NVL dán từ Excel kèm trạm và số lượng."""
+    sample = """
+    Ra đơn NVL
+    BIW75111244AA	100	KV08-Thức/Vũ
+    BIW75111244AA	100	KV08-Thức/Vũ
+    BIW75111244AA	100	KV08-Thức/Vũ
+    BIW75111244AA	100	KV08-Thức/Vũ
+    """
+    res = EmailCommandParser.parse(sample)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "RA_DON_NVL"
+    assert res["materials"] == ["BIW75111244AA"]
+    assert res["qty"] == 400
+    assert res["station"] == "KV08-Thức/Vũ"
+    assert len(res["nvlOrders"]) == 4
+    assert res["nvlOrders"][0]["qty"] == 100

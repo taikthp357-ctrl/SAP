@@ -1432,3 +1432,19 @@ def test_check_stock_mb52_preserves_transit_row():
     assert recs[1]["unrest"] == "4"
     assert recs[2]["sloc"] == "4007"
     assert recs[2]["unrest"] == "136"
+
+
+def test_post_migo_311_ob_group_simulation():
+    """Kiểm tra post_migo_311_ob_group ở chế độ simulation / dry_run trả về số chứng từ OB 10xxxxxxxx."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.session = None
+
+    items = [
+        {"material": "BIW75111244AA", "allocated_qty": 300, "batch": "240801", "bin": "01-02-03", "station": "KV08-Thức/Vũ"},
+        {"material": "BIW75111244AA", "allocated_qty": 100, "batch": "240802", "bin": "01-02-04", "station": "KV08-Thức/Vũ"}
+    ]
+
+    ok, doc_no, msg = engine.post_migo_311_ob_group(items, plant="3093", dry_run=True)
+    assert ok is True
+    assert doc_no == "1012924052"
+    assert "1012924052" in msg

@@ -96,3 +96,38 @@ def test_nvl_migo_precheck_and_execution(tmp_db):
     # Simulation must not consume an operational reservation
     res_map = NvlService.get_active_reservations(tmp_db)
     assert res_map.get(("BIW32013765AA", "B01"), 0.0) == 50.0
+
+
+def test_group_into_ob_groups_consolidation_and_shortages():
+    """Kiểm tra gom cụm OB, cộng dồn lô/bin trùng, gán số chứng từ 10xxxxxxxx và hiển thị thiếu tồn."""
+    allocated = [
+        {"material": "BIW75111244AA", "batch": "240801", "bin": "01-02-03", "allocated_qty": 100, "station": "KV08-Thức/Vũ"},
+        {"material": "BIW75111244AA", "batch": "240801", "bin": "01-02-03", "allocated_qty": 100, "station": "KV08-Thức/Vũ"},
+        {"material": "BIW75111244AA", "batch": "240801", "bin": "01-02-03", "allocated_qty": 100, "station": "KV08-Thức/Vũ"},
+        {"material": "BIW75111244AA", "batch": "240802", "bin": "01-02-04", "allocated_qty": 100, "station": "KV08-Thức/Vũ"},
+    ]
+    shortages = [
+        {"material": "BIW75111244AA", "requested_qty": 100, "allocated_qty": 0, "shortage_qty": 100, "station": "KV08-Thức/Vũ", "unit": "PC"}
+    ]
+
+    grouped = NvlService.group_into_ob_groups(allocated, shortages=shortages, delivery_no="1012924052")
+    assert len(grouped) == 3
+
+    # Dòng 1: Đã cộng dồn 3 lô 240801 thành 300
+    assert grouped[0]["stt"] == "OB1"
+    assert grouped[0]["delivery_no"] == "1012924052"
+    assert grouped[0]["allocated_qty"] == 300
+    assert grouped[0]["batch"] == "240801"
+    assert grouped[0]["status"] == "✅ Đã tạo OB"
+
+    # Dòng 2: Lô 240802 số lượng 100
+    assert grouped[1]["stt"] == "OB1"
+    assert grouped[1]["delivery_no"] == "1012924052"
+    assert grouped[1]["allocated_qty"] == 100
+    assert grouped[1]["batch"] == "240802"
+
+    # Dòng 3: Dòng thiếu tồn
+    assert grouped[2]["stt"] == "OB1"
+    assert grouped[2]["delivery_no"] == "---"
+    assert "Thiếu 100" in str(grouped[2]["allocated_qty"])
+    assert "Thiếu tồn" in grouped[2]["status"]

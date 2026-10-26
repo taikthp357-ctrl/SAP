@@ -463,16 +463,38 @@ class TeamsDispatcher:
                     )
 
             elif any(k in cmd_upper for k in ["RA_DON_NVL", "KE_HOACH_NVL"]):
-                tot_items = len(records)
-                tot_qty = sum(parse_sap_float(r.get("allocated_qty", 0.0)) for r in records)
+                deliv = next((str(r.get("delivery_no", "")).strip() for r in records if r.get("delivery_no") and r.get("delivery_no") != "---"), "")
+                ob_clusters = list(dict.fromkeys(r.get("stt") for r in records if r.get("stt")))
+                valid_lines = [r for r in records if "thiếu" not in str(r.get("status", "")).lower() and not str(r.get("allocated_qty", "")).startswith("Thiếu")]
+                shortages = [r for r in records if "thiếu" in str(r.get("status", "")).lower() or str(r.get("allocated_qty", "")).startswith("Thiếu")]
+                tot_qty = sum(parse_sap_float(r.get("allocated_qty", 0.0)) for r in valid_lines)
+                unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
+
+                if deliv:
+                    badges.append(
+                        f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                        f"✅ Số OB: {deliv}</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
+                        f"📋 Kế hoạch NVL (Preview)</span>"
+                    )
+
+                cluster_label = f"OB1" if len(ob_clusters) == 1 and ob_clusters[0] == "OB1" else f"{len(ob_clusters)} Cụm"
                 badges.append(
-                    f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
-                    f"🏭 Ra đơn NVL V31 Zone: {tot_items} dòng</span>"
+                    f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
+                    f"🏭 Cụm: {cluster_label} ({len(valid_lines)} dòng)</span>"
                 )
                 badges.append(
                     f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-                    f"📦 Phân bổ: {format_qty_display(tot_qty)}</span>"
+                    f"📦 Tổng cấp: {format_qty_display(tot_qty)} {unit}</span>"
                 )
+                if shortages:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Thiếu tồn: {len(shortages)} dòng</span>"
+                    )
 
             elif any(k in cmd_upper for k in ["DIEU_PHOI_OB", "RC65"]):
                 tot_items = len(records)

@@ -175,6 +175,63 @@ class SmartCommandParser:
 
         return text.strip()
 
+    @classmethod
+    def parse_nvl_table_rows(cls, text: str) -> List[Dict[str, Any]]:
+        """
+        Bóc tách danh sách các dòng yêu cầu ra đơn NVL (dán từ Excel, Teams bảng hoặc tab-separated).
+        Mỗi dòng gồm: Mã NVL (cột 1), Số lượng (cột 2), Trạm cấp (cột 3).
+        Ví dụ: BIW75111244AA    100    KV08-Thức/Vũ
+        Hỗ trợ cả trường hợp có cột STT đứng đầu: 1  BIW75111244AA  100  KV08-Thức/Vũ
+        """
+        if not text:
+            return []
+        rows = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            norm_line = cls.remove_accents(line).lower()
+            # Bỏ qua các dòng chỉ chứa tiêu đề thuần túy
+            if any(h in norm_line for h in ["ma nvl", "ma hang", "material", "so luong", "sl", "qty", "tram", "station", "ra don nvl"]):
+                if not re.search(r"\b\d+\b", line):
+                    continue
+
+            # Phân tách cột theo tab, pipe hoặc khoảng cách rộng (>= 2 spaces)
+            cols = []
+            if "\t" in line:
+                cols = [c.strip() for c in line.split("\t") if c.strip()]
+            elif "|" in line:
+                cols = [c.strip() for c in line.split("|") if c.strip()]
+            else:
+                parts = re.split(r"\s{2,}|\s+", line)
+                if len(parts) >= 3:
+                    cols = parts
+
+            # Nếu có cột STT hoặc OB ở đầu (VD: 1, 01, OB1, #1) và cột kế tiếp là mã vật tư
+            if len(cols) >= 3 and (re.fullmatch(r"#?\d{1,3}|OB\d{1,3}", cols[0], re.I)):
+                cols = cols[1:]
+
+            if len(cols) >= 2:
+                mat_cand = cols[0].strip().upper()
+                if len(mat_cand) < 3 or mat_cand in cls.STOP_WORDS:
+                    continue
+                qty_str = cols[1].replace(",", ".").strip()
+                try:
+                    qty_val = float(qty_str)
+                    if qty_val <= 0:
+                        continue
+                except ValueError:
+                    continue
+
+                station_cand = cols[2].strip() if len(cols) >= 3 else ""
+                int_or_float = int(qty_val) if qty_val.is_integer() else qty_val
+                rows.append({
+                    "material": mat_cand,
+                    "qty": int_or_float,
+                    "station": station_cand
+                })
+        return rows
+
     JSON_COMMAND_ALIASES = {
         "GR_DOC": "TIM_GR_DOC", "CHUNGTU_GR": "TIM_GR_DOC",
         "IB_DETAIL": "CHECK_IB", "KIEMTRA_IB": "CHECK_IB", "FIND_IB": "TIM_IB",
@@ -303,9 +360,13 @@ class SmartCommandParser:
                   "attachmentItems": normalized_items, "attachmentDocs": docs,
                   "explicitPlant": bool(obj.get("plant"))}
         # Preserve structured order inputs; their service performs business validation.
-        for key in ("orders", "demands", "items", "containerNo", "batchId", "planId", "warehouse", "sloc"):
+        for key in ("orders", "nvlOrders", "demands", "items", "containerNo", "batchId", "planId", "warehouse", "sloc"):
             if key in obj:
                 result[key] = obj[key]
+        if "orders" in obj and "nvlOrders" not in result:
+            result["nvlOrders"] = obj["orders"]
+        elif "nvlOrders" in obj and "orders" not in result:
+            result["orders"] = obj["nvlOrders"]
         return result
 
     @classmethod
@@ -421,6 +482,13 @@ class SmartCommandParser:
 
         best_intent = max(scores, key=scores.get)
         best_score = scores[best_intent]
+
+        # Nhận diện bảng yêu cầu cấp NVL (nhiều dòng: Mã NVL, Số lượng, Trạm)
+        nvl_table_rows = cls.parse_nvl_table_rows(command_text)
+        if nvl_table_rows and (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") or best_score == 0 or "ra don" in norm_text or "don nvl" in norm_text or len(nvl_table_rows) >= 2):
+            best_intent = "RA_DON_NVL"
+            best_score = max(best_score, 95)
+            matched_keywords.append(f"RA_DON_NVL: Bảng yêu cầu cấp NVL ({len(nvl_table_rows)} dòng)")
 
         # Phân biệt TỒN KHO (Chỉ kiểm tra Kho 1005 & 3093) vs TỒN TỔNG HỢP (Toàn bộ SLoc)
         if best_intent == "TON":
@@ -604,6 +672,10 @@ class SmartCommandParser:
                 if clean_tk not in materials:
                     materials.append(clean_tk)
 
+        # Nếu có bảng đơn hàng NVL đa dòng, ưu tiên mã lấy từ bảng (tránh ô Trạm bị nhận nhầm thành mã)
+        if nvl_table_rows and best_intent in ("RA_DON_NVL", "KE_HOACH_NVL"):
+            materials = list(dict.fromkeys(r["material"] for r in nvl_table_rows))
+
         # Nếu chưa có batch nhưng phần tử cuối trong materials trông giống số lô (VD: B2610, L2024, LOT01)
         if not batch and len(materials) > 1:
             last_mat = materials[-1]
@@ -647,6 +719,7 @@ class SmartCommandParser:
                 or (best_intent == "ATT_MIGO")
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
                 or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN"))
+                or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))
             )
         ) or (best_score == 0 and bool(bin_val))
 
@@ -705,16 +778,30 @@ class SmartCommandParser:
             "attachmentItems": att_items,
             "explicitPlant": explicit_plant,
             "fullModelList": is_full_model_list,
-            "qty": expected_qty if eqty_m else None,
-            "station": (re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text).group(1).upper()
-                        if re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text) else ""),
-            "uom": (re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text).group(1).upper()
-                    if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else ""),
+            "nvlOrders": nvl_table_rows,
+            "orders": nvl_table_rows,
+            "qty": (sum(r["qty"] for r in nvl_table_rows) if nvl_table_rows else (expected_qty if eqty_m else None)),
+            "station": (
+                (list(dict.fromkeys(r["station"] for r in nvl_table_rows if r.get("station")))[0]
+                 if len(dict.fromkeys(r["station"] for r in nvl_table_rows if r.get("station"))) == 1
+                 else ("MULTI_STATION" if any(r.get("station") for r in nvl_table_rows) else ""))
+                if nvl_table_rows
+                else (re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text).group(1).upper()
+                      if re.search(r"\b(?:station|tram)\s*[:=]?\s*([a-z0-9_-]+)", norm_text) else "")
+            ),
+            "uom": (
+                "PC" if nvl_table_rows
+                else (re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text).group(1).upper()
+                      if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else "")
+            ),
             "year": (re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
                      if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text) else ""),
             "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)),
-            "explicitWriteIntent": best_intent == "ATT_MIGO",
-            "executionMode": "WRITE_PREVIEW" if (best_intent == "ATT_MIGO" and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text))) else ("WRITE_LIVE" if best_intent == "ATT_MIGO" else "READ_ONLY")
+            "explicitWriteIntent": best_intent in ("ATT_MIGO", "RA_DON_NVL"),
+            "executionMode": (
+                "WRITE_PREVIEW" if (best_intent in ("ATT_MIGO", "RA_DON_NVL") and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)))
+                else ("WRITE_LIVE" if best_intent in ("ATT_MIGO", "RA_DON_NVL") else "READ_ONLY")
+            )
         })
         return meta
 

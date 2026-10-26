@@ -352,3 +352,93 @@ class NvlService:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("UPDATE nvl_plans SET status='CANCELLED' WHERE plan_id=? AND status IN ('DRAFT','LOCAL_RESERVED','EXPIRED')", (plan_id,))
             conn.execute("UPDATE nvl_reservations SET status='RELEASED' WHERE plan_id=? AND status IN ('ACTIVE','EXPIRED','REVIEW_REQUIRED')", (plan_id,))
+
+    @classmethod
+    def group_into_ob_groups(
+        cls,
+        allocated_items: List[Dict[str, Any]],
+        shortages: Optional[List[Dict[str, Any]]] = None,
+        delivery_no: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Gom cụm theo Trạm/Zone và cộng dồn các dòng phân bổ NVL thành các nhóm OB (OB1, OB2, ...).
+        - Đánh số nhóm OB rút gọn: 'OB1', 'OB2', ... (chuẩn 3 ký tự).
+        - Gán số chứng từ Outbound Delivery (10xxxxxxxx, VD: 1012924052) hoặc mô phỏng.
+        - Cộng dồn số lượng nếu trùng (nhóm OB, Trạm, Mã NVL, Batch, Bin).
+        - Thêm các dòng cảnh báo nếu có thiếu tồn (Shortage).
+        """
+        results: List[Dict[str, Any]] = []
+        if not allocated_items and not shortages:
+            return results
+
+        # 1. Đánh số nhóm OB theo Trạm / Cụm Zone
+        station_to_ob: Dict[str, str] = {}
+        ob_counter = 1
+        for item in allocated_items:
+            station = str(item.get("station") or "KV-LINE").strip()
+            if station not in station_to_ob:
+                station_to_ob[station] = f"OB{ob_counter}"
+                ob_counter += 1
+
+        # 2. Cộng dồn các dòng có cùng (OB group, Trạm, Mã NVL, Batch, Bin)
+        consolidated: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
+        for item in allocated_items:
+            st = str(item.get("station") or "KV-LINE").strip()
+            ob_tag = station_to_ob.get(st, f"OB{ob_counter}")
+            mat = str(item.get("material") or "").strip().upper()
+            batch = str(item.get("batch") or "-").strip().upper()
+            bin_no = str(item.get("bin") or "-").strip().upper()
+            qty = Decimal(str(item.get("allocated_qty", 0)))
+            unit = str(item.get("unit") or "PC").strip().upper()
+            key = (ob_tag, st, mat, batch, bin_no)
+            if key not in consolidated:
+                deliv_str = str(delivery_no or "---")
+                is_sim = "Mô phỏng" in deliv_str or not delivery_no
+                status_text = "✅ Đã tạo OB" if (delivery_no and not is_sim) else ("✅ Mô phỏng OB" if delivery_no else "✅ Sẵn sàng")
+                consolidated[key] = {
+                    "stt": ob_tag,
+                    "delivery_no": deliv_str,
+                    "material": mat,
+                    "allocated_qty": qty,
+                    "batch": batch,
+                    "bin": bin_no,
+                    "station": st,
+                    "unit": unit,
+                    "status": status_text,
+                    "hsd": item.get("hsd", ""),
+                    "gr_date": item.get("gr_date", "")
+                }
+            else:
+                consolidated[key]["allocated_qty"] += qty
+
+        for row in consolidated.values():
+            q_val = float(row["allocated_qty"])
+            row["allocated_qty"] = int(q_val) if q_val.is_integer() else q_val
+            results.append(row)
+
+        # 3. Bổ sung các dòng thiếu tồn (Shortages) nếu có
+        for s in (shortages or []):
+            st = str(s.get("station") or "KV-LINE").strip()
+            ob_tag = station_to_ob.get(st, f"OB{ob_counter}")
+            mat = str(s.get("material") or "").strip().upper()
+            short_qty = s.get("shortage_qty", 0)
+            req_qty = s.get("requested_qty", 0)
+            alloc_qty = s.get("allocated_qty", 0)
+            q_display = int(short_qty) if isinstance(short_qty, (int, float)) and float(short_qty).is_integer() else short_qty
+            a_display = int(alloc_qty) if isinstance(alloc_qty, (int, float)) and float(alloc_qty).is_integer() else alloc_qty
+            r_display = int(req_qty) if isinstance(req_qty, (int, float)) and float(req_qty).is_integer() else req_qty
+            results.append({
+                "stt": ob_tag,
+                "delivery_no": "---",
+                "material": mat,
+                "allocated_qty": f"Thiếu {q_display}",
+                "batch": "---",
+                "bin": "---",
+                "station": st,
+                "unit": s.get("unit", "PC"),
+                "status": f"⚠️ Thiếu tồn ({a_display}/{r_display})",
+                "hsd": "",
+                "gr_date": ""
+            })
+
+        return results

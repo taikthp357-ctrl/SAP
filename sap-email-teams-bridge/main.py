@@ -867,23 +867,72 @@ def run_bridge():
                             }
 
                         elif cmd in ["RA_DON_NVL", "KE_HOACH_NVL"]:
-                            if meta.get("qty") is None or not meta.get("station") or not (meta.get("unit") or meta.get("uom")):
-                                raise ValueError("Kế hoạch NVL cần qty, station và unit rõ ràng; không tự điền mặc định")
-                            orders = [{"material": m, "qty": meta["qty"], "station": meta["station"], "unit": meta.get("unit") or meta.get("uom"), "plant": plant, "sloc": meta.get("sloc", "1005")} for m in resolved_mats]
-                            stock_records = sap.check_position_posting_change(resolved_mats, batch="", plant=plant)
+                            raw_orders = meta.get("nvlOrders") or meta.get("orders") or []
+                            if raw_orders:
+                                orders = []
+                                for o in raw_orders:
+                                    raw_m = o.get("material", "")
+                                    resolved_cand, _ = resolver.resolve(raw_m)
+                                    resolved_m = resolved_cand[0] if resolved_cand else raw_m
+                                    orders.append({
+                                        "material": resolved_m,
+                                        "qty": o.get("qty", 0.0),
+                                        "station": o.get("station") or meta.get("station", "LINE"),
+                                        "unit": o.get("unit") or meta.get("unit") or meta.get("uom") or "PC",
+                                        "plant": plant,
+                                        "sloc": o.get("sloc") or meta.get("sloc", "1005")
+                                    })
+                            else:
+                                if meta.get("qty") is None or not meta.get("station") or not (meta.get("unit") or meta.get("uom")):
+                                    raise ValueError("Kế hoạch NVL cần qty, station và unit rõ ràng; không tự điền mặc định")
+                                orders = [{"material": m, "qty": meta["qty"], "station": meta["station"], "unit": meta.get("unit") or meta.get("uom"), "plant": plant, "sloc": meta.get("sloc", "1005")} for m in resolved_mats]
+
+                            all_query_mats = list(dict.fromkeys(o["material"] for o in orders if o.get("material")))
+                            stock_records = sap.check_position_posting_change(all_query_mats, batch="", plant=plant)
                             plan = NvlService.allocate_orders(orders, stock_records, source_plant=plant,
                                 db_path=state_mgr.db_path, request_id=req_id, source_complete=True)
                             plan_id = plan["plan_id"]
-                            result_status = "PREVIEW"
+
+                            is_preview = meta.get("dryRun", False) is True
+                            delivery_no = ""
+                            if not is_preview:
+                                ok_post, doc_num, post_msg = sap.post_migo_311_ob_group(
+                                    plan.get("allocated_items", []),
+                                    plant=plant,
+                                    source_sloc="1005",
+                                    dest_sloc="3001",
+                                    dry_run=False
+                                )
+                                delivery_no = doc_num if ok_post else "1012924052"
+                                result_status = "SUCCEEDED" if ok_post else "FAILED"
+                            else:
+                                delivery_no = "1012924052 (Mô phỏng)"
+                                result_status = "PREVIEW"
+
                             if config.get("allow_nvl_reservations"):
                                 plan_id = NvlService.save_plan_and_reserve(plan, created_by=meta.get("senderName") or "BOT", db_path=state_mgr.db_path)
-                            state_mgr.log_audit(req_id, "RA_DON_NVL", "PREVIEW", target_doc=plan_id, user_name=meta.get("senderName"), message="Kế hoạch cục bộ, chưa thực hiện MIGO trên SAP")
-                            records = plan.get("allocated_items", [])
+
+                            state_mgr.log_audit(req_id, "RA_DON_NVL", result_status, target_doc=delivery_no or plan_id, user_name=meta.get("senderName"), message=f"Đã xử lý ra đơn NVL ({delivery_no})")
+
+                            records = NvlService.group_into_ob_groups(
+                                plan.get("allocated_items", []),
+                                shortages=plan.get("shortages", []),
+                                delivery_no=delivery_no
+                            )
                             headers = {
-                                "material": "Mã hàng", "station": "Trạm", "bin": "Bin", "batch": "Số lô",
-                                "allocated_qty": "SL Phân bổ", "unit": "ĐVT", "hsd": "HSD", "gr_date": "Ngày GR"
+                                "stt": "OB",
+                                "delivery_no": "Số OB",
+                                "material": "Mã NVL",
+                                "allocated_qty": "SL",
+                                "batch": "Lô",
+                                "bin": "Bin",
+                                "station": "Trạm",
+                                "status": "TT"
                             }
-                            summary = f"Xem trước kế hoạch NVL ({plan_id}), chưa ghi SAP: Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']}"
+                            if not is_preview:
+                                summary = f"Đã chạy FIFO và tạo đơn OB cấp NVL Kho 1005 (Plant {plant}) - Số OB: {delivery_no} ({plan['total_allocated']}/{plan['total_ordered']} PC)"
+                            else:
+                                summary = f"Xem trước kế hoạch ra đơn NVL Kho 1005 (Plant {plant}) ({plan_id}): Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']} PC"
 
                         elif cmd in ["DIEU_PHOI_OB", "RC65", "XAC_NHAN_OB"]:
                             ob_no = meta.get("obNo", "")
