@@ -1930,3 +1930,126 @@ def test_open_transaction_okcd_syntax():
     assert mock_okcd.text == "/nMB52"
 
 
+def test_sap_engine_rc65_table_field_and_overview_methods():
+    """Kiểm tra SapEngine tích hợp đồng bộ kiến trúc RC65 (table_field, delivery_overview, snapshot)."""
+    engine = SapEngine.__new__(SapEngine)
+
+    class MockField:
+        def __init__(self, cid, text=""):
+            self.Id = cid
+            self.id = cid
+            self.Text = text
+            self.text = text
+
+    class MockOverviewTable:
+        def __init__(self):
+            self.Id = "wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER"
+            self.id = self.Id
+            self.VisibleRowCount = 5
+            self.RowCount = 1
+            self._children = [
+                MockField(f"{self.Id}/txtLIPS-POSNR[0,0]", "10"),
+                MockField(f"{self.Id}/txtLIPS-MATNR[1,0]", "BIW32013765AA"),
+                MockField(f"{self.Id}/txtLIPSD-G_LFIMG[2,0]", "100.000"),
+                MockField(f"{self.Id}/txtLIPS-LGORT[3,0]", "3093"),
+                MockField(f"{self.Id}/txtLIPS-CHARG[4,0]", "LOT-A1"),
+            ]
+
+        @property
+        def Children(self):
+            children_list = self._children
+            class Coll:
+                Count = len(children_list)
+                count = len(children_list)
+                def __call__(_s, idx):
+                    return children_list[idx]
+                def ElementAt(_s, idx):
+                    return children_list[idx]
+            return Coll()
+
+        def findById(self, rel_id):
+            for ch in self._children:
+                if ch.Id.endswith(rel_id):
+                    return ch
+            return None
+
+    mock_tbl = MockOverviewTable()
+    engine._find_by_id_safe = MagicMock(return_value=mock_tbl)
+    engine.session = MagicMock()
+
+    # 1. Test delivery_overview
+    ov_tbl = engine.delivery_overview()
+    assert ov_tbl is not None
+    assert ov_tbl.Id == mock_tbl.Id
+
+    # 2. Test table_field
+    pos_fld = engine.table_field(mock_tbl, "LIPS-POSNR", 0)
+    assert pos_fld is not None
+    assert pos_fld.Text == "10"
+
+    qty_fld = engine.table_field(mock_tbl, "LIPSD-G_LFIMG", 0)
+    assert qty_fld is not None
+    assert qty_fld.Text == "100.000"
+
+    # 3. Test set_table_text
+    ok = engine.set_table_text(mock_tbl, "LIPS-LGORT", 0, "3001")
+    assert ok is True
+    assert engine.table_field(mock_tbl, "LIPS-LGORT", 0).Text == "3001"
+
+    # 4. Test locate_delivery_item
+    loc = engine.locate_delivery_item(mock_tbl, "10")
+    assert loc == 0
+    assert engine.locate_delivery_item(mock_tbl, "99") == -1
+
+    # 5. Test snapshot_delivery_overview
+    snap = engine.snapshot_delivery_overview(mock_tbl)
+    assert "10" in snap
+    assert snap["10"]["material"] == "BIW32013765AA"
+    assert snap["10"]["qty"] == "100.000"
+    assert snap["10"]["sloc"] == "3001"
+    assert snap["10"]["batch"] == "LOT-A1"
+
+
+def test_resolve_grid_columns_rc65_strict_exact_locking():
+    """Kiểm tra _resolve_grid_columns khóa cứng mã kỹ thuật Lượt 0 chuẩn RC65, không bị lệch do khớp mờ."""
+    engine = SapEngine.__new__(SapEngine)
+
+    class MockColOrder:
+        def __init__(self, cols):
+            self._cols = cols
+            self.Count = len(cols)
+        def ElementAt(self, idx):
+            return self._cols[idx]
+
+    mock_alv = MagicMock()
+    mock_alv.ColumnOrder = MockColOrder([
+        "VBELN", "POSNR", "MATNR", "LFIMG", "VRKME", "LGORT", "CHARG", "KUNWE", "WBSTA"
+    ])
+    engine._get_column_caption = MagicMock(return_value="")
+
+    # Mapping với candidate đầu tiên là mã kỹ thuật chuẩn RC65
+    col_mapping = {
+        "obNo": ["VBELN", "DELIVERY"],
+        "item": ["POSNR", "ITEM"],
+        "product": ["MATNR", "MATERIAL"],
+        "qty": ["LFIMG", "QUANTITY"],
+        "unit": ["VRKME", "UNIT"],
+        "sloc": ["LGORT", "STORAGE LOCATION"],
+        "batch": ["CHARG", "BATCH"],
+        "shipTo": ["KUNWE", "SHIP TO"],
+        "gmStatus": ["WBSTA", "GM STATUS"]
+    }
+
+    resolved = engine._resolve_grid_columns(mock_alv, col_mapping)
+    assert resolved["obNo"] == "VBELN"
+    assert resolved["item"] == "POSNR"
+    assert resolved["product"] == "MATNR"
+    assert resolved["qty"] == "LFIMG"
+    assert resolved["unit"] == "VRKME"
+    assert resolved["sloc"] == "LGORT"
+    assert resolved["batch"] == "CHARG"
+    assert resolved["shipTo"] == "KUNWE"
+    assert resolved["gmStatus"] == "WBSTA"
+
+
+

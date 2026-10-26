@@ -1,15 +1,217 @@
 # -*- coding: utf-8 -*-
-"""Outbound stock preview. No SAP dispatch or confirmation is implemented."""
+"""Outbound stock preview and RC65 baseline architecture field tokens / table controls."""
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from app.nvl_service import _text, _first, validated_stock_lot
 from app.number_utils import parse_sap_decimal, format_qty_display
 
 ZERO = Decimal("0")
 
+# ==============================================================================
+# BASELINE 261010_OB_TOOL_V1_RC65 (RC65_ModuleSAP.bas) ARCHITECTURE CONSTANTS
+# ==============================================================================
+
+# Khóa cứng các field ID token theo chuẩn RC65 (tuyệt đối không quét đoán mò)
+RC65_FIELD_TOKENS = {
+    "QTY_OVERVIEW": "LIPSD-G_LFIMG",      # Số lượng xuất trên Overview Table
+    "STORAGE_LOCATION": "LIPS-LGORT",     # Kho xuất / nhập (SLoc)
+    "BATCH": "LIPS-CHARG",                # Số lô (Batch)
+    "ITEM_NO": "LIPS-POSNR",              # Số dòng giao hàng (Item)
+    "MATERIAL": "LIPS-MATNR",             # Mã vật tư / thành phẩm (Material)
+    "QTY_SPLIT": "LIPS-LFIMG",            # Số lượng trên bảng tách lô (Batch Split Table)
+    "RECEIVING_PLANT": "LIPS-UMWRK",      # Nhà máy nhận (Receiving Plant)
+    "REF_STO": "LIPS-VGBEL",              # Đơn STO tham chiếu (Reference Document)
+    "REF_STO_ITEM": "LIPS-VGPOS",         # Dòng STO tham chiếu (Reference Item)
+}
+
+# Khóa cứng mã kỹ thuật cột ALV VL06O chuẩn RC65 (OB_ReadVL06O)
+RC65_VL06O_COLUMNS = {
+    "DELIVERY": "VBELN",                  # Số đơn Outbound Delivery
+    "ITEM": "POSNR",                      # Dòng Delivery
+    "MATERIAL": "MATNR",                  # Mã vật tư / thành phẩm
+    "QTY": "LFIMG",                       # Số lượng giao hàng
+    "UOM": "VRKME",                       # Đơn vị tính bán hàng / giao hàng
+    "SLOC": "LGORT",                      # Vị trí lưu kho
+    "BATCH": "CHARG",                     # Số lô
+    "SHIP_TO": "KUNWE",                   # Nơi nhận hàng (hoặc KUNNR)
+    "GM_STATUS": "WBSTA",                 # Trạng thái xuất hàng Goods Movement (hoặc WBSTK)
+    "REF_STO": "VGBEL",                   # Số đơn STO tham chiếu
+    "CREATE_DATE": "ERDAT",               # Ngày tạo chứng từ
+}
+
+# ID và Token bảng TableControl chuẩn RC65
+RC65_TABLE_OVERVIEW_ID = (
+    "wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER"
+)
+RC65_TABLE_OVERVIEW_TOKEN = "tblSAPMV50ATC_LIPS_OVER"
+RC65_TABLE_SPLIT_TOKEN = "tblSAPMV50ATC_LIPS_CHND"
+
 
 class ObService:
+    _field_paths: Dict[str, str] = {}
+
+    @classmethod
+    def resolve_rc65_tokens(cls) -> Dict[str, str]:
+        """Trả về toàn bộ các field token đã khóa cứng theo baseline RC65."""
+        return dict(RC65_FIELD_TOKENS)
+
+    @classmethod
+    def get_table_field(cls, tbl, token: str, visible_row: int):
+        """Truy xuất control ô trong SAP TableControl theo token chuẩn RC65 (TableField).
+
+        Khóa cứng theo token relative ID (LIPSD-G_LFIMG, LIPS-LGORT, LIPS-CHARG, LIPS-POSNR, LIPS-MATNR)
+        thay vì đoán mò toạ độ hoặc chỉ số cột có thể thay đổi giữa các cấu hình màn hình SAP.
+        """
+        if tbl is None:
+            return None
+
+        tbl_id = str(getattr(tbl, "Id", getattr(tbl, "id", "")) or "")
+        cache_key = f"{tbl_id}|{token}"
+
+        if cache_key in cls._field_paths:
+            relative_prefix = cls._field_paths[cache_key]
+            rel_id = f"{relative_prefix}{visible_row}]"
+            try:
+                ch = tbl.findById(rel_id)
+                if ch is not None:
+                    return ch
+            except Exception:
+                pass
+            cls._field_paths.pop(cache_key, None)
+
+        children = getattr(tbl, "Children", getattr(tbl, "children", None))
+        if children is None:
+            return None
+
+        cnt = getattr(children, "Count", getattr(children, "count", 0))
+        target_token = f"{token.upper()}["
+
+        for i in range(cnt):
+            try:
+                ch = children(i) if callable(children) else children[i]
+            except Exception:
+                try:
+                    fn = getattr(children, "ElementAt", getattr(children, "Item", None))
+                    ch = fn(i) if callable(fn) else None
+                except Exception:
+                    continue
+
+            cid = str(getattr(ch, "Id", getattr(ch, "id", "")) or "")
+            if target_token in cid.upper():
+                at = cid.rfind("[")
+                if at != -1 and cid.endswith("]"):
+                    coord_str = cid[at + 1:-1]
+                    parts = coord_str.split(",")
+                    if len(parts) == 2:
+                        try:
+                            row_coord = int(parts[1])
+                            if row_coord == visible_row:
+                                if tbl_id and cid.startswith(tbl_id):
+                                    rel_part = cid[len(tbl_id) + 1:]
+                                    comma_idx = rel_part.rfind(",")
+                                    if comma_idx != -1:
+                                        cls._field_paths[cache_key] = rel_part[:comma_idx + 1]
+                                return ch
+                        except (ValueError, TypeError):
+                            pass
+
+        return None
+
+    @classmethod
+    def set_table_text(cls, tbl, token: str, visible_row: int, text: str) -> bool:
+        """Ghi giá trị text vào ô theo token chuẩn RC65 (SetTableText) kèm xác nhận readback."""
+        fld = cls.get_table_field(tbl, token, visible_row)
+        if fld is None:
+            return False
+        val_str = str(text or "").strip()
+        for prop in ("Text", "text"):
+            try:
+                setattr(fld, prop, val_str)
+                break
+            except Exception:
+                pass
+        readback = str(getattr(fld, "Text", getattr(fld, "text", "")) or "").strip()
+        return readback == val_str
+
+    @classmethod
+    def locate_delivery_item(cls, tbl, item_no: str, overview_index: Optional[Dict[str, Any]] = None) -> int:
+        """Định vị dòng hiển thị của item trong bảng Delivery Overview (LocateItem) theo chuẩn RC65."""
+        if tbl is None:
+            return -1
+        try:
+            visible_rows = int(getattr(tbl, "VisibleRowCount", getattr(tbl, "visibleRowCount", 15)))
+        except Exception:
+            visible_rows = 15
+
+        target_item = str(item_no).strip()
+
+        # Step 1: Kiểm tra expected row từ index nếu có
+        if overview_index and target_item in overview_index:
+            expected_abs_row = overview_index[target_item].get("abs_row", -1)
+            try:
+                pos = int(getattr(tbl.VerticalScrollbar, "Position", 0))
+                cand_row = expected_abs_row - pos
+                if 0 <= cand_row < visible_rows:
+                    fld = cls.get_table_field(tbl, RC65_FIELD_TOKENS["ITEM_NO"], cand_row)
+                    if fld is not None:
+                        val = str(getattr(fld, "Text", getattr(fld, "text", "")) or "").strip()
+                        if val.lstrip("0") == target_item.lstrip("0"):
+                            return cand_row
+            except Exception:
+                pass
+
+        # Step 2: Quét các dòng đang hiển thị
+        for r in range(visible_rows):
+            fld = cls.get_table_field(tbl, RC65_FIELD_TOKENS["ITEM_NO"], r)
+            if fld is not None:
+                val = str(getattr(fld, "Text", getattr(fld, "text", "")) or "").strip()
+                if val.lstrip("0") == target_item.lstrip("0"):
+                    return r
+        return -1
+
+    @classmethod
+    def snapshot_delivery_overview(cls, tbl, index_only: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Chụp snapshot toàn bộ các dòng trên Delivery Overview (OverviewSnapshot) chuẩn RC65."""
+        if tbl is None:
+            return {}
+
+        try:
+            visible_rows = int(getattr(tbl, "VisibleRowCount", getattr(tbl, "visibleRowCount", 15)))
+        except Exception:
+            visible_rows = 15
+
+        result = {}
+        for r in range(visible_rows):
+            fld_item = cls.get_table_field(tbl, RC65_FIELD_TOKENS["ITEM_NO"], r)
+            if fld_item is None:
+                continue
+            item_no = str(getattr(fld_item, "Text", getattr(fld_item, "text", "")) or "").strip()
+            if not item_no:
+                continue
+
+            fld_mat = cls.get_table_field(tbl, RC65_FIELD_TOKENS["MATERIAL"], r)
+            mat = str(getattr(fld_mat, "Text", getattr(fld_mat, "text", "")) or "").strip() if fld_mat else ""
+
+            row_data = {
+                "item_no": item_no,
+                "material": mat,
+                "abs_row": r
+            }
+
+            if not index_only:
+                fld_qty = cls.get_table_field(tbl, RC65_FIELD_TOKENS["QTY_OVERVIEW"], r)
+                fld_sloc = cls.get_table_field(tbl, RC65_FIELD_TOKENS["STORAGE_LOCATION"], r)
+                fld_batch = cls.get_table_field(tbl, RC65_FIELD_TOKENS["BATCH"], r)
+
+                row_data["qty"] = str(getattr(fld_qty, "Text", getattr(fld_qty, "text", "")) or "").strip() if fld_qty else ""
+                row_data["sloc"] = str(getattr(fld_sloc, "Text", getattr(fld_sloc, "text", "")) or "").strip() if fld_sloc else ""
+                row_data["batch"] = str(getattr(fld_batch, "Text", getattr(fld_batch, "text", "")) or "").strip() if fld_batch else ""
+
+            result[item_no.lstrip("0")] = row_data
+
+        return result
     @classmethod
     def validate_whole_batch_gate(cls, delivery_no, delivery_items, stock_records,
                                   source_complete=False, source_plant=None, source_sloc=None):

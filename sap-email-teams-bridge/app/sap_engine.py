@@ -23,6 +23,14 @@ import win32com.client
 
 from app.number_utils import parse_sap_float, format_qty_display, parse_sap_datetime_sort_key
 from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
+from app.ob_service import (
+    ObService,
+    RC65_FIELD_TOKENS,
+    RC65_VL06O_COLUMNS,
+    RC65_TABLE_OVERVIEW_ID,
+    RC65_TABLE_OVERVIEW_TOKEN,
+    RC65_TABLE_SPLIT_TOKEN,
+)
 
 SAP_LOGON_PATH = r"C:\Program Files (x86)\SAP\FrontEnd\SAPgui\saplogon.exe"
 SAP_CONNECTION_NAME = ""
@@ -285,6 +293,34 @@ class SapEngine:
             return None
         return UI_CACHE.resolve_element(self.session, key_alias=element_name, field_name=element_name, element_type=element_type, window=window)
 
+    def table_field(self, tbl, token: str, visible_row: int):
+        """Truy xuất control ô trong TableControl theo token relative ID chuẩn RC65 (TableField)."""
+        return ObService.get_table_field(tbl, token, visible_row)
+
+    def set_table_text(self, tbl, token: str, visible_row: int, text: str) -> bool:
+        """Ghi giá trị text vào ô TableControl theo token chuẩn RC65 (SetTableText) kèm kiểm tra readback."""
+        return ObService.set_table_text(tbl, token, visible_row, text)
+
+    def delivery_overview(self, session=None):
+        """Lấy bảng Delivery Overview trong VL02N/VL03N chuẩn RC65 (tblSAPMV50ATC_LIPS_OVER)."""
+        ses = session or self.session
+        if ses is None:
+            return None
+        tbl = self._find_by_id_safe(RC65_TABLE_OVERVIEW_ID)
+        if tbl is None:
+            tbl = self._find_by_id_safe("wnd[0]/usr/tabsTAXI_TABSTRIP_OVERVIEW/tabpT\01/ssubSUBSCREEN_BODY:SAPMV50A:1102/tblSAPMV50ATC_LIPS_OVER")
+        if tbl is None:
+            tbl = self._find_by_id_safe(f"wnd[0]/usr/{RC65_TABLE_OVERVIEW_TOKEN}")
+        return tbl
+
+    def locate_delivery_item(self, tbl, item_no: str, overview_index: Optional[Dict[str, Any]] = None) -> int:
+        """Định vị dòng hiển thị của item trong bảng Delivery Overview (LocateItem) chuẩn RC65."""
+        return ObService.locate_delivery_item(tbl, item_no, overview_index)
+
+    def snapshot_delivery_overview(self, tbl, index_only: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Chụp snapshot toàn bộ các dòng trên Delivery Overview (OverviewSnapshot) chuẩn RC65."""
+        return ObService.snapshot_delivery_overview(tbl, index_only)
+
     def _get_status(self) -> Tuple[str, str]:
         """Đọc thông điệp và kiểu trạng thái từ StatusBar (wnd[0]/sbar) như modSAPCore."""
         try:
@@ -444,18 +480,28 @@ class SapEngine:
         print(f"[SAP ALV] Bảng có {col_count} cột. Đang phân giải tự động...")
         for out_key, candidates in column_mapping.items():
             matched_col = None
+
+            # Lượt 0: Khóa cứng theo mã kỹ thuật chuẩn RC65 (nếu candidate đầu tiên khớp trực tiếp tech_cols)
+            if candidates:
+                primary = str(candidates[0]).strip().upper()
+                for tc in tech_cols:
+                    if tc.upper() == primary:
+                        matched_col = tc
+                        break
+
             cand_norms = [self._normalize_header(c) for c in candidates if self._normalize_header(c)]
 
             # Lượt 1: Khớp chính xác (Exact match) mã kỹ thuật hoặc Caption
-            for tc in tech_cols:
-                tc_norm = self._normalize_header(tc)
-                cap_norm = self._normalize_header(col_captions.get(tc, ""))
-                for cn in cand_norms:
-                    if cn == tc_norm or cn == cap_norm:
-                        matched_col = tc
+            if not matched_col:
+                for tc in tech_cols:
+                    tc_norm = self._normalize_header(tc)
+                    cap_norm = self._normalize_header(col_captions.get(tc, ""))
+                    for cn in cand_norms:
+                        if cn == tc_norm or cn == cap_norm:
+                            matched_col = tc
+                            break
+                    if matched_col:
                         break
-                if matched_col:
-                    break
 
             # Lượt 2: Khớp mờ (Fuzzy contains) cho các tiêu đề có ý nghĩa (>= 4 ký tự)
             if not matched_col:
@@ -4101,7 +4147,8 @@ class SapEngine:
                         except Exception:
                             pass
                     c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
-                    if "BATCH" in c_title and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")):
+                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
+                    if ("BATCH" in c_title or c_name == "GOITEM-CHARG") and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and c_name != "GOITEM-UMCHA":
                         batch_col = c_i
                         break  # Dừng ngay tại cột đầu tiên theo chuẩn VBA V31!
 
@@ -4122,7 +4169,8 @@ class SapEngine:
                         except Exception:
                             pass
                     c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
-                    if c_title == "OK":
+                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
+                    if c_title == "OK" or c_name == "GOITEM-TAKE_IT":
                         ok_col = c_i
                         break
             except Exception as col_err:
@@ -4130,7 +4178,7 @@ class SapEngine:
 
             print(f"[SAP MIGO] Cột chốt chuẩn Excel V31: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
 
-            # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Coordinate fallback)
+            # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Token TableField + Coordinate fallback)
             def _set_cell(table_ctl, row_no, col_no, value_text, label=""):
                 val_str = str(value_text or "").strip()
                 # 1. Thử qua tbl.GetCell(row_no, col_no)
@@ -4152,7 +4200,35 @@ class SapEngine:
                 except Exception:
                     pass
 
-                # 2. Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
+                # 2. Thử qua token TableField chuẩn RC65 (LIPSD/GOITEM)
+                migo_token_map = {
+                    "Material": "GOITEM-MATNR",
+                    "Qty": "GOITEM-ERFMG",
+                    "Trạm": "GOITEM-SGTXT",
+                    "Plant": "GOITEM-WERKS",
+                    "SLoc xuất": "GOITEM-LGORT",
+                    "SLoc nhận": "GOITEM-UMLGO",
+                    "Batch": "GOITEM-CHARG",
+                    "OK": "GOITEM-TAKE_IT"
+                }
+                token = migo_token_map.get(label)
+                if token:
+                    fld = self.table_field(table_ctl, token, row_no)
+                    if fld is not None:
+                        for prop in ("Text", "text"):
+                            try:
+                                setattr(fld, prop, val_str)
+                                return True
+                            except Exception:
+                                pass
+                        try:
+                            fld.SetFocus()
+                            fld.Text = val_str
+                            return True
+                        except Exception:
+                            pass
+
+                # 3. Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
                 suffix = f"[{col_no},{row_no}]"
                 def _find_by_coord(obj, depth=0):
                     if obj is None or depth > 10:
@@ -4190,7 +4266,6 @@ class SapEngine:
                         except Exception:
                             pass
 
-                print(f"[SAP MIGO WARN] Không thể điền '{label}'='{val_str}' tại row={row_no}, col={col_no}")
                 return False
 
             def _ensure_visible_row(table_ctl, logical_row):
