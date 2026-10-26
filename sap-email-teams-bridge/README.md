@@ -1,9 +1,14 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.66
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.67
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Chuẩn Hóa Điền Ô MIGO 311 2 Nhịp & Điều Khiển Chuẩn Xác Theo File VBA V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.66):**
+1. **Khắc Phục Lỗi Cú Pháp T-Code `/n/MIGO` & Minh Bạch Tiến Độ Tạo Đơn MIGO 311 (v1.0.67):**
+   - **Triệt tiêu lỗi cú pháp lệnh T-Code `/n/MIGO`:** Nâng cấp hàm `_open_transaction()` để phân biệt chuẩn giữa T-Code namespace (`/SCWM/POST`, `/SCWM/MON` ➔ `/n/SCWM/POST`) và T-Code chuẩn (`MIGO`, `CS03`, `MB52` ➔ `/nMIGO`, `/nCS03`). Khắc phục dứt điểm lỗi SAP báo *"Transaction /MIGO does not exist"* khiến MIGO bị đóng băng không thể mở màn hình.
+   - **Minh bạch hóa toàn bộ tiến trình MIGO 311 trên Console:** Loại bỏ hiện tượng im lặng khi chạy MIGO; bổ sung log chi tiết từng nhịp: nạp chế độ `A08 (Transfer Posting)` - `R10 (Other)` - `311 (Movement)`, tìm bảng `tblSAPLMIGOTV_GOITEM`, điền Nhịp 1, điền Nhịp 2 (Batch), bấm Post, và trích xuất số chứng từ từ StatusBar.
+   - **Bắt và hiển thị lỗi SAP trực tiếp:** Nếu SAP báo lỗi trên thanh StatusBar (`msg_type in ('E', 'A')`), thông tin lỗi được in ngay ra console và phản hồi minh bạch cho người dùng, không bao giờ nuốt lỗi âm thầm.
+
+2. **Chuẩn Hóa Điền Ô MIGO 311 2 Nhịp & Điều Khiển Chuẩn Xác Theo File VBA V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.66):**
    - **Điền ô chính xác bằng `GetCell()` thay vì `modifyCell()`:** Bảng nhập liệu MIGO là `GuiTableControl` nên không hỗ trợ method `modifyCell` (chỉ có trên ALV GridView). Chuyển sang cơ chế chuẩn `tbl.GetCell(row, col).Text = val` kết hợp fallback tìm đối tượng toạ độ `[col, row]` như VBA `RUN_SetGridCellMode`.
    - **Bắt chuẩn ô Movement Type `GODEFAULT_TV-BWART`:** Trực tiếp tìm kiếm control theo tên kỹ thuật `GODEFAULT_TV-BWART` (thay vì tìm nhầm `GODYNPRO-BWART`), đảm bảo MIGO kích hoạt chuẩn xác Movement Type `311`.
    - **Bổ sung cột Trạm Text (`SGTXT` / Cột 5):** Đưa thông tin Trạm (ví dụ `KV08-Thức/Vũ`) vào cột Text dòng chứng từ MIGO theo đúng thiết kế của `RUN_FillPreBatch_ByGrid`.

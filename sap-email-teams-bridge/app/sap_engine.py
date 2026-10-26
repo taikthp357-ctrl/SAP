@@ -1143,9 +1143,22 @@ class SapEngine:
         self.last_activity = time.time()
         self.last_popup_message = ""
 
-        clean_code = tcode.strip().replace("/n", "").replace("/N", "")
-        if not clean_code.startswith("/") and "/" in tcode:
-            clean_code = "/" + clean_code
+        raw = tcode.strip()
+        # Loại bỏ tiền tố /n hoặc /o nếu người dùng đã truyền sẵn
+        if raw.upper().startswith("/N"):
+            raw = raw[2:].strip()
+        elif raw.upper().startswith("/O"):
+            raw = raw[2:].strip()
+
+        # Quy tắc T-Code SAP:
+        # 1. Nếu là T-Code thuộc namespace (bắt đầu bằng / và có ít nhất 2 dấu /, ví dụ /SCWM/POST, /SCWM/MON):
+        #    giữ nguyên dấu / ở đầu để ghép thành /n/SCWM/POST.
+        # 2. Nếu là T-Code chuẩn (ví dụ MIGO, CS03, MB52, ME23N, VL06O):
+        #    loại bỏ bất kỳ dấu / nào còn sót ở đầu để ghép chuẩn thành /nMIGO, /nCS03, /nMB52.
+        if raw.startswith("/") and raw.count("/") >= 2:
+            clean_code = raw
+        else:
+            clean_code = raw.lstrip("/")
 
         okcd_command = f"/n{clean_code}"
         print(f"[SAP] Đang mở giao dịch: {okcd_command}...")
@@ -3865,7 +3878,8 @@ class SapEngine:
 
         try:
             self.ensure_session()
-            self._open_transaction("/nMIGO")
+            print("[SAP MIGO] Đang mở giao dịch MIGO để tạo đơn OB 311...")
+            self._open_transaction("MIGO")
             self._wait_idle(10.0)
 
             # Hàm tìm kiếm control đệ quy theo thuộc tính Name
@@ -3899,6 +3913,7 @@ class SapEngine:
             w0 = self._find_by_id_safe("wnd[0]")
 
             # 1. Action ComboBox: Transfer Posting (A08)
+            print("[SAP MIGO] Đang thiết lập chế độ: Transfer Posting (A08) - Other (R10) - Movement 311...")
             action_cmb = _find_by_name(w0, "GODYNPRO-ACTION")
             if action_cmb is None:
                 for sub in ["0001", "0002", "0003", "0004"]:
@@ -3988,6 +4003,7 @@ class SapEngine:
             self._wait_idle(5.0)
 
             # 4. Tìm bảng item MIGO: tblSAPLMIGOTV_GOITEM
+            print("[SAP MIGO] Đang tìm kiếm bảng nhập liệu tblSAPLMIGOTV_GOITEM...")
             def _find_migo_table(root):
                 if root is None:
                     return None
@@ -4047,7 +4063,10 @@ class SapEngine:
             if tbl is None:
                 status_txt, status_type = self._get_status()
                 err_msg = f"Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO ({status_txt})" if status_txt else "Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO"
+                print(f"[SAP MIGO ERROR] {err_msg}")
                 return False, "", err_msg
+
+            print(f"[SAP MIGO] Đã tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM. Đang phân giải cột...")
 
             # 5. Phân giải động các cột trong bảng MIGO (Chuẩn RUN_GetPreBatchColumnMap)
             # Default: Product=3, Qty=4, Text/Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=10
@@ -4176,6 +4195,7 @@ class SapEngine:
             batch_col = col_indices["batch"]
 
             # 6. Nhịp 1: Điền Material, Qty, Text (Trạm), Plant, SLoc xuất, SLoc nhận
+            print(f"[SAP MIGO] Điền Nhịp 1 ({len(ob_items)} dòng): Material, Qty, Trạm, Plant, SLoc...")
             for logical_row, item in enumerate(ob_items):
                 table_row = _ensure_visible_row(tbl, logical_row)
                 raw_qty = item.get("allocated_qty") or item.get("qty") or 0
@@ -4193,6 +4213,7 @@ class SapEngine:
                 _set_cell(tbl, table_row, src_sloc_col, item.get("source_sloc") or source_sloc or "1005")
                 _set_cell(tbl, table_row, dest_sloc_col, item.get("dest_sloc") or dest_sloc or "3001")
 
+            print("[SAP MIGO] Gửi Enter Nhịp 1...")
             w0 = self._find_by_id_safe("wnd[0]")
             if w0:
                 w0.sendVKey(0)  # Enter nhịp 1
@@ -4205,18 +4226,21 @@ class SapEngine:
             # 7. Nhịp 2: Điền số lô Batch động (nếu có lô)
             has_any_batch = any(bool(str(it.get("batch") or "").strip() and str(it.get("batch") or "").strip() != "-") for it in ob_items)
             if has_any_batch and tbl is not None:
+                print(f"[SAP MIGO] Điền Nhịp 2: Batch (cột {batch_col})...")
                 for logical_row, item in enumerate(ob_items):
                     batch_val = str(item.get("batch", "")).strip()
                     if batch_val and batch_val != "-":
                         table_row = _ensure_visible_row(tbl, logical_row)
                         _set_cell(tbl, table_row, batch_col, batch_val)
 
+                print("[SAP MIGO] Gửi Enter Nhịp 2...")
                 w0 = self._find_by_id_safe("wnd[0]")
                 if w0:
                     w0.sendVKey(0)  # Enter nhịp 2
                 self._wait_idle(5.0)
 
             # 8. Nhấn nút Post (btn[23] trên tbar[1] hoặc btn[11] trên tbar[0])
+            print("[SAP MIGO] Bấm nút Post/Save tạo chứng từ...")
             post_pressed = False
             try:
                 post_btn = self._find_by_id_safe("wnd[0]/tbar[1]/btn[23]")
@@ -4282,25 +4306,33 @@ class SapEngine:
             sbar = self._find_by_id_safe("wnd[0]/sbar")
             sbar_text = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
             msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
+            print(f"[SAP MIGO] Phản hồi StatusBar [{msg_type}]: {sbar_text}")
 
             # Bắt số chứng từ Outbound Delivery hoặc Material Document từ StatusBar
             doc_match = re.search(r"(?:OUTBOUND\s+DELIVERY|DELIVERY|DELIV\.?)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
             if doc_match:
                 doc_no = doc_match.group(1)
+                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
                 return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
 
             doc_match = re.search(r"\b(10\d{8}|49\d{8}|500\d{7}|\d{10})\b", sbar_text)
             if doc_match:
                 doc_no = doc_match.group(1)
+                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
                 return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
 
             if msg_type in ("E", "A"):
-                return False, "", f"Lỗi SAP MIGO: {sbar_text}"
+                err_msg = f"Lỗi SAP MIGO: {sbar_text}"
+                print(f"[SAP MIGO ERROR] {err_msg}")
+                return False, "", err_msg
 
             if msg_type == "S":
+                print(f"[SAP MIGO] Thao tác MIGO 311 thành công: {sbar_text}")
                 return True, "", f"Thao tác MIGO 311 thành công: {sbar_text}"
 
-            return False, "", f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ OB'}"
+            err_msg = f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ OB'}"
+            print(f"[SAP MIGO WARN] {err_msg}")
+            return False, "", err_msg
 
         except Exception as e:
             print(f"[SAP MIGO ERROR] Lỗi MIGO 311: {e}")

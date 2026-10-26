@@ -1692,3 +1692,54 @@ def test_post_migo_311_ob_group_v31_standard_mock():
     # Kiểm tra ô Batch (col 10)
     assert tbl.GetCell(0, 10).Text == "261023-15" or tbl.GetCell(0, 10).text == "261023-15"
 
+
+def test_open_transaction_okcd_syntax():
+    """Kiểm tra cú pháp T-Code: không bao giờ sinh /n/MIGO mà phải là /nMIGO; giữ nguyên /n/SCWM/POST."""
+    engine = SapEngine.__new__(SapEngine)
+    engine.ensure_session = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+
+    class MockOkcd:
+        def __init__(self):
+            self.text = ""
+
+    mock_okcd = MockOkcd()
+    mock_w0 = MagicMock()
+    mock_session = MagicMock()
+
+    def mock_find(cid):
+        if cid == "wnd[0]/tbar[0]/okcd":
+            return mock_okcd
+        if cid == "wnd[0]":
+            return mock_w0
+        return None
+
+    engine._find_by_id_safe = mock_find
+    engine.session = mock_session
+
+    # Test MIGO
+    engine._open_transaction("MIGO")
+    assert mock_okcd.text == "/nMIGO"
+
+    engine._open_transaction("/nMIGO")
+    assert mock_okcd.text == "/nMIGO"
+
+    engine._open_transaction("/MIGO")
+    assert mock_okcd.text == "/nMIGO"
+
+    # Test Namespace T-Code /SCWM/POST
+    engine._open_transaction("/SCWM/POST")
+    assert mock_okcd.text == "/n/SCWM/POST"
+
+    engine._open_transaction("/n/SCWM/POST")
+    assert mock_okcd.text == "/n/SCWM/POST"
+
+    # Test CS03, MB52
+    engine._open_transaction("CS03")
+    assert mock_okcd.text == "/nCS03"
+
+    engine._open_transaction("/nMB52")
+    assert mock_okcd.text == "/nMB52"
+
+

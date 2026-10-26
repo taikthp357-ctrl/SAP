@@ -908,6 +908,7 @@ def run_bridge():
                             delivery_no = ""
                             post_msg = ""
                             if not is_preview:
+                                print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(plan.get('allocated_items', []))} dòng NVL (Plant {plant}, 1005 -> 3001)...")
                                 ok_post, doc_num, post_msg = sap.post_migo_311_ob_group(
                                     plan.get("allocated_items", []),
                                     plant=plant,
@@ -915,6 +916,7 @@ def run_bridge():
                                     dest_sloc="3001",
                                     dry_run=False
                                 )
+                                print(f"[SAP MIGO] Kết quả tạo đơn MIGO 311: ok={ok_post} | Số chứng từ='{doc_num}' | Chi tiết: {post_msg}")
                                 delivery_no = doc_num if ok_post else ""
                                 result_status = "SUCCEEDED" if ok_post else "FAILED"
                             else:
