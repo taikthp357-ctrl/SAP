@@ -366,11 +366,14 @@ def run_bridge():
 
                     # Kiểm tra trùng lặp qua SQLite
                     msg_id = meta.get("messageId", "") if meta else ""
-                    if msg_id and state_mgr.is_message_processed(msg_id, entry_id):
-                        print(f"[DUPLICATE] {req_id} | Message ID '{msg_id}' đã xử lý thành công trước đó. Bỏ qua.")
-                        mail.UnRead = False
-                        mail.Save()
-                        move_mail_to_processed(mail, bot_folder)
+                    if (msg_id or entry_id) and state_mgr.is_message_processed(msg_id, entry_id):
+                        print(f"[DUPLICATE] {req_id} | Message ID '{msg_id or (entry_id[:12] if entry_id else '')}' đã xử lý thành công trước đó. Bỏ qua.")
+                        try:
+                            mail.UnRead = False
+                            mail.Save()
+                            move_mail_to_processed(mail, bot_folder)
+                        except Exception as out_err:
+                            pass
                         continue
 
                     if not meta or not meta.get("valid"):
@@ -385,7 +388,20 @@ def run_bridge():
                     store_id = str(getattr(getattr(mail, "Parent", None), "StoreID", "") or data_dir)
                     req_id = StateManager.request_id(store_id, msg_id, entry_id)
                     if not state_mgr.claim_request(req_id):
-                        print(f"[RECOVERY] {req_id}: kết quả đã lưu hoặc cần kiểm tra lần chạy gián đoạn; không chạy SAP lại.")
+                        claim_status = state_mgr.get_claim_status(req_id)
+                        has_outbox = state_mgr.has_outbox_result(req_id)
+                        print(f"[RECOVERY] {req_id}: kết quả đã lưu hoặc cần kiểm tra lần chạy gián đoạn (claim: {claim_status}, outbox: {has_outbox}); không chạy SAP lại.")
+                        try:
+                            mail.UnRead = False
+                            mail.Save()
+                            if claim_status == "COMPLETED" or has_outbox:
+                                move_mail_to_processed(mail, bot_folder)
+                                print(f"[RECOVERY] {req_id}: Đã chuyển thư sang thư mục 'Processed'.")
+                            else:
+                                move_mail_to_failed(mail, bot_folder)
+                                print(f"[RECOVERY] {req_id}: Đã chuyển thư sang thư mục 'Failed' để chờ đối soát / tránh lặp vô tận.")
+                        except Exception as move_err:
+                            print(f"[OUTLOOK WARN] Bỏ qua lỗi chuyển thư recovery: {move_err}")
                         continue
                     cmd = meta["command"]
                     raw_mats = meta["materials"]

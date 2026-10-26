@@ -70,3 +70,28 @@ def test_outbox_max_attempts_exceeded(temp_state_mgr):
     # Đã vượt quá 3 lần, không được trả về trong pending nữa
     pending = mgr.get_pending_outbox(max_attempts=3)
     assert len(pending) == 0
+
+
+def test_claim_request_lifecycle_and_helpers(temp_state_mgr):
+    mgr = temp_state_mgr
+    req_id = "REF-2aef3802b46b52f69f1e112008ac2ae8"
+
+    assert mgr.get_claim_status(req_id) is None
+    assert not mgr.has_outbox_result(req_id)
+
+    # Claim lần đầu -> thành công (RUNNING)
+    assert mgr.claim_request(req_id) is True
+    assert mgr.get_claim_status(req_id) == "RUNNING"
+
+    # Claim lần 2 -> thất bại vì đã claim
+    assert mgr.claim_request(req_id) is False
+
+    # Giả lập worker bị ngắt đột ngột và gọi recover_interrupted
+    mgr.recover_interrupted()
+    assert mgr.get_claim_status(req_id) == "RECOVERY_REQUIRED"
+
+    # Hoàn tất request và lưu outbox
+    mgr.complete_request("MSG-REC", "ENTRY-REC", req_id, "VITRI", "SUCCEEDED", "https://flow.test", {"status": "OK"})
+    assert mgr.get_claim_status(req_id) == "COMPLETED"
+    assert mgr.has_outbox_result(req_id) is True
+    assert mgr.is_message_processed("MSG-REC", "ENTRY-REC") is True

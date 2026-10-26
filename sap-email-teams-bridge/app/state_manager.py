@@ -159,6 +159,16 @@ class StateManager:
             result = conn.execute("INSERT OR IGNORE INTO request_claims VALUES(?,'RUNNING',?)", (req_id,datetime.now().isoformat()))
             return result.rowcount == 1
 
+    def get_claim_status(self, req_id: str):
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT status FROM request_claims WHERE request_id=?", (req_id,)).fetchone()
+            return row["status"] if row else None
+
+    def has_outbox_result(self, req_id: str) -> bool:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT 1 FROM outbox_queue WHERE req_id=?", (req_id,)).fetchone()
+            return row is not None
+
     def recover_interrupted(self):
         with self._get_connection() as conn:
             conn.execute("UPDATE request_claims SET status='RECOVERY_REQUIRED' WHERE status='RUNNING'")
