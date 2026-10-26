@@ -858,3 +858,96 @@ def test_multi_tab_session_identity_and_eligibility():
     ok_bad, msg_bad = runner.verify_session_identity(mock_session_bad)
     assert ok_bad is False
     assert msg_bad == "SESSION_IDENTITY_MISMATCH"
+
+
+
+def test_deduplicate_files_by_content_and_claim_matching():
+    """Kiểm tra tính năng loại bỏ file trùng lặp nội dung và thuật toán so khớp SAP GOS Claim-based."""
+    import tempfile
+    from app.sap_attachment import deduplicate_files_by_content, match_files_to_sap
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        # Tạo 2 file có nội dung y hệt nhau (duplicate)
+        f_dup1 = tmp_path / "VAT_5122.pdf"
+        f_dup2 = tmp_path / "VAT 5122.pdf"
+        f_dup1.write_bytes(b"SAME_CONTENT_12345")
+        f_dup2.write_bytes(b"SAME_CONTENT_12345")
+
+        # Tạo file thứ 3 có nội dung khác (distinct)
+        f_diff = tmp_path / "VAT 5122(1).pdf"
+        f_diff.write_bytes(b"DIFFERENT_CONTENT_67890")
+
+        # Deduplication check
+        deduped = deduplicate_files_by_content([f_dup1, f_dup2, f_diff])
+        assert len(deduped) == 2
+        assert f_diff in deduped
+        assert (f_dup1 in deduped) or (f_dup2 in deduped)
+
+        # Claim matching check: SAP đã có sẵn 'VAT_5122'
+        sap_titles = ["VAT_5122"]
+        to_upload, already_on_sap, unclaimed = match_files_to_sap(
+            deduped, sap_titles, ticket_nums=["5122"], file_type="vat"
+        )
+        # File f_diff (VAT 5122(1)) chưa có trên SAP -> phải nằm trong to_upload
+        assert len(to_upload) == 1
+        assert to_upload[0].name == "VAT 5122(1).pdf"
+        # File f_dup1 đã có trên SAP
+        assert len(already_on_sap) == 1
+        assert already_on_sap[0][1] == "VAT_5122"
+
+
+def test_incremental_multi_vat_attachment():
+    """Kiểm tra kịch bản đính kèm lũy kế: DOC đã có sẵn 1 VAT trên SAP, đính thêm file VAT thứ 2."""
+    import tempfile
+    from unittest.mock import MagicMock
+    from app.sap_attachment import MigoAttachmentRunner
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        f1 = tmp_path / "VAT_5122.pdf"
+        f2 = tmp_path / "VAT 5122(1).pdf"
+        f_bb = tmp_path / "BBBG 5122.pdf"
+        f1.write_bytes(b"VAT1")
+        f2.write_bytes(b"VAT2")
+        f_bb.write_bytes(b"BBBG")
+
+        mock_sap = MagicMock()
+        mock_session = MagicMock()
+        mock_session.Info.SystemName = "PRD"
+        mock_session.Info.Client = "100"
+        mock_session.Info.User = "TEST_USER"
+        mock_session.Info.Transaction = "MIGO"
+        mock_session.Id = "/app/con[0]/ses[0]"
+        mock_session.Busy = False
+        mock_sap.ensure_session.return_value = mock_session
+
+        runner = MigoAttachmentRunner(mock_sap)
+        runner.open_migo_document = lambda session, doc, year=None, mode="CHANGE": (True, "OK")
+        # Giả lập SAP đã có sẵn file 'VAT_5122' và 'BBBG 5122'
+        runner.read_sap_attachment_titles = lambda session: ["VAT_5122", "BBBG 5122"]
+
+        uploaded_files = []
+        def mock_attach(session, file_path):
+            uploaded_files.append(file_path.name)
+            return True, f"DONE_SAP_READBACK: {file_path.name}"
+        runner.attach_file_to_current_migo = mock_attach
+
+        res = runner.process_attachment_batch(
+            folder_path=str(tmp_path),
+            items=[{"doc": "5007145690", "ticket_no": "5122", "year": "2026"}],
+            fill_headtext=False,
+            dry_run=False
+        )
+
+        assert len(res["results"]) == 1
+        r0 = res["results"][0]
+        # File BBBG 5122 đã có sẵn -> không upload lại
+        assert "BBBG 5122.pdf" not in uploaded_files
+        # File VAT_5122 đã có sẵn -> không upload lại
+        assert "VAT_5122.pdf" not in uploaded_files
+        # File VAT 5122(1).pdf chưa có -> ĐƯỢC UPLOAD THÊM!
+        assert "VAT 5122(1).pdf" in uploaded_files
+        assert r0["vat_status"] == "DONE (Đính thêm 1, đã có 1)"
+        assert r0["overall_status"] == "DONE"
+        assert res["total_success"] == 1

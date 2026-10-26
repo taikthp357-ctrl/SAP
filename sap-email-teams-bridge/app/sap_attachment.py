@@ -519,6 +519,131 @@ def format_status_label(ticket_no: str, is_success: bool) -> str:
     return "DONE"
 
 
+def deduplicate_files_by_content(file_paths: List[Path]) -> List[Path]:
+    """Loại bỏ các file trùng lặp nội dung 100% (cùng dung lượng và mã hash SHA256).
+    Giữ lại file đầu tiên gặp. Nếu file không tồn tại trên đĩa (mock/test), giữ nguyên."""
+    if not file_paths:
+        return []
+    seen_hashes = set()
+    unique_files = []
+    for p in file_paths:
+        try:
+            if not p.is_file():
+                unique_files.append(p)
+                continue
+            size = p.stat().st_size
+            import hashlib
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            file_hash = (size, h.hexdigest())
+            if file_hash not in seen_hashes:
+                seen_hashes.add(file_hash)
+                unique_files.append(p)
+            else:
+                print(f"[DEDUP] Bỏ qua file trùng lặp nội dung: {p.name}")
+        except Exception:
+            unique_files.append(p)
+    return unique_files
+
+
+def match_files_to_sap(
+    local_files: List[Path],
+    sap_titles: List[str],
+    ticket_nums: Optional[List[str]] = None,
+    file_type: str = "vat"
+) -> Tuple[List[Path], List[Tuple[Path, str]], List[str]]:
+    """So khớp danh sách file local với danh sách tiêu đề file đã có trên SAP GOS.
+    Áp dụng thuật toán Claim-based matching:
+    - Pass 1: Khớp chính xác stem hoặc full name.
+    - Pass 2: Khớp compact (ví dụ 'vat_5122' khớp 'vat 5122').
+    - Pass 3: Khớp cùng số phiếu + cùng loại file + cùng chỉ mục phụ (extra_digits).
+
+    Mỗi tiêu đề trên SAP chỉ được claim bởi tối đa 1 file local.
+    Trả về: (to_upload, already_on_sap, unclaimed_sap_titles)
+    """
+    if not local_files:
+        return [], [], list(sap_titles or [])
+    if not sap_titles:
+        return list(local_files), [], []
+
+    unclaimed_sap = list(sap_titles)
+    to_upload: List[Path] = []
+    already_on_sap: List[Tuple[Path, str]] = []
+
+    def get_info(s: str):
+        stem = Path(s).stem.casefold()
+        norm = normalize_text(stem)
+        compact = re.sub(r"[^a-z0-9]+", "", norm)
+        nums = set(re.findall(r"\d{3,10}", norm))
+        cleaned = norm
+        if ticket_nums:
+            for tn in ticket_nums:
+                cleaned = cleaned.replace(tn, "")
+        extra_digits = re.findall(r"\d+", cleaned)
+        return stem, norm, compact, nums, extra_digits
+
+    # Pass 1: Khớp chính xác stem hoặc full name
+    remaining_local: List[Path] = []
+    for p in local_files:
+        p_stem, p_norm, p_compact, p_nums, p_extra = get_info(p.name)
+        matched_idx = None
+        for i, t in enumerate(unclaimed_sap):
+            t_stem, t_norm, t_compact, t_nums, t_extra = get_info(t)
+            if p_stem == t_stem or p.name.casefold() == t.casefold():
+                matched_idx = i
+                break
+        if matched_idx is not None:
+            claimed_title = unclaimed_sap.pop(matched_idx)
+            already_on_sap.append((p, claimed_title))
+        else:
+            remaining_local.append(p)
+
+    # Pass 2: Khớp compact (ví dụ 'vat_5122' khớp 'vat 5122')
+    remaining_pass2: List[Path] = []
+    for p in remaining_local:
+        p_stem, p_norm, p_compact, p_nums, p_extra = get_info(p.name)
+        matched_idx = None
+        for i, t in enumerate(unclaimed_sap):
+            t_stem, t_norm, t_compact, t_nums, t_extra = get_info(t)
+            if p_compact == t_compact:
+                matched_idx = i
+                break
+        if matched_idx is not None:
+            claimed_title = unclaimed_sap.pop(matched_idx)
+            already_on_sap.append((p, claimed_title))
+        else:
+            remaining_pass2.append(p)
+
+    # Pass 3: Khớp theo số phiếu + loại file + extra_digits
+    for p in remaining_pass2:
+        p_stem, p_norm, p_compact, p_nums, p_extra = get_info(p.name)
+        matched_idx = None
+        for i, t in enumerate(unclaimed_sap):
+            t_stem, t_norm, t_compact, t_nums, t_extra = get_info(t)
+            type_match = False
+            if file_type == "vat":
+                type_match = bool(VAT_REGEX.search(t_norm))
+            elif file_type == "bbbg":
+                type_match = bool(BBBG_REGEX.search(t_norm))
+            elif file_type == "mail":
+                type_match = bool(MAIL_REGEX.search(t_norm))
+            else:
+                type_match = True
+
+            if type_match and (p_nums and p_nums == t_nums) and (p_extra == t_extra):
+                matched_idx = i
+                break
+        if matched_idx is not None:
+            claimed_title = unclaimed_sap.pop(matched_idx)
+            already_on_sap.append((p, claimed_title))
+        else:
+            to_upload.append(p)
+
+    return to_upload, already_on_sap, unclaimed_sap
+
+
 def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
     """Bóc tách danh sách chứng từ và số phiếu từ nội dung email hoặc tin nhắn Teams.
     
@@ -883,9 +1008,9 @@ class MigoAttachmentRunner:
                 vat_files = fallback
 
         return {
-            "bbbg": bbbg_files,
-            "vat": vat_files,
-            "mail": mail_files
+            "bbbg": deduplicate_files_by_content(bbbg_files),
+            "vat": deduplicate_files_by_content(vat_files),
+            "mail": deduplicate_files_by_content(mail_files)
         }
 
     @classmethod
@@ -1596,49 +1721,73 @@ class MigoAttachmentRunner:
                 if fill_headtext and ticket_no:
                     headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no)
 
-                # 2. Đính kèm file BBBG
+                ticket_nums, _ = extract_search_tokens(ticket_no)
+
+                # 2. Đính kèm file BBBG (hỗ trợ lũy kế nhiều file BBBG)
                 b_ok = False
-                if sap_bbbg:
+                to_upload_bb, already_bb, _ = match_files_to_sap(bbbg_paths, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
+
+                if not to_upload_bb and already_bb:
                     b_ok = True
-                    bbbg_res = "DONE"
-                    print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
-                elif bbbg_paths:
+                    bbbg_res = f"DONE ({len(already_bb)} file đã có sẵn trên SAP)" if len(already_bb) > 1 else "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ({len(already_bb)} file), bỏ qua upload lại.")
+                elif to_upload_bb:
                     succ_bb = []
                     fail_bb = []
-                    for bp in bbbg_paths:
+                    for bp in to_upload_bb:
                         ok_b, msg_b = self.attach_file_to_current_migo(session, bp)
                         if ok_b:
                             succ_bb.append(bp.name)
                         else:
                             fail_bb.append(f"{bp.name}: {msg_b}")
-                    if succ_bb:
+                    if succ_bb or already_bb:
                         b_ok = True
-                        bbbg_res = f"DONE ({len(succ_bb)})" if len(succ_bb) > 1 else "DONE"
+                        if already_bb and succ_bb:
+                            bbbg_res = f"DONE (Đính thêm {len(succ_bb)}, đã có {len(already_bb)})"
+                        elif len(succ_bb) > 1:
+                            bbbg_res = f"DONE ({len(succ_bb)})"
+                        else:
+                            bbbg_res = "DONE"
                     else:
                         bbbg_res = f"Lỗi: {'; '.join(fail_bb)}"
+                elif sap_bbbg:
+                    b_ok = True
+                    bbbg_res = "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: BBBG đã có sẵn trên SAP ('{sap_bbbg}'), bỏ qua upload lại.")
                 else:
                     bbbg_res = "FILE_NOT_FOUND"
 
-                # 3. Đính kèm file VAT (hỗ trợ 1 hoặc nhiều file VAT)
+                # 3. Đính kèm file VAT (hỗ trợ lũy kế nhiều file VAT)
                 v_ok = False
-                if sap_vat:
+                to_upload_vat, already_vat, _ = match_files_to_sap(vat_paths, sap_titles, ticket_nums=ticket_nums, file_type="vat")
+
+                if not to_upload_vat and already_vat:
                     v_ok = True
-                    vat_res = "DONE"
-                    print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
-                elif vat_paths:
+                    vat_res = f"DONE ({len(already_vat)} file đã có sẵn trên SAP)" if len(already_vat) > 1 else "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ({len(already_vat)} file), bỏ qua upload lại.")
+                elif to_upload_vat:
                     succ_vat = []
                     fail_vat = []
-                    for vp in vat_paths:
+                    for vp in to_upload_vat:
                         ok_v, msg_v = self.attach_file_to_current_migo(session, vp)
                         if ok_v:
                             succ_vat.append(vp.name)
                         else:
                             fail_vat.append(f"{vp.name}: {msg_v}")
-                    if succ_vat:
+                    if succ_vat or already_vat:
                         v_ok = True
-                        vat_res = f"DONE ({len(succ_vat)})" if len(succ_vat) > 1 else "DONE"
+                        if already_vat and succ_vat:
+                            vat_res = f"DONE (Đính thêm {len(succ_vat)}, đã có {len(already_vat)})"
+                        elif len(succ_vat) > 1:
+                            vat_res = f"DONE ({len(succ_vat)})"
+                        else:
+                            vat_res = "DONE"
                     else:
                         vat_res = f"Lỗi: {'; '.join(fail_vat)}"
+                elif sap_vat:
+                    v_ok = True
+                    vat_res = "DONE"
+                    print(f"[ATT RUNNER] DOC {doc}: VAT đã có sẵn trên SAP ('{sap_vat}'), bỏ qua upload lại.")
                 else:
                     vat_res = "FILE_NOT_FOUND"
 
@@ -1690,8 +1839,8 @@ class MigoAttachmentRunner:
             "ticket_no": ticket_no,
             "headtext_status": headtext_res,
             "headtext_msg": headtext_msg,
-            "bbbg_file": ", ".join(p.name for p in bbbg_paths) if bbbg_paths else None,
-            "vat_file": ", ".join(p.name for p in vat_paths) if vat_paths else None,
+            "bbbg_file": ", ".join(p.name for p in bbbg_paths) if bbbg_paths else (sap_bbbg if sap_bbbg else None),
+            "vat_file": ", ".join(p.name for p in vat_paths) if vat_paths else (sap_vat if sap_vat else None),
             "mail_file": mail_paths[0].name if mail_paths else None,
             "bbbg_status": bbbg_res,
             "vat_status": vat_res,

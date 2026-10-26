@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.59
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.60
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Triệt tiêu lỗi `ATTACHMENT_UNCERTAIN` & Khớp linh hoạt Tiêu đề SAP GOS (v1.0.59):**
+1. **Đính kèm Lũy Kế Đa Hóa Đơn (Multi-VAT & Incremental Upload) & Lọc Trùng Lặp Thông Minh (v1.0.60):**
+   - **Xử lý trọn vẹn nghiệp vụ "Att thêm 1 VAT nữa":** Loại bỏ hoàn toàn cơ chế kiểm tra nhị phân cũ (`if sap_vat: skip`). Khi một chứng từ DOC đã có sẵn 1 file VAT trên SAP GOS (như `VAT_5122`), hệ thống áp dụng thuật toán *Claim-based Matching* để so khớp từng file local với từng file trên SAP GOS. Các file VAT mới hoặc hóa đơn bổ sung (như `VAT 5122(1).pdf`, `VAT 1213.pdf`, hoặc file VAT của mã hàng thứ hai trong DOC) sẽ **được tự động đính thêm vào ngay** mà không bị bỏ qua.
+   - **Lọc trùng lặp file vật lý bằng Content Hash (SHA-256):** Tự động phát hiện và loại trừ các bản sao trùng lặp 100% nội dung (như người dùng vô tình copy hoặc đổi tên giữa `VAT_5122.pdf` và `VAT 5122.pdf`) trước khi tải lên, ngăn ngừa triệt để rác cơ sở dữ liệu SAP GOS. Đồng thời, giữ lại và tải lên đầy đủ khi hai file có nội dung hoặc dung lượng khác nhau.
+   - **Nhận diện toàn diện các biến thể tên file theo số phiếu:** Bắt chuẩn xác mọi cách đặt tên file theo số phiếu HeadText của nhân sự kho: `VAT_5122.pdf`, `VAT 5122.pdf`, `VAT 5122(1).pdf`, `VAT_5122(1).pdf`, `VAT 5122_1.pdf`, `VAT_5122_1234.pdf`, v.v.
+   - **Báo cáo chi tiết & minh bạch trên Teams:** Phản hồi rõ ràng số lượng file đã có và số lượng file được đính thêm (ví dụ: `DONE (Đính thêm 1, đã có 1)`).
+
+2. **Triệt tiêu lỗi `ATTACHMENT_UNCERTAIN` & Khớp linh hoạt Tiêu đề SAP GOS (v1.0.59):**
    - **Khắc phục chênh lệch đuôi mở rộng giữa Local và SAP GOS:** Khi tải lên file `VAT 5319.pdf`, SAP GOS lưu tiêu đề vào cột Title dưới dạng `VAT 5319` (không kèm đuôi `.pdf`, loại tệp được lưu riêng ở cột `Typ`). Cơ chế kiểm tra sau đính kèm (Readback Verification) trong [`sap_attachment.py`](file:///G:/SAP/sap-email-teams-bridge/app/sap_attachment.py) được nâng cấp so sánh đa tầng (khớp tên file, khớp tên gốc `stem`, khớp chuỗi chuẩn hóa `normalize_text` và công nhận tín hiệu thành công từ StatusBar `msg_type == "S"`).
    - **Chấm dứt hoàn toàn báo lỗi sai `PARTIAL (Thiếu VAT)`:** Loại bỏ triệt để cảnh báo `ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file trên SAP`, đảm bảo kết quả phản hồi trên Teams hiển thị chính xác trạng thái `DONE` ngay sau khi đính kèm.
 
