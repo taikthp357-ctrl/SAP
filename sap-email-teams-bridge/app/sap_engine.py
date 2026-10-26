@@ -4068,57 +4068,140 @@ class SapEngine:
 
             print(f"[SAP MIGO] Đã tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM. Đang phân giải cột...")
 
-            # 5. Phân giải động các cột trong bảng MIGO (Chuẩn RUN_GetPreBatchColumnMap)
-            # Default: Product=3, Qty=4, Text/Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=10
-            col_indices = {
-                "material": 3,
-                "qty": 4,
-                "text": 5,
-                "plant": 6,
-                "source_sloc": 7,
-                "dest_sloc": 8,
-                "batch": 10,
-            }
-            try:
-                col_cnt = getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0))
-                for c_i in range(col_cnt):
-                    col_obj = tbl.Columns.Item(c_i) if hasattr(tbl.Columns, "Item") else tbl.Columns(c_i)
-                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").upper()
-                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").upper()
+            # 5. Phân giải động các cột trong bảng MIGO (Chuẩn RUN_GetPreBatchColumnMap & VBA ErrorGuard)
+            # Baseline VBA defaults: Product=3, Qty=4 (hoặc 5 nếu có ShortText), Text/Trạm=5 (hoặc 6), Plant=6 (hoặc 7), SLoc=7 (hoặc 8), SLocTo=8 (hoặc 9), Batch=10
+            col_indices = {}
+            col_names_dump = []
 
-                    if "MATNR" in c_name or "MATERIAL" in c_title or "MÃ" in c_title:
+            def _get_col_item(cols, idx):
+                for accessor in ("ElementAt", "Item"):
+                    try:
+                        fn = getattr(cols, accessor, None)
+                        if callable(fn):
+                            return fn(idx)
+                    except Exception:
+                        pass
+                try:
+                    return cols(idx)
+                except Exception:
+                    pass
+                try:
+                    return cols[idx]
+                except Exception:
+                    pass
+                return None
+
+            try:
+                col_cnt = int(getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0)))
+                # Thu thập thông tin tất cả các cột
+                col_info_list = []
+                for c_i in range(col_cnt):
+                    col_obj = _get_col_item(tbl.Columns, c_i)
+                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip()
+                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip()
+                    col_info_list.append((c_i, c_name, c_title))
+                    col_names_dump.append(f"[{c_i}] {c_name} ('{c_title}')")
+
+                # Lượt 1: Phân giải theo Technical Name chuẩn ABAP GOITEM (First Match Wins)
+                for c_i, c_name, c_title in col_info_list:
+                    c_name_u = c_name.upper()
+                    if "material" not in col_indices and ("MATNR" in c_name_u and not any(k in c_name_u for k in ("UMMAT", "EMATN", "MATKL"))):
                         col_indices["material"] = c_i
-                    elif "ERFMG" in c_name or ("QTY" in c_title and "UNIT" not in c_title) or "SỐ LƯỢNG" in c_title:
+                    if "qty" not in col_indices and "ERFMG" in c_name_u:
                         col_indices["qty"] = c_i
-                    elif "SGTXT" in c_name or "TEXT" in c_title or "TRẠM" in c_title or "ITEM TEXT" in c_title:
+                    if "text" not in col_indices and "SGTXT" in c_name_u:
                         col_indices["text"] = c_i
-                    elif "WERKS" in c_name or "PLANT" in c_title:
+                    if "plant" not in col_indices and ("WERKS" in c_name_u and not any(k in c_name_u for k in ("UMWRK", "REC"))):
                         col_indices["plant"] = c_i
-                    elif "UMLGO" in c_name or "REC" in c_title or "DEST" in c_title or "NHẬN" in c_title:
+                    if "dest_sloc" not in col_indices and "UMLGO" in c_name_u:
                         col_indices["dest_sloc"] = c_i
-                    elif "LGORT" in c_name or "SLOC" in c_title or "XUẤT" in c_title:
+                    if "source_sloc" not in col_indices and ("LGORT" in c_name_u and not any(k in c_name_u for k in ("UMLGO", "REC"))):
                         col_indices["source_sloc"] = c_i
-                    elif ("BATCH" in c_title or "CHARG" in c_name) and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and "UMCHA" not in c_name:
+                    if "batch" not in col_indices and ("CHARG" in c_name_u and not any(k in c_name_u for k in ("UMCHA", "XCHAR", "EXT"))):
                         col_indices["batch"] = c_i
+                    if "ok" not in col_indices and ("TAKE_IT" in c_name_u or c_name_u == "OK"):
+                        col_indices["ok"] = c_i
+
+                # Lượt 2: Phân giải theo Title nếu cột nào chưa có (với bộ lọc loại trừ chặt chẽ, First Match Wins)
+                for c_i, c_name, c_title in col_info_list:
+                    c_title_u = c_title.upper()
+                    if "material" not in col_indices:
+                        if ("MATERIAL" in c_title_u or "MÃ" in c_title_u) and not any(k in c_title_u for k in ("TRFR", "TRANSFER", "SHORT", "TEXT", "DESC", "GROUP", "KLAS")):
+                            col_indices["material"] = c_i
+                    if "qty" not in col_indices:
+                        if ("QTY" in c_title_u or "SỐ LƯỢNG" in c_title_u or "QUANTITY" in c_title_u) and not any(k in c_title_u for k in ("UNIT", "PO", "ORDER", "DELIV", "PICK", "DIFF")):
+                            col_indices["qty"] = c_i
+                    if "text" not in col_indices:
+                        if ("TEXT" in c_title_u or "TRẠM" in c_title_u) and not any(k in c_title_u for k in ("SHORT", "HEADER")):
+                            col_indices["text"] = c_i
+                    if "plant" not in col_indices:
+                        if ("PLANT" in c_title_u or "PLNT" in c_title_u or "NHÀ MÁY" in c_title_u) and not any(k in c_title_u for k in ("REC", "DEST", "NHẬN", "TRFR")):
+                            col_indices["plant"] = c_i
+                    if "dest_sloc" not in col_indices:
+                        if any(k in c_title_u for k in ("SLOC TRA", "REC. SLOC", "DEST", "NHẬN")):
+                            col_indices["dest_sloc"] = c_i
+                    if "source_sloc" not in col_indices:
+                        if ("SLOC" in c_title_u or "XUẤT" in c_title_u or "STORAGE LOC" in c_title_u) and not any(k in c_title_u for k in ("TRA", "TRFR", "REC", "DEST", "NHẬN", "TO")):
+                            col_indices["source_sloc"] = c_i
+                    if "batch" not in col_indices:
+                        # Chuẩn RUN_IsRealBatchTitle trong VBA baseline:
+                        if ("BATCH" in c_title_u or "LÔ" in c_title_u) and not any(k in c_title_u for k in ("TRFR", "TRANSFER", "PSTG", "REC", "DEST", "EXT", "MGMT", "MANAGEMENT")):
+                            col_indices["batch"] = c_i
+                    if "ok" not in col_indices:
+                        if c_title_u == "OK":
+                            col_indices["ok"] = c_i
             except Exception as col_err:
                 print(f"[SAP MIGO WARN] Lỗi đọc tên cột: {col_err}")
 
+            # Lượt 3: Fallback mặc định theo VBA baseline RUN_GetPreBatchColumnMap nếu có trường chưa tìm thấy
+            # Tự động đồng bộ khoảng bù nếu cột Mat Short Text hiển thị ở các cột đầu
+            has_short_text = any("SHORT" in s for s in col_names_dump[:6])
+            default_shift = 1 if has_short_text else 0
+
+            fallback_defaults = {
+                "material": 3,
+                "qty": 4 + default_shift,
+                "text": 5 + default_shift,
+                "plant": 6 + default_shift,
+                "source_sloc": 7 + default_shift,
+                "dest_sloc": 8 + default_shift,
+                "batch": 10,
+                "ok": 14,
+            }
+            for k, def_val in fallback_defaults.items():
+                if k not in col_indices:
+                    col_indices[k] = def_val
+
+            mat_col = col_indices["material"]
+            qty_col = col_indices["qty"]
+            txt_col = col_indices["text"]
+            plant_col = col_indices["plant"]
+            src_sloc_col = col_indices["source_sloc"]
+            dest_sloc_col = col_indices["dest_sloc"]
+            batch_col = col_indices["batch"]
+            ok_col = col_indices.get("ok", 14)
+
+            print(f"[SAP MIGO] Cột nhận diện: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
+
             # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Coordinate fallback)
-            def _set_cell(table_ctl, row_no, col_no, value_text):
+            def _set_cell(table_ctl, row_no, col_no, value_text, label=""):
                 val_str = str(value_text or "").strip()
                 # 1. Thử qua tbl.GetCell(row_no, col_no)
                 try:
                     cell = table_ctl.GetCell(row_no, col_no)
                     if cell is not None:
-                        try:
-                            cell.Text = val_str
-                            return True
-                        except Exception:
+                        for prop in ("Text", "text"):
                             try:
-                                cell.text = val_str
+                                setattr(cell, prop, val_str)
                                 return True
                             except Exception:
                                 pass
+                        try:
+                            cell.SetFocus()
+                            cell.Text = val_str
+                            return True
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
@@ -4153,15 +4236,14 @@ class SapEngine:
 
                 ctl = _find_by_coord(table_ctl)
                 if ctl is not None:
-                    try:
-                        ctl.Text = val_str
-                        return True
-                    except Exception:
+                    for prop in ("Text", "text"):
                         try:
-                            ctl.text = val_str
+                            setattr(ctl, prop, val_str)
                             return True
                         except Exception:
                             pass
+
+                print(f"[SAP MIGO WARN] Không thể điền '{label}'='{val_str}' tại row={row_no}, col={col_no}")
                 return False
 
             def _ensure_visible_row(table_ctl, logical_row):
@@ -4186,14 +4268,6 @@ class SapEngine:
                         first_row = logical_row
                 return logical_row - first_row
 
-            mat_col = col_indices["material"]
-            qty_col = col_indices["qty"]
-            txt_col = col_indices["text"]
-            plant_col = col_indices["plant"]
-            src_sloc_col = col_indices["source_sloc"]
-            dest_sloc_col = col_indices["dest_sloc"]
-            batch_col = col_indices["batch"]
-
             # 6. Nhịp 1: Điền Material, Qty, Text (Trạm), Plant, SLoc xuất, SLoc nhận
             print(f"[SAP MIGO] Điền Nhịp 1 ({len(ob_items)} dòng): Material, Qty, Trạm, Plant, SLoc...")
             for logical_row, item in enumerate(ob_items):
@@ -4204,14 +4278,18 @@ class SapEngine:
                 except Exception:
                     qty_str = str(raw_qty)
                 tram_str = str(item.get("station") or "").strip()
+                mat_str = str(item.get("material", "")).strip()
+                plant_str = str(item.get("plant") or plant or "3093").strip()
+                src_sloc_str = str(item.get("source_sloc") or source_sloc or "1005").strip()
+                dest_sloc_str = str(item.get("dest_sloc") or dest_sloc or "3001").strip()
 
-                _set_cell(tbl, table_row, mat_col, str(item.get("material", "")))
-                _set_cell(tbl, table_row, qty_col, qty_str)
+                _set_cell(tbl, table_row, mat_col, mat_str, "Material")
+                _set_cell(tbl, table_row, qty_col, qty_str, "Qty")
                 if tram_str:
-                    _set_cell(tbl, table_row, txt_col, tram_str)
-                _set_cell(tbl, table_row, plant_col, item.get("plant") or plant or "3093")
-                _set_cell(tbl, table_row, src_sloc_col, item.get("source_sloc") or source_sloc or "1005")
-                _set_cell(tbl, table_row, dest_sloc_col, item.get("dest_sloc") or dest_sloc or "3001")
+                    _set_cell(tbl, table_row, txt_col, tram_str, "Trạm")
+                _set_cell(tbl, table_row, plant_col, plant_str, "Plant")
+                _set_cell(tbl, table_row, src_sloc_col, src_sloc_str, "SLoc xuất")
+                _set_cell(tbl, table_row, dest_sloc_col, dest_sloc_str, "SLoc nhận")
 
             print("[SAP MIGO] Gửi Enter Nhịp 1...")
             w0 = self._find_by_id_safe("wnd[0]")
@@ -4223,6 +4301,12 @@ class SapEngine:
             w0 = self._find_by_id_safe("wnd[0]")
             tbl = _find_migo_table(w0) or tbl
 
+            sbar = self._find_by_id_safe("wnd[0]/sbar")
+            msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
+            msg_txt = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
+            if msg_type:
+                print(f"[SAP MIGO] Trạng thái sau Enter 1 [{msg_type}]: {msg_txt}")
+
             # 7. Nhịp 2: Điền số lô Batch động (nếu có lô)
             has_any_batch = any(bool(str(it.get("batch") or "").strip() and str(it.get("batch") or "").strip() != "-") for it in ob_items)
             if has_any_batch and tbl is not None:
@@ -4231,13 +4315,30 @@ class SapEngine:
                     batch_val = str(item.get("batch", "")).strip()
                     if batch_val and batch_val != "-":
                         table_row = _ensure_visible_row(tbl, logical_row)
-                        _set_cell(tbl, table_row, batch_col, batch_val)
+                        _set_cell(tbl, table_row, batch_col, batch_val, "Batch")
 
                 print("[SAP MIGO] Gửi Enter Nhịp 2...")
                 w0 = self._find_by_id_safe("wnd[0]")
                 if w0:
                     w0.sendVKey(0)  # Enter nhịp 2
                 self._wait_idle(5.0)
+
+                sbar = self._find_by_id_safe("wnd[0]/sbar")
+                msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
+                msg_txt = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
+                if msg_type:
+                    print(f"[SAP MIGO] Trạng thái sau Enter 2 [{msg_type}]: {msg_txt}")
+
+            # Xác nhận dòng Item OK nếu có cột checkbox OK trong lưới
+            if ok_col >= 0 and tbl is not None:
+                try:
+                    for logical_row in range(len(ob_items)):
+                        t_row = _ensure_visible_row(tbl, logical_row)
+                        cell_ok = tbl.GetCell(t_row, ok_col)
+                        if cell_ok is not None and hasattr(cell_ok, "Selected") and not bool(cell_ok.Selected):
+                            cell_ok.Selected = True
+                except Exception:
+                    pass
 
             # 8. Nhấn nút Post (btn[23] trên tbar[1] hoặc btn[11] trên tbar[0])
             print("[SAP MIGO] Bấm nút Post/Save tạo chứng từ...")
@@ -4321,12 +4422,23 @@ class SapEngine:
                 print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
                 return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
 
+            doc_match = re.search(r"(?:DOCUMENT|CHỨNG\s+TỪ)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
+            if doc_match:
+                doc_no = doc_match.group(1)
+                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
+                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
+
             if msg_type in ("E", "A"):
                 err_msg = f"Lỗi SAP MIGO: {sbar_text}"
                 print(f"[SAP MIGO ERROR] {err_msg}")
                 return False, "", err_msg
 
             if msg_type == "S":
+                num_match = re.search(r"\b(\d{8,12})\b", sbar_text)
+                if num_match:
+                    doc_no = num_match.group(1)
+                    print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công từ thông báo trạng thái S!")
+                    return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
                 print(f"[SAP MIGO] Thao tác MIGO 311 thành công: {sbar_text}")
                 return True, "", f"Thao tác MIGO 311 thành công: {sbar_text}"
 

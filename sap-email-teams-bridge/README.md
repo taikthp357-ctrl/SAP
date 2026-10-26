@@ -1,9 +1,18 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.67
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.68
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Khắc Phục Lỗi Cú Pháp T-Code `/n/MIGO` & Minh Bạch Tiến Độ Tạo Đơn MIGO 311 (v1.0.67):**
+1. **Chuẩn Hóa Phân Giải Cột Đơn Lượt & Điền Đầy Đủ Tất Cả Cột MIGO 311 (v1.0.68):**
+   - **Triệt tiêu lỗi vòng lặp tham lam (Greedy Loop) ghi đè cột MIGO:** Khắc phục triệt để hiện tượng chỉ điền được mỗi cột `Text` còn các cột `Material`, `Qty`, `Plant`, `SLoc`, `Dest SLoc`, `Batch` bị bỏ trống (do vòng lặp quét qua 84 cột của `tblSAPLMIGOTV_GOITEM` không có cơ chế khóa điểm dừng, khiến các cột phía sau như `PO Qty`, `Receiving Plant`, `Material Group`, `Batch Management - cột 76` ghi đè lên các cột thực tế).
+   - **Cơ chế phân giải 2 lượt nghiêm ngặt kết hợp khóa First-Match-Wins:**
+     - *Lượt 1 (ABAP Technical Name):* Khớp chính xác tên kỹ thuật ABAP `GOITEM-MATNR` (Cột 3), `GOITEM-ERFMG` (Cột 5), `GOITEM-SGTXT` (Cột 6), `GOITEM-WERKS` (Cột 7), `GOITEM-LGORT` (Cột 8), `GOITEM-UMLGO` (Cột 9), `GOITEM-CHARG` (Cột 10), `GOITEM-TAKE_IT` (Cột 14).
+     - *Lượt 2 (Header Title Filter):* Chỉ quét tiêu đề cho các trường còn thiếu với bộ lọc phủ định nghiêm ngặt (loại trừ `TRFR`, `TRANSFER`, `SHORT`, `GROUP`, `PO`, `REC`, `DEST`, `EXT`). Khi đã tìm thấy cột thì khóa ngay (First-Match-Wins), tuyệt đối không để các cột kỹ thuật phía sau ghi đè.
+     - *Lượt 3 (VBA Baseline Fallback):* Tự động điều chỉnh khoảng bù dự phòng (default_shift) nếu cột `Mat. Short Text` hiển thị.
+   - **Tự động xác nhận dòng (`Item OK` / `cell.Selected = True`):** Tự động tick xác nhận checkbox OK của từng dòng trong bảng MIGO sau khi hoàn tất nhập liệu Nhịp 1 & Nhịp 2 theo đúng chuẩn giao dịch MIGO.
+   - **Minh bạch vị trí từng cột trên Console:** Hiển thị rõ ràng vị trí phân giải của từng cột `Material`, `Qty`, `Trạm`, `Plant`, `KhoXuất`, `KhoNhận`, `Lô` trước khi điền, kèm log cảnh báo nếu có ô nhập thất bại.
+
+2. **Khắc Phục Lỗi Cú Pháp T-Code `/n/MIGO` & Minh Bạch Tiến Độ Tạo Đơn MIGO 311 (v1.0.67):**
    - **Triệt tiêu lỗi cú pháp lệnh T-Code `/n/MIGO`:** Nâng cấp hàm `_open_transaction()` để phân biệt chuẩn giữa T-Code namespace (`/SCWM/POST`, `/SCWM/MON` ➔ `/n/SCWM/POST`) và T-Code chuẩn (`MIGO`, `CS03`, `MB52` ➔ `/nMIGO`, `/nCS03`). Khắc phục dứt điểm lỗi SAP báo *"Transaction /MIGO does not exist"* khiến MIGO bị đóng băng không thể mở màn hình.
    - **Minh bạch hóa toàn bộ tiến trình MIGO 311 trên Console:** Loại bỏ hiện tượng im lặng khi chạy MIGO; bổ sung log chi tiết từng nhịp: nạp chế độ `A08 (Transfer Posting)` - `R10 (Other)` - `311 (Movement)`, tìm bảng `tblSAPLMIGOTV_GOITEM`, điền Nhịp 1, điền Nhịp 2 (Batch), bấm Post, và trích xuất số chứng từ từ StatusBar.
    - **Bắt và hiển thị lỗi SAP trực tiếp:** Nếu SAP báo lỗi trên thanh StatusBar (`msg_type in ('E', 'A')`), thông tin lỗi được in ngay ra console và phản hồi minh bạch cho người dùng, không bao giờ nuốt lỗi âm thầm.

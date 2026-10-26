@@ -1693,6 +1693,193 @@ def test_post_migo_311_ob_group_v31_standard_mock():
     assert tbl.GetCell(0, 10).Text == "261023-15" or tbl.GetCell(0, 10).text == "261023-15"
 
 
+def test_post_migo_311_84_columns_real_layout_mock():
+    """Kiểm tra post_migo_311_ob_group trên lưới MIGO thực tế 84 cột:
+    - Cột 2: Material Trfr Pstg (UMMAT) -> KHÔNG bị gán nhầm
+    - Cột 3: Material (MATNR) -> Phải điền đúng
+    - Cột 4: Mat. Short Text (MAKTX) -> Không bị ghi đè
+    - Cột 5: Qty in UnE (ERFMG) -> Phải điền đúng 100
+    - Cột 6: Text (SGTXT) -> Phải điền đúng KV08-Thức/Vũ
+    - Cột 7: Plnt (WERKS) -> Phải điền đúng 3093
+    - Cột 8: SLoc (LGORT) -> Phải điền đúng 1005
+    - Cột 9: SLoc Tra... (UMLGO) -> Phải điền đúng 3001
+    - Cột 10: Batch (CHARG) -> Phải điền đúng 261023-15 (KHÔNG bị nhảy sang cột 76!)
+    - Cột 14: OK (TAKE_IT) -> Phải được tick Selected = True
+    """
+    engine = SapEngine.__new__(SapEngine)
+    engine.ensure_session = MagicMock()
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+
+    class MockControl:
+        def __init__(self, name="", c_type="", text="", key=""):
+            self.Name = name
+            self.name = name
+            self.Type = c_type
+            self.type = c_type
+            self.Text = text
+            self.text = text
+            self.Key = key
+            self.key = key
+            self.Children = []
+            self.children = []
+            self.Entries = []
+            self.entries = []
+            self.Id = f"wnd[0]/{name}"
+            self.id = self.Id
+        def Press(self):
+            pass
+        def press(self):
+            pass
+
+    class MockCell:
+        def __init__(self):
+            self.Text = ""
+            self.text = ""
+            self.Selected = False
+            self.selected = False
+
+    class MockCol:
+        def __init__(self, name, title):
+            self.Name = name
+            self.name = name
+            self.Title = title
+            self.title = title
+
+    class MockTable84:
+        def __init__(self):
+            self.Name = "tblSAPLMIGOTV_GOITEM"
+            self.name = self.Name
+            self.Type = "GuiTableControl"
+            self.type = self.Type
+            self.Id = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
+            self.id = self.Id
+            self.FirstVisibleRow = 0
+            self.VisibleRowCount = 10
+            self.cells = {}
+            # Layout thực tế giống hệt màn hình người dùng
+            self.cols = [
+                MockCol("GOITEM-ZEILE", "Line"),
+                MockCol("STATUS", "Status"),
+                MockCol("GOITEM-UMMAT", "Material Trfr Pstg"),
+                MockCol("GOITEM-MATNR", "Material"),
+                MockCol("GOITEM-MAKTX", "Mat. Short Text"),
+                MockCol("GOITEM-ERFMG", "Qty in UnE"),
+                MockCol("GOITEM-SGTXT", "Text"),
+                MockCol("GOITEM-WERKS", "Plnt"),
+                MockCol("GOITEM-LGORT", "SLoc"),
+                MockCol("GOITEM-UMLGO", "SLoc Tra..."),
+                MockCol("GOITEM-CHARG", "Batch"),
+                MockCol("GOITEM-UMCHA", "Batch Trfr..."),
+                MockCol("GOITEM-ERFME", "UnE"),
+                MockCol("GOITEM-MEINS", "BUn"),
+                MockCol("GOITEM-TAKE_IT", "OK"),
+            ]
+            # Bổ sung các cột kỹ thuật phía sau gây nhiễu
+            for idx in range(15, 84):
+                if idx == 52:
+                    self.cols.append(MockCol("GOITEM-BPMNG", "PO Qty"))
+                elif idx == 58:
+                    self.cols.append(MockCol("GOITEM-UMWRK", "Receiving Plant"))
+                elif idx == 62:
+                    self.cols.append(MockCol("GOITEM-MATKL", "Material Group"))
+                elif idx == 76:
+                    self.cols.append(MockCol("GOITEM-CHARG_EXT", "Batch Management"))
+                else:
+                    self.cols.append(MockCol(f"GOITEM-COL{idx}", f"Technical Col {idx}"))
+
+        @property
+        def Columns(self):
+            cols_list = self.cols
+            class ColColl:
+                Count = len(cols_list)
+                count = len(cols_list)
+                def Item(self, idx):
+                    return cols_list[idx]
+                def __call__(self, idx):
+                    return cols_list[idx]
+            return ColColl()
+
+        def GetCell(self, row, col):
+            if (row, col) not in self.cells:
+                self.cells[(row, col)] = MockCell()
+            return self.cells[(row, col)]
+
+    class MockSbar:
+        def __init__(self):
+            self.Text = "Material document 1012924052 posted"
+            self.text = self.Text
+            self.MessageType = "S"
+            self.messageType = "S"
+
+    action_cmb = MockControl(name="GODYNPRO-ACTION", c_type="GuiComboBox", key="A01")
+    ref_cmb = MockControl(name="GODYNPRO-REFDOC", c_type="GuiComboBox", key="R01")
+    mvt_field = MockControl(name="GODEFAULT_TV-BWART", c_type="GuiCTextField", text="")
+    tbl = MockTable84()
+    sbar = MockSbar()
+
+    mock_w0 = MockControl(name="wnd[0]", c_type="GuiMainWindow")
+    mock_w0.sendVKey = MagicMock()
+    mock_w0.Children = [action_cmb, ref_cmb, mvt_field, tbl, sbar]
+    mock_w0.children = mock_w0.Children
+
+    mock_session = MagicMock()
+    mock_session.ActiveWindow.Name = "wnd[0]"
+    mock_session.Children.Count = 1
+    mock_session.children.count = 1
+
+    def mock_find_by_id_safe(cid):
+        if cid == "wnd[0]":
+            return mock_w0
+        if cid == "wnd[0]/sbar":
+            return sbar
+        if "tblSAPLMIGOTV_GOITEM" in cid:
+            return tbl
+        return None
+
+    engine.session = mock_session
+    engine._find_by_id_safe = mock_find_by_id_safe
+
+    items = [
+        {
+            "material": "BIW75111244AA",
+            "allocated_qty": 100,
+            "batch": "261023-15",
+            "bin": "APFL-P23-01-12",
+            "station": "KV08-Thức/Vũ",
+            "unit": "EA"
+        }
+    ]
+
+    ok, doc_no, msg = engine.post_migo_311_ob_group(
+        items,
+        plant="3093",
+        source_sloc="1005",
+        dest_sloc="3001",
+        dry_run=False
+    )
+
+    assert ok is True
+    assert doc_no == "1012924052"
+
+    # Kiểm tra ô Material (col 3, KHÔNG phải 2 và KHÔNG phải 62)
+    assert tbl.GetCell(0, 3).Text == "BIW75111244AA"
+    # Kiểm tra ô Qty (col 5, KHÔNG phải 52)
+    assert tbl.GetCell(0, 5).Text == "100"
+    # Kiểm tra ô Trạm Text (col 6)
+    assert tbl.GetCell(0, 6).Text == "KV08-Thức/Vũ"
+    # Kiểm tra ô Plant (col 7, KHÔNG phải 58)
+    assert tbl.GetCell(0, 7).Text == "3093"
+    # Kiểm tra ô SLoc nguồn (col 8)
+    assert tbl.GetCell(0, 8).Text == "1005"
+    # Kiểm tra ô SLoc đích (col 9)
+    assert tbl.GetCell(0, 9).Text == "3001"
+    # Kiểm tra ô Batch (col 10, KHÔNG phải 76)
+    assert tbl.GetCell(0, 10).Text == "261023-15"
+    # Kiểm tra ô OK (col 14) được tick Selected = True
+    assert tbl.GetCell(0, 14).Selected is True
+
+
 def test_open_transaction_okcd_syntax():
     """Kiểm tra cú pháp T-Code: không bao giờ sinh /n/MIGO mà phải là /nMIGO; giữ nguyên /n/SCWM/POST."""
     engine = SapEngine.__new__(SapEngine)
