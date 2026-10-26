@@ -906,6 +906,7 @@ def run_bridge():
 
                             is_preview = meta.get("dryRun", False) is True
                             delivery_no = ""
+                            post_msg = ""
                             if not is_preview:
                                 ok_post, doc_num, post_msg = sap.post_migo_311_ob_group(
                                     plan.get("allocated_items", []),
@@ -914,16 +915,16 @@ def run_bridge():
                                     dest_sloc="3001",
                                     dry_run=False
                                 )
-                                delivery_no = doc_num if ok_post else "1012924052"
+                                delivery_no = doc_num if ok_post else ""
                                 result_status = "SUCCEEDED" if ok_post else "FAILED"
                             else:
-                                delivery_no = "1012924052 (Mô phỏng)"
+                                delivery_no = ""
                                 result_status = "PREVIEW"
 
                             if config.get("allow_nvl_reservations"):
                                 plan_id = NvlService.save_plan_and_reserve(plan, created_by=meta.get("senderName") or "BOT", db_path=state_mgr.db_path)
 
-                            state_mgr.log_audit(req_id, "RA_DON_NVL", result_status, target_doc=delivery_no or plan_id, user_name=meta.get("senderName"), message=f"Đã xử lý ra đơn NVL ({delivery_no})")
+                            state_mgr.log_audit(req_id, "RA_DON_NVL", result_status, target_doc=delivery_no or plan_id, user_name=meta.get("senderName"), message=f"Đã xử lý ra đơn NVL ({delivery_no or 'Chưa tạo OB'})")
 
                             records = NvlService.group_into_ob_groups(
                                 plan.get("allocated_items", []),
@@ -940,10 +941,13 @@ def run_bridge():
                                 "station": "Trạm",
                                 "status": "TT"
                             }
-                            if not is_preview:
-                                summary = f"Đã chạy FIFO và tạo đơn OB cấp NVL Kho 1005 (Plant {plant}) - Số OB: {delivery_no} ({plan['total_allocated']}/{plan['total_ordered']} PC)"
+                            alloc_unit = plan['allocated_items'][0]['unit'] if plan.get('allocated_items') else 'PC'
+                            if result_status == "SUCCEEDED" and delivery_no:
+                                summary = f"Đã chạy FIFO và tạo đơn OB cấp NVL Kho 1005 (Plant {plant}) - Số OB: {delivery_no} ({plan['total_allocated']}/{plan['total_ordered']} {alloc_unit})"
+                            elif result_status == "PREVIEW" or is_preview:
+                                summary = f"Xem trước kế hoạch ra đơn NVL Kho 1005 (Plant {plant}) ({plan_id}): Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}"
                             else:
-                                summary = f"Xem trước kế hoạch ra đơn NVL Kho 1005 (Plant {plant}) ({plan_id}): Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']} PC"
+                                summary = f"Kế hoạch ra đơn NVL Kho 1005 ({post_msg or 'Chưa tạo được đơn OB trên SAP'}) - Đã phân bổ {plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}"
 
                         elif cmd in ["DIEU_PHOI_OB", "RC65", "XAC_NHAN_OB"]:
                             ob_no = meta.get("obNo", "")

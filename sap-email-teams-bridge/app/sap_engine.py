@@ -3856,45 +3856,157 @@ class SapEngine:
             return False, "", "Không có dòng phân bổ NVL nào để tạo đơn MIGO 311"
 
         if dry_run or self.session is None:
-            # Mô phỏng sinh số chứng từ Outbound 10xxxxxxxx chuẩn xác
-            sim_doc = "1012924052"
-            return True, sim_doc, f"Mô phỏng thành công: Đã tạo đơn OB {sim_doc} (MIGO 311)"
+            return True, "", "Mô phỏng kế hoạch NVL: Chưa thực thi tạo đơn OB trên SAP"
 
         try:
             self.ensure_session()
             self._open_transaction("/nMIGO")
             self._wait_idle(10.0)
 
-            # 1. Chọn Transfer Posting (A08) và Other (R10)
-            action_cmb = self._find_by_id_safe("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION")
+            # 1. Tìm và chọn Transfer Posting (A08) và Other (R10)
+            def _find_migo_control(name, c_type=None):
+                w0 = self._find_by_id_safe("wnd[0]")
+                if w0 and hasattr(w0, "findByName"):
+                    try:
+                        ctl = w0.findByName(name, c_type) if c_type else w0.findByName(name)
+                        if ctl is not None:
+                            return ctl
+                    except Exception:
+                        pass
+                for sub in ["0001", "0002", "0003", "0004"]:
+                    for first in ["0010", "0011"]:
+                        cand = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:{first}/cmb{name}"
+                        c = self._find_by_id_safe(cand)
+                        if c is not None:
+                            return c
+                        cand_txt = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:{first}/ctxt{name}"
+                        c = self._find_by_id_safe(cand_txt)
+                        if c is not None:
+                            return c
+                return None
+
+            action_cmb = _find_migo_control("GODYNPRO-ACTION", "GuiComboBox")
             if action_cmb is not None:
-                try:
-                    action_cmb.key = "A08"  # Transfer Posting
-                except Exception:
-                    pass
+                cur_act = getattr(action_cmb, "Key", getattr(action_cmb, "key", ""))
+                if cur_act != "A08":
+                    try:
+                        action_cmb.key = "A08"  # Transfer Posting
+                        time.sleep(0.5)
+                    except Exception as act_err:
+                        print(f"[SAP MIGO WARN] Lỗi chọn Action A08: {act_err}")
 
-            ref_cmb = self._find_by_id_safe("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC")
+            ref_cmb = _find_migo_control("GODYNPRO-REFDOC", "GuiComboBox")
             if ref_cmb is not None:
-                try:
-                    ref_cmb.key = "R10"  # Other
-                except Exception:
-                    pass
+                cur_ref = getattr(ref_cmb, "Key", getattr(ref_cmb, "key", ""))
+                if cur_ref != "R10":
+                    try:
+                        ref_cmb.key = "R10"  # Other
+                        time.sleep(0.5)
+                    except Exception as ref_err:
+                        print(f"[SAP MIGO WARN] Lỗi chọn RefDoc R10: {ref_err}")
 
-            mvt_txt = self._find_by_id_safe("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/ctxtGODYNPRO-BWART")
+            mvt_txt = _find_migo_control("GODYNPRO-BWART", "GuiCTextField") or _find_migo_control("GODYNPRO-BWART", "GuiTextField")
             if mvt_txt is not None:
                 try:
                     mvt_txt.text = "311"
                 except Exception:
                     pass
 
-            self.session.findById("wnd[0]").sendVKey(0)  # Enter
+            w0 = self._find_by_id_safe("wnd[0]")
+            if w0:
+                w0.sendVKey(0)  # Enter để nạp cấu hình giao diện
             self._wait_idle(5.0)
 
-            # Bảng item MIGO: tblSAPLMIGOTV_GOITEM
-            tbl_id = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
-            tbl = self._find_by_id_safe(tbl_id)
+            # 2. Tìm bảng item MIGO: tblSAPLMIGOTV_GOITEM
+            tbl = None
+            if w0 and hasattr(w0, "findByName"):
+                try:
+                    tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
+                except Exception:
+                    pass
+
             if tbl is None:
-                raise SapExecutionError("Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO")
+                for sub in ["0001", "0002", "0003", "0004"]:
+                    for itemlist in ["0200", "0210", "0205"]:
+                        cand = f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_ITEMLIST:SAPLMIGO:{itemlist}/tblSAPLMIGOTV_GOITEM"
+                        tbl = self._find_by_id_safe(cand)
+                        if tbl is not None:
+                            break
+                    if tbl is not None:
+                        break
+
+            if tbl is None:
+                try:
+                    self.session.SendCommand("MIGO_OK_ITEMS_OPEN")
+                    time.sleep(0.5)
+                    if w0 and hasattr(w0, "findByName"):
+                        tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
+                except Exception:
+                    pass
+
+            if tbl is None:
+                try:
+                    self.session.SendCommand("MIGO_OK_ITEMLIST")
+                    time.sleep(0.5)
+                    if w0 and hasattr(w0, "findByName"):
+                        tbl = w0.findByName("tblSAPLMIGOTV_GOITEM", "GuiTableControl")
+                except Exception:
+                    pass
+
+            if tbl is None:
+                def _find_table_control(root, depth=0):
+                    if root is None or depth > 15:
+                        return None
+                    try:
+                        c_type = getattr(root, "Type", getattr(root, "type", ""))
+                        c_name = str(getattr(root, "Name", getattr(root, "name", "")) or "").upper()
+                        if c_type == "GuiTableControl" or "GOITEM" in c_name:
+                            return root
+                        children = getattr(root, "Children", getattr(root, "children", None))
+                        if children:
+                            cnt = getattr(children, "Count", getattr(children, "count", 0))
+                            for idx in range(cnt):
+                                found = _find_table_control(children(idx), depth + 1)
+                                if found is not None:
+                                    return found
+                    except Exception:
+                        pass
+                    return None
+                tbl = _find_table_control(w0)
+
+            if tbl is None:
+                status_txt, status_type = self._get_status()
+                err_msg = f"Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO ({status_txt})" if status_txt else "Không tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM trong MIGO"
+                return False, "", err_msg
+
+            # 3. Phân giải động các cột trong bảng MIGO
+            col_indices = {}
+            try:
+                for c_i in range(tbl.Columns.Count):
+                    col_obj = tbl.Columns.Item(c_i)
+                    c_name = str(getattr(col_obj, "Name", "") or "").upper()
+                    c_title = str(getattr(col_obj, "Title", "") or "").upper()
+                    if "MATNR" in c_name or "MATERIAL" in c_title or "MÃ" in c_title:
+                        col_indices.setdefault("material", c_i)
+                    elif "ERFMG" in c_name or ("QTY" in c_title and "UNIT" not in c_title) or "SỐ LƯỢNG" in c_title:
+                        col_indices.setdefault("qty", c_i)
+                    elif "WERKS" in c_name or "PLANT" in c_title:
+                        col_indices.setdefault("plant", c_i)
+                    elif "UMLGO" in c_name or "REC" in c_title or "DEST" in c_title or "NHẬN" in c_title:
+                        col_indices.setdefault("dest_sloc", c_i)
+                    elif "LGORT" in c_name or "SLOC" in c_title or "XUẤT" in c_title:
+                        col_indices.setdefault("source_sloc", c_i)
+                    elif "CHARG" in c_name and "UMCHA" not in c_name and "DEST" not in c_title:
+                        col_indices.setdefault("batch", c_i)
+            except Exception as col_err:
+                print(f"[SAP MIGO WARN] Lỗi đọc tên cột: {col_err}")
+
+            mat_col = col_indices.get("material", 3)
+            qty_col = col_indices.get("qty", 4)
+            plant_col = col_indices.get("plant", 6)
+            src_sloc_col = col_indices.get("source_sloc", 7)
+            dest_sloc_col = col_indices.get("dest_sloc", 8)
+            batch_col = col_indices.get("batch", 10)
 
             # Nhịp 1: Điền Material, Qty, Plant, SLoc
             for i, item in enumerate(ob_items):
@@ -3903,48 +4015,37 @@ class SapEngine:
                 except Exception:
                     pass
                 try:
-                    tbl.modifyCell(i, 3, str(item.get("material", "")))
-                    tbl.modifyCell(i, 4, str(item.get("allocated_qty", "")))
-                    tbl.modifyCell(i, 6, plant or "3093")
-                    tbl.modifyCell(i, 7, source_sloc or "1005")
-                    tbl.modifyCell(i, 8, dest_sloc or "3001")
+                    tbl.modifyCell(i, mat_col, str(item.get("material", "")))
+                    tbl.modifyCell(i, qty_col, str(item.get("allocated_qty", "")))
+                    tbl.modifyCell(i, plant_col, plant or "3093")
+                    tbl.modifyCell(i, src_sloc_col, source_sloc or "1005")
+                    tbl.modifyCell(i, dest_sloc_col, dest_sloc or "3001")
                 except Exception as cell_err:
                     print(f"[SAP MIGO WARN] Lỗi điền cell dòng {i}: {cell_err}")
 
-            self.session.findById("wnd[0]").sendVKey(0)  # Enter nhịp 1
+            if w0:
+                w0.sendVKey(0)  # Enter nhịp 1
             self._wait_idle(5.0)
 
-            # Nhịp 2: Tìm cột BATCH động (tránh BATCH TRFR PSTG) và điền số lô
-            batch_col_idx = -1
-            try:
-                for col_idx in range(tbl.columns.count):
-                    title = tbl.columns.item(col_idx).title.upper()
-                    if "BATCH" in title and "TRFR" not in title and "TRANSFER" not in title:
-                        batch_col_idx = col_idx
-                        break
-            except Exception:
-                batch_col_idx = -1
-
-            if batch_col_idx == -1:
-                batch_col_idx = 10
-
+            # Nhịp 2: Điền số lô Batch
             for i, item in enumerate(ob_items):
                 batch_val = str(item.get("batch", "")).strip()
                 if batch_val and batch_val != "-":
                     try:
-                        tbl.modifyCell(i, batch_col_idx, batch_val)
+                        tbl.modifyCell(i, batch_col, batch_val)
                     except Exception as b_err:
                         print(f"[SAP MIGO WARN] Lỗi điền batch dòng {i}: {b_err}")
 
-            self.session.findById("wnd[0]").sendVKey(0)  # Enter nhịp 2
+            if w0:
+                w0.sendVKey(0)  # Enter nhịp 2
             self._wait_idle(5.0)
 
             # Nhấn nút Post (btn[11] trên tbar[0] hoặc btn[23] trên tbar[1])
             post_btn = self._find_by_id_safe("wnd[0]/tbar[0]/btn[11]") or self._find_by_id_safe("wnd[0]/tbar[1]/btn[23]")
             if post_btn:
                 post_btn.press()
-            else:
-                self.session.findById("wnd[0]").sendVKey(11)
+            elif w0:
+                w0.sendVKey(11)
 
             self._wait_idle(5.0)
 
@@ -3952,7 +4053,8 @@ class SapEngine:
             for _ in range(5):
                 sbar = self._find_by_id_safe("wnd[0]/sbar")
                 if sbar and getattr(sbar, "messageType", "") in ("W", "I"):
-                    self.session.findById("wnd[0]").sendVKey(0)
+                    if w0:
+                        w0.sendVKey(0)
                     self._wait_idle(2.0)
                 else:
                     break
@@ -3967,10 +4069,10 @@ class SapEngine:
                 doc_no = doc_match.group(1)
                 return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO"
 
-            if msg_type == "E":
+            if msg_type in ("E", "A"):
                 return False, "", f"Lỗi SAP MIGO: {sbar_text}"
 
-            return True, "1012924052", f"Đã thực hiện MIGO 311: {sbar_text or 'Hoàn tất'}"
+            return False, "", f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ OB'}"
 
         except Exception as e:
             print(f"[SAP MIGO ERROR] Lỗi MIGO 311: {e}")

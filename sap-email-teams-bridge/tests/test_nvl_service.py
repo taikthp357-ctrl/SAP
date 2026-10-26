@@ -133,6 +133,19 @@ def test_group_into_ob_groups_consolidation_and_shortages():
     assert "Thiếu tồn" in grouped[2]["status"]
 
 
+def test_group_into_ob_groups_no_fake_ob_when_posting_fails():
+    """Kiểm tra: Khi chưa tạo được OB hoặc MIGO 311 thất bại, delivery_no='---' và status='⚠️ Chưa tạo OB', tuyệt đối không fake số OB cũ."""
+    allocated = [
+        {"material": "BIW75111244AA", "batch": "261023-15", "bin": "APFL-P23-01-12", "allocated_qty": 100, "station": "KV08-Thức/Vũ", "unit": "EA"}
+    ]
+    grouped = NvlService.group_into_ob_groups(allocated, delivery_no="")
+    assert len(grouped) == 1
+    assert grouped[0]["stt"] == "OB1"
+    assert grouped[0]["delivery_no"] == "---"
+    assert grouped[0]["status"] == "⚠️ Chưa tạo OB"
+    assert grouped[0]["allocated_qty"] == 100
+
+
 def test_nvl_allocation_scwm_post_fallback_and_unit_coercion(tmp_db):
     """Kiểm tra: /SCWM/POST không có cột plant/sloc và đơn vị EA vẫn khớp với đơn hàng mặc định PC."""
     from app.nvl_service import validated_stock_lot

@@ -1,9 +1,17 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.64
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.65
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Khắc Phục Lệch Dữ Liệu Tồn Kho /SCWM/POST & Tương Thích Đơn Vị Tính EA/PC Ra Đơn NVL (v1.0.64):**
+1. **Triệt Tiêu Số OB Giả Lập Khi Lỗi MIGO & Tự Động Điều Hướng Subscreen MIGO 311 Linh Hoạt (v1.0.65):**
+   - **Triệt tiêu hoàn toàn số chứng từ mẫu giả định (`1012924052`):** Loại bỏ triệt để hardcode fallback sinh số OB giả khi MIGO 311 thất bại hoặc bị hủy. Khi không tạo được chứng từ thật trên SAP, `delivery_no` giữ giá trị rỗng `""`, hiển thị `---`, trạng thái gắn cờ minh bạch `⚠️ Chưa tạo OB` và hiển thị huy hiệu `[⚠️ Chưa tạo OB]` trên Teams.
+   - **Khắc phục lỗi không tìm thấy bảng nhập liệu `tblSAPLMIGOTV_GOITEM`:** Tự động dò tìm động các điều khiển `GODYNPRO-ACTION`, `GODYNPRO-REFDOC`, `GODYNPRO-BWART` qua `w0.findByName` và quét qua các Subscreen `:0001` đến `:0004` (thay vì cố định `:0003`). Bổ sung độ trễ thích ứng giữa các lần chuyển Key ComboBox để SAP vẽ lại giao diện.
+   - **Tự động bung bảng Item Overview nếu bị đóng:** Gửi lệnh `MIGO_OK_ITEMS_OPEN` / `MIGO_OK_ITEMLIST` và quét đệ quy cây điều khiển `GuiTableControl` để tìm bảng nhập liệu ngay cả khi layout MIGO của người dùng đang ở chế độ thu gọn.
+   - **Dò tìm cột động theo Metadata (`tbl.Columns`):** Tự động phát hiện vị trí các cột `MATNR`, `ERFMG`/`QTY`, `WERKS`, `LGORT`, `UMLGO`, `CHARG` qua thuộc tính tên cột kỹ thuật hoặc tiêu đề, không phụ thuộc vào thứ tự cột cố định của từng User.
+   - **Bảo toàn kiểm tra số chứng từ nghiêm ngặt:** Chỉ công nhận tạo OB thành công khi có Regex số chứng từ 10 số (`10xxxxxxxx`, `49xxxxxxxx`, `500xxxxxxx`) trên StatusBar của SAP.
+   - **Tối ưu câu chào Teams khi tạo đơn thất bại:** Khi bốc tồn thành công nhưng chưa tạo được đơn MIGO, Bot phản hồi trung thực: *"Sếp ơi, em đã bốc tồn FIFO nhưng chưa tạo được đơn OB MIGO 311 trên SAP ạ. Chi tiết em để bên dưới nhé."*
+
+2. **Khắc Phục Lệch Dữ Liệu Tồn Kho /SCWM/POST & Tương Thích Đơn Vị Tính EA/PC Ra Đơn NVL (v1.0.64):**
    - **Kế thừa Plant & SLoc nguồn (`source_plant=3093`, `source_sloc=1005`):** Khắc phục lỗi màn hình ALV `/SCWM/POST` không hiển thị cột Plant/SLoc khiến `validated_stock_lot` loại bỏ toàn bộ dòng tồn. Cho phép dòng tồn tự động kế thừa Plant và Kho nguồn đã lọc theo `Owner`.
    - **Tương thích hai chiều giữa ĐVT EA và PC:** Đơn yêu cầu dán từ Teams không ghi ĐVT (mặc định `PC`) tự động khớp và phân bổ với các lô hàng mang đơn vị `EA` trên SAP. Giữ nguyên ĐVT gốc `EA` của lô khi tạo dòng kế hoạch.
    - **Bắt chuẩn cột loại tồn nguồn (`TST`):** Ưu tiên cột nguồn `TST` (Source Stock Type = `FT`) thay vì bị nhầm sang cột đích `TO_CAT`, đồng thời dự phòng `cat="FT"` khi layout ẩn cột.

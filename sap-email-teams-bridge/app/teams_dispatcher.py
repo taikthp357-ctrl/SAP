@@ -470,15 +470,20 @@ class TeamsDispatcher:
                 tot_qty = sum(parse_sap_float(r.get("allocated_qty", 0.0)) for r in valid_lines)
                 unit = next((r.get("unit") for r in records if r.get("unit")), "PC")
 
-                if deliv:
+                if deliv and deliv != "---" and not deliv.startswith("Mô phỏng"):
                     badges.append(
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
                         f"✅ Số OB: {deliv}</span>"
                     )
-                else:
+                elif deliv.startswith("Mô phỏng"):
                     badges.append(
                         f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
                         f"📋 Kế hoạch NVL (Preview)</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Chưa tạo OB</span>"
                     )
 
                 cluster_label = f"OB1" if len(ob_clusters) == 1 and ob_clusters[0] == "OB1" else f"{len(ob_clusters)} Cụm"
@@ -772,6 +777,13 @@ class TeamsDispatcher:
                 greeting = "Sếp ơi, em đã tra lịch sử chuyển Bin-to-Bin cho sếp rồi ạ 👇"
             elif cmd_u in ["CHECK_FG_OB", "DIEN_OB"]:
                 greeting = "Sếp ơi, em đã kiểm tra điều độ tồn FG và đơn OB mở cho sếp rồi ạ 👇"
+            elif cmd_u in ["RA_DON_NVL", "KE_HOACH_NVL"]:
+                if status == "FAILED":
+                    greeting = "Sếp ơi, em đã bốc tồn FIFO nhưng chưa tạo được đơn OB MIGO 311 trên SAP ạ. Chi tiết em để bên dưới nhé."
+                elif status in ("SIMULATED", "PREVIEW"):
+                    greeting = "Sếp ơi, em gửi bản xem trước kế hoạch phân bổ NVL cho sếp rồi ạ (Chưa tạo đơn trên SAP) 👇"
+                else:
+                    greeting = "Sếp ơi, em đã ra đơn NVL và tạo chứng từ Outbound (OB) thành công cho sếp rồi ạ! 📋"
             elif cmd_u in ["CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL", "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"]:
                 greeting = "Sếp ơi, em đã kiểm tra Posting Change kho NVL 1005 (Plant 3093) cho sếp rồi ạ! 📋"
             elif cmd_u in ["TON_THAP", "LOW_STOCK"]:

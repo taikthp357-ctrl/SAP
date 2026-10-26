@@ -1532,5 +1532,5 @@ def test_post_migo_311_ob_group_simulation():
 
     ok, doc_no, msg = engine.post_migo_311_ob_group(items, plant="3093", dry_run=True)
     assert ok is True
-    assert doc_no == "1012924052"
-    assert "1012924052" in msg
+    assert doc_no == ""
+    assert "Mô phỏng" in msg

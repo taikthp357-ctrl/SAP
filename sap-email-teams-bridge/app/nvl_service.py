@@ -396,9 +396,16 @@ class NvlService:
             unit = str(item.get("unit") or "PC").strip().upper()
             key = (ob_tag, st, mat, batch, bin_no)
             if key not in consolidated:
-                deliv_str = str(delivery_no or "---")
-                is_sim = "Mô phỏng" in deliv_str or not delivery_no
-                status_text = "✅ Đã tạo OB" if (delivery_no and not is_sim) else ("✅ Mô phỏng OB" if delivery_no else "✅ Sẵn sàng")
+                deliv_clean = str(delivery_no or "").strip()
+                if deliv_clean and deliv_clean != "---" and not deliv_clean.startswith("Mô phỏng"):
+                    deliv_str = deliv_clean
+                    status_text = "✅ Đã tạo OB"
+                elif deliv_clean.startswith("Mô phỏng"):
+                    deliv_str = deliv_clean
+                    status_text = "📋 Kế hoạch (Preview)"
+                else:
+                    deliv_str = "---"
+                    status_text = "⚠️ Chưa tạo OB"
                 consolidated[key] = {
                     "stt": ob_tag,
                     "delivery_no": deliv_str,
