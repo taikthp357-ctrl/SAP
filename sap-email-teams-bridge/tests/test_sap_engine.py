@@ -2064,4 +2064,42 @@ def test_resolve_grid_columns_rc65_strict_exact_locking():
     assert resolved_alt["createDate"] == "ERDAT"
 
 
+def test_delivery_overview_rc65_fallback_hierarchy():
+    """Kiểm tra cây fallback của delivery_overview theo đúng chuẩn RC65."""
+    from app.ob_service import RC65_TABLE_OVERVIEW_ID, RC65_TABLE_OVERVIEW_TOKEN
+    engine = SapEngine.__new__(SapEngine)
+
+    # 1. Session None -> returns None
+    engine.session = None
+    assert engine.delivery_overview() is None
+
+    # 2. Session hợp lệ
+    mock_ses = MagicMock()
+    engine.session = mock_ses
+
+    class DummyTable:
+        def __init__(self, name):
+            self.name = name
+
+    # 1. Primary ID found (RC65_TABLE_OVERVIEW_ID)
+    t_primary = DummyTable("primary")
+    engine._find_by_id_safe = MagicMock(return_value=t_primary)
+    assert engine.delivery_overview() == t_primary
+    engine._find_by_id_safe.assert_called_with(RC65_TABLE_OVERVIEW_ID)
+
+    # 2. Fallback to token ID: f"wnd[0]/usr/{RC65_TABLE_OVERVIEW_TOKEN}"
+    t_fb = DummyTable("fb_token")
+    def find_mock_fb(cid):
+        if cid == f"wnd[0]/usr/{RC65_TABLE_OVERVIEW_TOKEN}":
+            return t_fb
+        return None
+    engine._find_by_id_safe = find_mock_fb
+    assert engine.delivery_overview() == t_fb
+
+    # 3. None found
+    engine._find_by_id_safe = MagicMock(return_value=None)
+    assert engine.delivery_overview() is None
+
+
+
 
