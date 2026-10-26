@@ -4114,23 +4114,28 @@ class SapEngine:
 
             print(f"[SAP MIGO] Đã tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM. Đang phân giải cột...")
 
-            # 5. CHỐT NGHIỆP VỤ & VỊ TRÍ CỘT 100% THEO FILE EXCEL V31 (260810_RA_DON_NVL_V31_ZONE.xlsm)
-            # Chuẩn RUN_GetPreBatchColumnMap đã chốt theo layout cố định của nhà máy:
-            mat_col = 3       # Product (Material)
-            qty_col = 4       # Qty in UnE (Số lượng)
-            txt_col = 5       # Text (Trạm)
-            plant_col = 6     # Plant (Plnt)
-            src_sloc_col = 7  # SLoc (Kho xuất 1005)
-            dest_sloc_col = 8 # SLocTo (Kho nhận 3001)
+            # 5. PHÂN GIẢI CỘT MIGO 311 (KẾT HỢP CHUẨN EXCEL V31 & ĐẶC TẢ GIAO DIỆN NHÀ MÁY)
+            # Layout mặc định: Material=3, Qty=4, Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=10
+            mat_col = 3
+            qty_col = 4
+            txt_col = 5
+            plant_col = 6
+            src_sloc_col = 7
+            dest_sloc_col = 8
+            batch_col = 10
+            ok_col = -1
 
-            # Cột Lô (Batch) theo chuẩn RUN_GetBatchColumnForRow trong Excel V31:
-            # Quét từ cột 0, gặp cột đầu tiên mang tiêu đề BATCH (loại trừ TRFR/TRANSFER/PSTG) thì THOÁT NGAY LẬP TỨC (Exit Function)
-            batch_col = 9     # Mặc định theo layout chuẩn Excel là cột 9
-            ok_col = -1       # Checkbox OK
+            mat_found = False
+            qty_found = False
+            txt_found = False
+            plant_found = False
+            src_sloc_found = False
+            dest_sloc_found = False
+            batch_found = False
+            ok_found = False
 
             try:
                 col_cnt = int(getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0)))
-                # 1. Tìm cột Batch theo chuẩn RUN_GetBatchColumnForRow (Exit Function ngay cột đầu tiên)
                 for c_i in range(col_cnt):
                     col_obj = None
                     for acc in ("ElementAt", "Item"):
@@ -4146,61 +4151,57 @@ class SapEngine:
                             col_obj = tbl.Columns(c_i)
                         except Exception:
                             pass
+                    if col_obj is None:
+                        try:
+                            col_obj = tbl.Columns[c_i]
+                        except Exception:
+                            pass
+
                     c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
                     c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
-                    if ("BATCH" in c_title or c_name == "GOITEM-CHARG") and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and c_name != "GOITEM-UMCHA":
+
+                    # Material: GOITEM-MATNR hoặc tiêu đề chính xác Material / Product (không ăn sang Material Group hay Trfr)
+                    if not mat_found and (c_name == "GOITEM-MATNR" or c_title in ("MATERIAL", "PRODUCT")):
+                        mat_col = c_i
+                        mat_found = True
+                    # Qty: GOITEM-ERFMG hoặc Qty in UnE / Quantity / Qty (không ăn sang PO Qty)
+                    elif not qty_found and (c_name == "GOITEM-ERFMG" or c_title in ("QTY IN UNE", "QUANTITY", "QTY")):
+                        qty_col = c_i
+                        qty_found = True
+                    # Text / Trạm: GOITEM-SGTXT hoặc Text / Item Text
+                    elif not txt_found and (c_name == "GOITEM-SGTXT" or c_title in ("TEXT", "ITEM TEXT")):
+                        txt_col = c_i
+                        txt_found = True
+                    # Plant: GOITEM-WERKS hoặc Plnt / Plant
+                    elif not plant_found and (c_name == "GOITEM-WERKS" or c_title in ("PLNT", "PLANT")):
+                        plant_col = c_i
+                        plant_found = True
+                    # SLoc xuất: GOITEM-LGORT hoặc SLoc / Storage Loc (không ăn sang SLoc Tra... hay Receiving)
+                    elif not src_sloc_found and (c_name == "GOITEM-LGORT" or (c_title in ("SLOC", "STORAGE LOC", "STORAGE LOCATION") and not any(k in c_title for k in ("TRA", "TRANSFER", "REC", "TO", "DEST")))):
+                        src_sloc_col = c_i
+                        src_sloc_found = True
+                    # SLoc nhận: GOITEM-UMLGO hoặc SLoc Tra... / SLoc Transfer Pstg / Rec. SLoc
+                    elif not dest_sloc_found and (c_name == "GOITEM-UMLGO" or any(c_title.startswith(k) for k in ("SLOC TRA", "REC. SLOC", "SLOCTO", "DEST. SLOC")) or ("SLOC" in c_title and ("TRANSFER" in c_title or "TRFR" in c_title or "TRA" in c_title))):
+                        dest_sloc_col = c_i
+                        dest_sloc_found = True
+                    # Batch: GOITEM-CHARG hoặc Batch chính xác (loại trừ Batch Trfr, Batch Management...)
+                    elif not batch_found and ((c_name == "GOITEM-CHARG" or c_title == "BATCH") and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and c_name != "GOITEM-UMCHA"):
                         batch_col = c_i
-                        break  # Dừng ngay tại cột đầu tiên theo chuẩn VBA V31!
-
-                # 2. Tìm cột OK nếu có theo chuẩn RUN_FindOKColumn
-                for c_i in range(col_cnt):
-                    col_obj = None
-                    for acc in ("ElementAt", "Item"):
-                        try:
-                            fn = getattr(tbl.Columns, acc, None)
-                            if callable(fn):
-                                col_obj = fn(c_i)
-                                break
-                        except Exception:
-                            pass
-                    if col_obj is None:
-                        try:
-                            col_obj = tbl.Columns(c_i)
-                        except Exception:
-                            pass
-                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
-                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
-                    if c_title == "OK" or c_name == "GOITEM-TAKE_IT":
+                        batch_found = True
+                    # OK: GOITEM-TAKE_IT hoặc OK
+                    elif not ok_found and (c_name == "GOITEM-TAKE_IT" or c_title == "OK"):
                         ok_col = c_i
-                        break
+                        ok_found = True
             except Exception as col_err:
-                print(f"[SAP MIGO WARN] Lỗi đọc cột Batch/OK: {col_err}")
+                print(f"[SAP MIGO WARN] Lỗi đọc danh sách cột: {col_err}")
 
-            print(f"[SAP MIGO] Cột chốt chuẩn Excel V31: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
+            print(f"[SAP MIGO] Cột TableControl: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
 
-            # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Token TableField + Coordinate fallback)
+            # Hàm điền ô chuẩn SAP GUI TableControl (Ưu tiên Token TableField bất biến -> Fallback GetCell & Coord)
             def _set_cell(table_ctl, row_no, col_no, value_text, label=""):
                 val_str = str(value_text or "").strip()
-                # 1. Thử qua tbl.GetCell(row_no, col_no)
-                try:
-                    cell = table_ctl.GetCell(row_no, col_no)
-                    if cell is not None:
-                        for prop in ("Text", "text"):
-                            try:
-                                setattr(cell, prop, val_str)
-                                return True
-                            except Exception:
-                                pass
-                        try:
-                            cell.SetFocus()
-                            cell.Text = val_str
-                            return True
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
 
-                # 2. Thử qua token TableField chuẩn RC65 (LIPSD/GOITEM)
+                # 1. ƯU TIÊN 1: Thử qua token TableField kỹ thuật chuẩn MIGO (bất biến theo layout)
                 migo_token_map = {
                     "Material": "GOITEM-MATNR",
                     "Qty": "GOITEM-ERFMG",
@@ -4228,44 +4229,66 @@ class SapEngine:
                         except Exception:
                             pass
 
-                # 3. Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
-                suffix = f"[{col_no},{row_no}]"
-                def _find_by_coord(obj, depth=0):
-                    if obj is None or depth > 10:
-                        return None
+                # 2. ƯU TIÊN 2: Thử qua tbl.GetCell(row_no, col_no)
+                if col_no is not None and col_no >= 0:
                     try:
-                        cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
-                        if cid.endswith(suffix):
-                            return obj
-                    except Exception:
-                        pass
-                    try:
-                        children = getattr(obj, "Children", getattr(obj, "children", None))
-                        if children:
+                        cell = table_ctl.GetCell(row_no, col_no)
+                        if cell is not None:
+                            for prop in ("Text", "text"):
+                                try:
+                                    setattr(cell, prop, val_str)
+                                    return True
+                                except Exception:
+                                    pass
                             try:
-                                for child in children:
-                                    res = _find_by_coord(child, depth + 1)
-                                    if res is not None:
-                                        return res
-                            except TypeError:
-                                cnt = getattr(children, "Count", 0)
-                                for idx in range(cnt):
-                                    res = _find_by_coord(children(idx), depth + 1)
-                                    if res is not None:
-                                        return res
+                                cell.SetFocus()
+                                cell.Text = val_str
+                                return True
+                            except Exception:
+                                pass
                     except Exception:
                         pass
-                    return None
 
-                ctl = _find_by_coord(table_ctl)
-                if ctl is not None:
-                    for prop in ("Text", "text"):
+                # 3. ƯU TIÊN 3: Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
+                if col_no is not None and col_no >= 0:
+                    suffix = f"[{col_no},{row_no}]"
+                    def _find_by_coord(obj, depth=0):
+                        if obj is None or depth > 10:
+                            return None
                         try:
-                            setattr(ctl, prop, val_str)
-                            return True
+                            cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
+                            if cid.endswith(suffix):
+                                return obj
                         except Exception:
                             pass
+                        try:
+                            children = getattr(obj, "Children", getattr(obj, "children", None))
+                            if children:
+                                try:
+                                    for child in children:
+                                        res = _find_by_coord(child, depth + 1)
+                                        if res is not None:
+                                            return res
+                                except TypeError:
+                                    cnt = getattr(children, "Count", 0)
+                                    for idx in range(cnt):
+                                        res = _find_by_coord(children(idx), depth + 1)
+                                        if res is not None:
+                                            return res
+                        except Exception:
+                            pass
+                        return None
 
+                    ctl = _find_by_coord(table_ctl)
+                    if ctl is not None:
+                        for prop in ("Text", "text"):
+                            try:
+                                setattr(ctl, prop, val_str)
+                                return True
+                            except Exception:
+                                pass
+
+                print(f"[SAP MIGO WARN] Không thể điền '{label}'='{val_str}' tại row={row_no}, col={col_no}")
                 return False
 
             def _ensure_visible_row(table_ctl, logical_row):
@@ -4304,6 +4327,8 @@ class SapEngine:
                 plant_str = str(item.get("plant") or plant or "3093").strip()
                 src_sloc_str = str(item.get("source_sloc") or source_sloc or "1005").strip()
                 dest_sloc_str = str(item.get("dest_sloc") or dest_sloc or "3001").strip()
+                if dest_sloc_str in ("1003", "", "-"):
+                    dest_sloc_str = "3001"
 
                 _set_cell(tbl, table_row, mat_col, mat_str, "Material")
                 _set_cell(tbl, table_row, qty_col, qty_str, "Qty")

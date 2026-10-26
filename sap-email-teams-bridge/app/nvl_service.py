@@ -153,7 +153,7 @@ class NvlService:
 
     @classmethod
     def allocate_orders(cls, orders, stock_records, source_plant="3093", source_sloc="1005",
-                        default_dest_plant="3001", default_dest_sloc="1003", db_path=None,
+                        default_dest_plant="3093", default_dest_sloc="3001", db_path=None,
                         request_id=None, source_complete=False, reservation_ttl_seconds=900):
         """Preview from a complete snapshot; no reservation is created here.
 

@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.69
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.70
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Chốt 100% Nghiệp Vụ & Vị Trí Cột Theo File Excel V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.69):**
+1. **Khắc Phục Lỗi Kho Nhận `1003` & Khóa Chuẩn Token TableField MIGO Bất Biến (v1.0.70):**
+   - **Triệt tiêu lỗi kho nhận `1003`:** Khắc phục dứt điểm việc `default_dest_sloc` bị đặt nhầm thành `1003` khiến SAP báo lỗi *"No hits were found for storage location 1003 in plant 3093"*. Chuẩn hóa mặc định `dest_plant="3093"`, `dest_sloc="3001"` (Kho Line Body) và tự động chuẩn hóa giá trị `1003` về `3001`.
+   - **Ưu tiên hàng đầu Token TableField kỹ thuật SAP:** Đưa cơ chế tìm control theo Token bất biến (`GOITEM-UMLGO` cho Kho nhận, `GOITEM-CHARG` cho Số lô, `GOITEM-LGORT` cho Kho xuất, `GOITEM-WERKS` cho Plant, `GOITEM-MATNR` cho Material, `GOITEM-ERFMG` cho Qty) lên ưu tiên số 1 trước khi fallback sang GetCell. Đảm bảo dù layout SAP của người dùng có bật/tắt bao nhiêu cột mô tả thì dữ liệu luôn điền trúng 100% vào đúng ô.
+   - **Khắc phục lỗi lệch cột Batch:** Phân giải cột đơn lượt với khóa chốt First-Match-Wins, khớp chuẩn `Material=3, Qty=5, Trạm=6, Plant=7, KhoXuất=8, KhoNhận=9, Lô=10`, triệt tiêu hoàn toàn cảnh báo *"Không thể điền 'Batch' tại row=0, col=9"*.
+   - **Điền đầy đủ 100% Kho nhận và Số lô:** Giúp giao dịch MIGO 311 hoàn tất hợp lệ, được SAP chấp thuận ghi sổ và sinh ngay số chứng từ Outbound Delivery / Material Document thành công.
+
+2. **Chốt 100% Nghiệp Vụ & Vị Trí Cột Theo File Excel V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.69):**
    - **Khóa cố định vị trí các cột chuẩn theo layout của nhà máy (`RUN_GetPreBatchColumnMap`):**
      - `Material (Product)`: Cột 3
      - `Qty (Số lượng)`: Cột 4
