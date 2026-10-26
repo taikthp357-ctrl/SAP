@@ -222,7 +222,7 @@ class SmartCommandParser:
         for value in raw_mats if isinstance(raw_mats, list) else []:
             if isinstance(value, (str, int)) and not isinstance(value, bool):
                 text = str(value).strip()
-                if re.fullmatch(r"[\w\-./]{2,40}", text) and text not in mats:
+                if re.fullmatch(r"[\w\-./*?]{2,40}", text) and text not in mats:
                     mats.append(text)
         try:
             days = max(1, min(int(obj.get("days", 7)), 365))
@@ -588,15 +588,19 @@ class SmartCommandParser:
         if ob_no:
             work_str = work_str.replace(ob_no, " ")
 
-        tokens = re.findall(r"\b[A-Z0-9._-]{5,18}\b", work_str)
+        tokens = re.findall(r"[A-Z0-9._*-]{3,25}", work_str)
         materials = []
         for tk in tokens:
-            clean_tk = tk.strip(".-_")
-            if len(clean_tk) < 5 or clean_tk in cls.STOP_WORDS:
+            clean_tk = tk.strip(".-_ ")
+            if not clean_tk or set(clean_tk) <= {"*"}:
+                continue
+            has_wildcard = "*" in clean_tk or "?" in clean_tk
+            min_len = 3 if has_wildcard else 5
+            if len(clean_tk) < min_len or clean_tk in cls.STOP_WORDS:
                 continue
             if re.match(r"^\d{1,2}\.\d{1,2}\.\d{2,4}$", clean_tk):
                 continue
-            if any(ch.isdigit() for ch in clean_tk) and clean_tk != plant and clean_tk != batch:
+            if (any(ch.isdigit() for ch in clean_tk) or (has_wildcard and len(clean_tk) >= 3)) and clean_tk != plant and clean_tk != batch:
                 if clean_tk not in materials:
                     materials.append(clean_tk)
 

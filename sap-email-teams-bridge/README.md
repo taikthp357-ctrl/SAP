@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.56
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.57
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Định dạng số chuẩn hóa EU/VN & Pipeline Hardening (v1.0.56):**
+1. **Tra cứu Mẫu đại diện (Wildcard `BIW*6100*`) & Ổn định ZFIR266 ALV (v1.0.57):**
+   - **Tự động bung mẫu Wildcard từ Master Data:** Mở rộng bộ phân giải [`material_resolver.py`](file:///G:/SAP/sap-email-teams-bridge/app/material_resolver.py) với `fnmatch`. Khi người dùng gõ `BIW*6100*` hoặc `*6100*`, hệ thống tự động bung chính xác 5 mã SAP tương ứng (`BIW32016100AA`, `BIW32026100AB`, `BIW75126100AB`, `BIW75116100AA`, `BIW32216100AA`) từ `DATA_MASTER.xlsx` mà không cần chỉnh sửa bất kỳ dòng nào trong file Excel.
+   - **Bảo toàn ký tự `*` và `?` trong Parser:** Tinh chỉnh Regex bóc tách token trong [`email_parser.py`](file:///G:/SAP/sap-email-teams-bridge/app/email_parser.py) (cả câu lệnh tự nhiên và cấu trúc JSON `[\w\-./*?]{2,40}`), giữ nguyên dấu `*` ở giữa hoặc hai đầu mã vật tư mà không bị cắt vụn thành các từ ngắn.
+   - **Triệt tiêu lỗi `_return_to_main_menu` trên ZFIR266:** Bổ sung alias chuẩn hóa `_return_to_main_menu` $\rightarrow$ `_reset_to_session_manager` trên [`sap_engine.py`](file:///G:/SAP/sap-email-teams-bridge/app/sap_engine.py), khắc phục hoàn toàn sự cố văng lỗi ngoại lệ sau khi đọc báo cáo `ZFIR266`.
+   - **Trích xuất thông minh ALV Grid ZFIR266:** Tự động đối chiếu cột tên file qua `ColumnOrder`, `Caption` và quét nội dung nhận dạng định dạng file (`.pdf`, `.xlsx`, v.v.), đảm bảo bắt trọn vẹn các file chứng từ như `VAT_6489.PDF`.
+
+2. **Định dạng số chuẩn hóa EU/VN & Pipeline Hardening (v1.0.56):**
    - **Triệt tiêu lỗi `Ambiguous quantity`:** Tự động phân giải chính xác chuỗi số định dạng EU/VN có nhiều dấu chấm (ví dụ: `1.421.410`, `2.842.820`) và số nguyên hàng nghìn (`1.000`, `2.500`) mà không làm suy hao hoặc biến số lượng về `0.0`. Format hiển thị số lượng fallback an toàn sang chuẩn EU không cắt cụt chuỗi.
    - **Phân giải nhận diện Xưởng Sơn EDC (Plant 4007/4004):** Bổ sung nhận diện từ khóa `EDC`, `SƠN EDC`, `SON EDC`, `XUONG SON`, ánh xạ chuẩn xác bộ Plant `["4007", "3093"]`. Khóa chặt tìm kiếm gần đúng (Fuzzy match) với độ dài tối thiểu `>= 5` ký tự, tránh khớp nhầm các mã ngắn.
    - **Bảo vệ phiên & Fallback toàn diện cho `ZFIR266`:** Bảo vệ điều hướng phím `F3` (chỉ gửi Back khi SAP đã mở ALV Grid), ngăn chặn dứt điểm hiện tượng thoát nhầm về `SESSION_MANAGER` làm hỏng các chứng từ kế tiếp. Tích hợp cuộn trang `firstVisibleRow` quét trọn vẹn danh mục lớn và tự động fallback sang MIGO Display kiểm tra GOS Attachment cho từng chứng từ không trả về dòng nào trên ZFIR266.
@@ -82,7 +88,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (237 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (241 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm

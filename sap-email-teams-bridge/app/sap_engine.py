@@ -1062,6 +1062,10 @@ class SapEngine:
         print(f"[SAP PARSE] Đã chuyển đổi thành công {len(records)} dòng từ file Excel SAP xuất ra.")
         return records
 
+    def _return_to_main_menu(self):
+        """Đưa SAP GUI về màn hình gốc /n (SESSION_MANAGER) - alias tương thích."""
+        return self._reset_to_session_manager()
+
     def _reset_to_session_manager(self):
         """Đưa SAP GUI về màn hình gốc /n (SESSION_MANAGER) để giải phóng toàn bộ ALV grid, bộ nhớ và session cho lần chạy tiếp theo theo Module1.bas dòng 2643."""
         try:
@@ -2376,6 +2380,12 @@ class SapEngine:
             m_clean = m.strip().upper()
             if not m_clean:
                 continue
+            if "*" in m_clean or "?" in m_clean:
+                import fnmatch
+                p_unp = p_clean.lstrip("0")
+                m_unp = m_clean.lstrip("0")
+                if fnmatch.fnmatch(p_clean, m_clean) or fnmatch.fnmatch(p_unp, m_unp):
+                    return True
             m_unpadded = m_clean.lstrip("0")
             m_core = re.sub(r"^[A-Z]+", "", m_unpadded)
 
@@ -4049,6 +4059,23 @@ class SapEngine:
                             grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell") or self._find_by_id_safe("wnd[0]/usr/shell")
                             has_grid = grid is not None and hasattr(grid, "RowCount") and grid.RowCount > 0
                             if has_grid:
+                                resolved_file_col = None
+                                try:
+                                    col_order = grid.ColumnOrder
+                                    for c_idx in range(col_order.Count):
+                                        c_name = str(col_order.ElementAt(c_idx)).strip()
+                                        c_upper = c_name.upper()
+                                        c_cap = ""
+                                        try:
+                                            c_cap = str(self._get_column_caption(grid, c_name)).strip().upper()
+                                        except Exception:
+                                            pass
+                                        if any(k in c_upper or k in c_cap for k in ["FILE_NAME", "FILENAME", "FILE NAME", "TÊN FILE", "TÊN TỆP", "ATTACH"]):
+                                            resolved_file_col = c_name
+                                            break
+                                except Exception:
+                                    pass
+
                                 for r in range(grid.RowCount):
                                     if r % 20 == 0:
                                         try:
@@ -4056,12 +4083,34 @@ class SapEngine:
                                         except Exception:
                                             pass
                                     fname = ""
-                                    for col_cand in ["FILE_NAME", "FILENAME", "FILE", "TITLE", "DESCRIPT", "DESCR", "NAME"]:
+                                    if resolved_file_col:
                                         try:
-                                            v = grid.GetCellValue(r, col_cand)
+                                            v = grid.GetCellValue(r, resolved_file_col)
                                             if v:
                                                 fname = str(v).strip()
-                                                break
+                                        except Exception:
+                                            pass
+                                    if not fname:
+                                        for col_cand in ["FILE_NAME", "FILENAME", "FILE", "TITLE", "DESCRIPT", "DESCR", "NAME", "ZFILE", "LFNAM"]:
+                                            try:
+                                                v = grid.GetCellValue(r, col_cand)
+                                                if v:
+                                                    fname = str(v).strip()
+                                                    break
+                                            except Exception:
+                                                pass
+                                    if not fname:
+                                        try:
+                                            col_order = grid.ColumnOrder
+                                            for c_idx in range(col_order.Count):
+                                                c_name = str(col_order.ElementAt(c_idx)).strip()
+                                                try:
+                                                    v = str(grid.GetCellValue(r, c_name)).strip()
+                                                    if re.search(r"\.(pdf|png|jpg|jpeg|docx?|xlsx?|zip|rar|msg|txt)$", v, re.I):
+                                                        fname = v
+                                                        break
+                                                except Exception:
+                                                    pass
                                         except Exception:
                                             pass
                                     if fname and fname not in titles_found:
@@ -4096,7 +4145,7 @@ class SapEngine:
                     print(f"[MIGO DISPLAY WARN] Lỗi đọc DOC {doc}: {migo_err}")
                 migo_results[doc] = titles
 
-        self._return_to_main_menu()
+        self._reset_to_session_manager()
 
         records = []
         for doc in clean_docs:

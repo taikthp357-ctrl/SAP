@@ -116,6 +116,20 @@ class MaterialResolver:
         if not clean:
             return [], "Rỗng"
 
+        # 0. Tìm kiếm theo mẫu đại diện (Wildcard: * hoặc ?)
+        if "*" in clean or "?" in clean:
+            import fnmatch
+            matched_fulls = []
+            for full_code, meta in self.full_to_meta.items():
+                short_code = str(meta.get("short", "")).strip().upper()
+                if fnmatch.fnmatch(full_code, clean) or (short_code and fnmatch.fnmatch(short_code, clean)):
+                    if full_code not in matched_fulls:
+                        matched_fulls.append(full_code)
+            if matched_fulls:
+                note = f"Khớp {len(matched_fulls)} mã theo mẫu wildcard '{clean}'"
+                return matched_fulls, note
+            return [clean], f"Mẫu wildcard trực tiếp '{clean}' (chưa có trong file Master)"
+
         # 1. Khớp chính xác với mã đầy đủ đã có trong Master Data
         if clean in self.full_to_meta:
             meta = self.full_to_meta[clean]
