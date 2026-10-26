@@ -954,6 +954,31 @@ def run_bridge():
 
         except Exception as loop_err:
             print(f"[LOOP WARN] {loop_err}")
+            err_str = str(loop_err)
+            if "-2147220995" in err_str or "not connected to server" in err_str.lower():
+                print("[OUTLOOK RECONNECT] Phát hiện mất kết nối COM Outlook (-2147220995). Đang kết nối lại...")
+                try:
+                    pythoncom.CoInitialize()
+                    outlook_app = win32com.client.Dispatch("Outlook.Application")
+                    outlook_ns = outlook_app.GetNamespace("MAPI")
+                    outlook = outlook_ns
+                    inbox = outlook_ns.GetDefaultFolder(6)
+                    bot_folder = None
+                    try:
+                        for f in inbox.Parent.Folders:
+                            if f.Name.strip().lower() == folder_name.strip().lower():
+                                bot_folder = f
+                                break
+                    except Exception:
+                        pass
+                    if bot_folder is None:
+                        for f in inbox.Folders:
+                            if f.Name.strip().lower() == folder_name.strip().lower():
+                                bot_folder = f
+                                break
+                    print(f"[OUTLOOK RECONNECT] Đã kết nối lại Outlook thành công (thư mục: '{getattr(bot_folder, 'Name', '')}').")
+                except Exception as recon_err:
+                    print(f"[OUTLOOK RECONNECT FAIL] {recon_err}")
 
         # Tối ưu giải phóng RAM và COM object sau mỗi vòng lặp chạy nền
         try:

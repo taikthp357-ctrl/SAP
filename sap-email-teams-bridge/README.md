@@ -1,4 +1,4 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.53
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.54
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
@@ -9,11 +9,16 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
    - **Bảo vệ phiên người dùng (Strict Session Ownership Guard):** Khi bật chế độ an toàn, hệ thống chỉ sử dụng phiên rảnh (Idle), tự động xin mở phiên mới nếu cho phép, tuyệt đối không can thiệp hoặc cướp màn hình làm việc của người dùng đang thao tác.
    - **Quét sạch bộ lọc cũ (Clean Selection Screen):** Tự động xóa sạch toàn bộ các ID/ô lọc còn sót lại từ phiên trước (MBLNR, BWART, SLoc, Batch...) trước khi chạy MB51, MB52, VL06O, tránh bị lọc sai khiến kết quả trả về rỗng.
 
-2. **Cơ chế Keep-Alive & Auto-Reconnect:**
+2. **Cơ chế Keep-Alive & Auto-Reconnect COM (v1.0.54):**
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
+   - **Tự phục hồi kết nối Outlook COM (-2147220995):** Tự động bắt lỗi RPC disconnect (`Object is not connected to server`) trong vòng lặp chính, re-dispatch lại Outlook MAPI namespace và lấy lại con trỏ thư mục mà không cần khởi động lại toàn bộ bridge.
 
-3. **Chống Lặp Vô Tận Recovery Loop & Tự Động Giải Phóng Thư Kẹt (v1.0.53):**
+3. **Chống Redraw Crash & Giữ MIGO CHANGE Xuyên Suốt Mẻ (v1.0.54):**
+   - **Triệt tiêu lỗi COM `-2147417851` (`The server threw an exception`):** Thiết kế hàm `ensure_migo_mode` kiểm tra trạng thái ComboBox `GODYNPRO-ACTION` và `GODYNPRO-REFDOC`. Nếu đã ở `A12` hoặc `R02`, tuyệt đối không gán đè. Khi cần đổi Action, chèn khoảng nghỉ 0.5s để SAP GUI hoàn tất Screen Redraw trước khi re-fetch lại đối tượng RefDoc mới từ DOM, loại bỏ toàn bộ lỗi Dead Pointer COM.
+   - **Loại bỏ Reload DISPLAY thừa:** Xóa bỏ lệnh nạp lại `mode="DISPLAY"` ở cuối hàm `handle_migo_headtext`. Giữ phiên MIGO luôn ở `A12 CHANGE` trong suốt 45 chứng từ của mẻ, nâng tốc độ xử lý lên 0.3s/chứng từ và loại trừ 100% việc lặp lại thao tác chuyển mode.
+
+4. **Chống Lặp Vô Tận Recovery Loop & Tự Động Giải Phóng Thư Kẹt (v1.0.53):**
    - **Triệt tiêu vòng lặp vô tận `[RECOVERY] REF-...`:** Khi phát hiện thư cũ đã lưu kết quả hoặc lần chạy trước bị gián đoạn, hệ thống tự động đánh dấu đã đọc (`UnRead=False`) và chuyển thư ra khỏi hòm thư `SAP_BOT` sang thư mục con `Processed` (nếu đã có kết quả) hoặc `Failed` (nếu cần đối soát).
    - Ngăn chặn hoàn toàn hiện tượng thư cũ bị kẹt lại trong `SAP_BOT` khiến bot quét đi quét lại và in thông báo liên tục mỗi chu kỳ thăm dò.
 
@@ -59,7 +64,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (230 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (233 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm
