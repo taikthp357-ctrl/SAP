@@ -44,7 +44,7 @@
   "max_sap_sessions": 6,
   "max_bot_sessions": 3,
   "sap_session_index": 0,
-  "allow_sap_writes": true,
+  "allow_sap_writes": false,
   "trusted_intake_senders": [],
   "enable_multi_tab": true,
   "max_batch_tabs": 2

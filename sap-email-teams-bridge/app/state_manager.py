@@ -84,6 +84,9 @@ class StateManager:
                 )
             """)
             conn.execute("CREATE TABLE IF NOT EXISTS request_claims (request_id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL)")
+            msg_cols = {r[1] for r in conn.execute("PRAGMA table_info(processed_messages)")}
+            if "store_id" not in msg_cols:
+                conn.execute("ALTER TABLE processed_messages ADD COLUMN store_id TEXT DEFAULT ''")
             columns = {r[1] for r in conn.execute("PRAGMA table_info(outbox_queue)")}
             for name, definition in [("lease_token", "TEXT"), ("lease_until", "TEXT"), ("accepted_at", "TEXT")]:
                 if name not in columns:
@@ -94,18 +97,26 @@ class StateManager:
             conn.execute("PRAGMA user_version=2")
             conn.commit()
 
-    def is_message_processed(self, message_id: str, entry_id: Optional[str] = None) -> bool:
-        """Kiểm tra tin nhắn đã được xử lý và phản hồi thành công trước đây hay chưa."""
+    def is_message_processed(self, message_id: str, entry_id: Optional[str] = None, store_id: Optional[str] = None) -> bool:
+        """Kiểm tra tin nhắn đã được xử lý và phản hồi thành công trước đây hay chưa (hỗ trợ namespace theo store_id)."""
         if not message_id and not entry_id:
             return False
         with self._get_connection() as conn:
             cur = conn.cursor()
-            if message_id:
-                cur.execute("SELECT 1 FROM processed_messages WHERE message_id = ?", (message_id,))
+            candidates_msg = [message_id] if message_id else []
+            candidates_entry = [entry_id] if entry_id else []
+            if store_id:
+                if message_id:
+                    candidates_msg.append(f"{store_id}:{message_id}")
+                if entry_id:
+                    candidates_entry.append(f"{store_id}:{entry_id}")
+
+            for m in candidates_msg:
+                cur.execute("SELECT 1 FROM processed_messages WHERE message_id = ?", (m,))
                 if cur.fetchone():
                     return True
-            if entry_id:
-                cur.execute("SELECT 1 FROM processed_messages WHERE entry_id = ?", (entry_id,))
+            for e in candidates_entry:
+                cur.execute("SELECT 1 FROM processed_messages WHERE entry_id = ?", (e,))
                 if cur.fetchone():
                     return True
         return False
@@ -116,19 +127,22 @@ class StateManager:
         entry_id: Optional[str],
         req_id: str,
         command: str,
-        status: str
+        status: str,
+        store_id: Optional[str] = None
     ):
-        """Đánh dấu tin nhắn đã hoàn tất vào cơ sở dữ liệu bền vững."""
-        key = message_id or entry_id or req_id
-        if not key:
+        """Đánh dấu tin nhắn đã hoàn tất vào cơ sở dữ liệu bền vững (namespaced theo store_id nếu có)."""
+        base_key = message_id or entry_id or req_id
+        if not base_key:
             return
+        key = f"{store_id}:{base_key}" if (store_id and base_key and not base_key.startswith(f"{store_id}:")) else base_key
+        ent_key = f"{store_id}:{entry_id}" if (store_id and entry_id and not entry_id.startswith(f"{store_id}:")) else (entry_id or "")
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR IGNORE INTO processed_messages
-                (message_id, entry_id, req_id, command, status, processed_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (key, entry_id or "", req_id, command, status, now_str))
+                (message_id, entry_id, req_id, command, status, processed_at, store_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (key, ent_key, req_id, command, status, now_str, store_id or ""))
             conn.commit()
 
     @staticmethod
@@ -146,13 +160,20 @@ class StateManager:
             conn.execute("BEGIN IMMEDIATE")
             self._insert_outbox(conn, req_id, webhook_url, payload)
 
-    def complete_request(self, message_id, entry_id, req_id, command, status, webhook_url, payload):
+    def complete_request(self, message_id, entry_id, req_id, command, status, webhook_url, payload, store_id=None):
         """Persist result and dedup marker atomically before any HTTP attempt."""
         with self._get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             self._insert_outbox(conn, req_id, webhook_url, payload)
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute("INSERT OR IGNORE INTO processed_messages VALUES(?,?,?,?,?,?)", (message_id or entry_id or req_id,entry_id or "",req_id,command,status,now_str))
+            base_key = message_id or entry_id or req_id
+            key = f"{store_id}:{base_key}" if (store_id and base_key and not base_key.startswith(f"{store_id}:")) else base_key
+            ent_key = f"{store_id}:{entry_id}" if (store_id and entry_id and not entry_id.startswith(f"{store_id}:")) else (entry_id or "")
+            conn.execute("""
+                INSERT OR IGNORE INTO processed_messages
+                (message_id, entry_id, req_id, command, status, processed_at, store_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (key, ent_key, req_id, command, status, now_str, store_id or ""))
             conn.execute("UPDATE request_claims SET status='COMPLETED' WHERE request_id=?", (req_id,))
 
     def claim_request(self, req_id):

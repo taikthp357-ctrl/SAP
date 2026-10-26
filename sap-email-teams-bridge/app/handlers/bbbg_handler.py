@@ -17,8 +17,9 @@ class BbbgHandler(BaseHandler):
         days_cnt = ctx.meta.get("days", 1)
         resolved_mats = ctx.resolved_materials or []
 
-        mb51_rows = ctx.sap.check_history_mb51(resolved_mats, days=days_cnt, plant=ctx.plant, explicit_plant=True)
-        vl06i_rows = ctx.sap.check_inbound_treo_vl06i(resolved_mats, plant=ctx.plant)
+        mb51_rows = ctx.sap.check_history_mb51(resolved_mats, days=days_cnt, plant=ctx.plant, explicit_plant=True) if ctx.sap else []
+        # Mở rộng VL06I lấy cả hàng đã GR (only_open=False) để đối soát đầy đủ với MB51
+        vl06i_rows = ctx.sap.check_inbound_treo_vl06i(resolved_mats, plant=ctx.plant, only_open=False) if ctx.sap else []
         recon = BbbgService.reconcile(mb51_rows, vl06i_rows, source_complete=True)
 
         custom_html = None

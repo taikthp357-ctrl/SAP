@@ -227,7 +227,28 @@ def test_attach_file_verification_without_extension():
     mock_sbar = MagicMock()
     mock_sbar.Text = "Attachment successfully created"
     mock_sbar.MessageType = "S"
-    mock_session.findById.return_value = mock_sbar
+
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_session.FindByName.return_value = mock_btn
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.return_value = mock_btn
+    wnd1_active = [True]
+    mock_btn.Press.side_effect = lambda: wnd1_active.__setitem__(0, False)
+    def find_by_id(path, *args):
+        p = str(path)
+        if "sbar" in p:
+            return mock_sbar
+        if "btn" in p:
+            return mock_btn
+        if p == "wnd[1]" or p.startswith("wnd[1]"):
+            if wnd1_active[0]:
+                return mock_wnd1
+            raise Exception("not found")
+        return MagicMock()
+    mock_session.findById.side_effect = find_by_id
 
     # Mock SAP GOS Attachment list returning Title without .pdf extension (e.g. 'VAT 5319')
     runner.read_sap_attachment_titles = MagicMock(return_value=["VAT 5319", "BBBG 5319"])

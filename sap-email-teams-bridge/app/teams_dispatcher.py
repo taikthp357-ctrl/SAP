@@ -14,7 +14,7 @@ import urllib.error
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
-from app.number_utils import parse_sap_float, format_qty_display
+from app.number_utils import parse_sap_float, parse_sap_decimal, format_qty_display, NumericParseError
 
 try:
     from app.config import DEFAULT_CONFIG
@@ -74,6 +74,11 @@ class TeamsDispatcher:
         # Bỏ dòng thông báo giới hạn theo yêu cầu sếp
 
         return "".join(tbl)
+
+    @classmethod
+    def _build_response_badges(cls, command: str, records: List[Dict[str, Any]]) -> str:
+        """Alias tương thích ngược cho build_kpi_badges."""
+        return cls.build_kpi_badges(records, command)
 
     @classmethod
     def build_kpi_badges(cls, records: List[Dict[str, Any]], command: str) -> str:
@@ -205,9 +210,20 @@ class TeamsDispatcher:
                 tot_held = 0.0
                 unit = ""
                 for r in records:
-                    tot_avail += parse_sap_float(r.get("availQty") or r.get("qty"))
-                    tot_stk += parse_sap_float(r.get("totalQty") or r.get("availQty") or r.get("qty"))
-                    tot_held += parse_sap_float(r.get("heldQty", 0.0))
+                    def _p(val):
+                        try:
+                            return float(parse_sap_decimal(val, fmt=r.get("number_format")))
+                        except NumericParseError:
+                            try:
+                                return float(parse_sap_decimal(val, fmt="US"))
+                            except Exception:
+                                return 0.0
+                        except Exception:
+                            return 0.0
+
+                    tot_avail += _p(r.get("availQty") or r.get("qty"))
+                    tot_stk += _p(r.get("totalQty") or r.get("availQty") or r.get("qty"))
+                    tot_held += _p(r.get("heldQty", 0.0))
                     if not unit and r.get("unit"):
                         unit = r.get("unit")
 
@@ -431,17 +447,29 @@ class TeamsDispatcher:
                     )
 
             elif any(k in cmd_upper for k in ["CHECK_BOM", "BOM", "CS03"]):
-                comp_count = sum(1 for r in records if r.get("component") not in ("", "-"))
-                bom_ok = any("CÓ BOM" in str(r.get("status", "")).upper() for r in records)
-                if bom_ok:
+                comp_count = sum(1 for r in records if r.get("component") not in ("", "-", "ERR_BOM_ROW"))
+                has_bom = any(
+                    str(r.get("status", "")).strip().upper().startswith("CÓ BOM")
+                    for r in records
+                )
+                no_bom = any(
+                    "KHÔNG CÓ BOM" in str(r.get("status", "")).strip().upper()
+                    for r in records
+                )
+                if has_bom and comp_count > 0:
                     badges.append(
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
                         f"🧩 Có BOM ({comp_count} Linh kiện con)</span>"
                     )
-                else:
+                elif no_bom or not records:
                     badges.append(
                         f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
                         f"⚠️ Không có BOM</span>"
+                    )
+                else:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Chưa xác định BOM</span>"
                     )
 
             elif any(k in cmd_upper for k in ["TAO_BBBG", "XEM_BBBG", "BBBG"]):

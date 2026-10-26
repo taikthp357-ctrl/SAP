@@ -1,30 +1,42 @@
 # -*- coding: utf-8 -*-
-"""Script đóng gói bản phát hành độc lập SAP_EMAIL_TEAMS_BRIDGE thành file ZIP.
+"""Script đóng gói bản phát hành độc lập SAP_EMAIL_TEAMS_BRIDGE thành file ZIP cho v1.0.75.
 
-Hỗ trợ 3 bản phát hành:
-1. Update Patch Release (Dung lượng siêu nhẹ ~45 KB, chỉ chứa các file cập nhật mã nguồn & cấu hình).
-2. Standard Release (Dung lượng ~170 KB cho máy đã cài sẵn Python).
-3. Portable All-In-One Release (Đã tích hợp sẵn Python 3.12 Runtime Portable Siêu Tinh Gọn ~13 MB).
+Áp dụng cơ chế Allowlist & Hash Verification:
+1. Update Patch Release: Siêu nhẹ, chỉ gồm các file mã nguồn và tài liệu cập nhật.
+2. Standard Release: Dành cho máy đã có Python, loại trừ tuyệt đối file .db, .bak, file log, cache và bí mật.
+3. Portable All-In-One Release: Đã tích hợp Python 3.12 Runtime Portable Siêu Tinh Gọn.
+4. Sinh package-manifest.json kèm mã băm SHA-256 cho từng file.
 """
 
 import os
 import sys
+import json
+import hashlib
 import zipfile
+import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.74"
+VERSION = "v1.0.75"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
+MANIFEST_FILE = BASE_DIR / "package-manifest.json"
 
 EXTERNAL_RUNTIME = Path(r"G:\AI-Manager\work\releases\ma_control_portable_build\runtime")
 LOCAL_RUNTIME = BASE_DIR / "runtime"
 
-EXCLUDE_SOURCE_DIRS = {".git", "__pycache__", ".pytest_cache", ".vscode", "runtime"}
-EXCLUDE_EXTS = {".pyc", ".zip", ".pdb", ".db", ".sqlite", ".log"}
+EXCLUDE_SOURCE_DIRS = {
+    ".git", "__pycache__", ".pytest_cache", ".vscode", "runtime",
+    "data", "run", "logs", "backups", "scratch", "outbox", ".system_generated"
+}
+EXCLUDE_EXTS = {".pyc", ".zip", ".pdb", ".db", ".sqlite", ".log", ".bak"}
+EXCLUDE_FILES = {
+    "sap_ui_cache.json", "bridge.pid", "stop.signal", "bridge_state.db",
+    "worker.json"
+}
 
-# Các thư mục rác / test / tài liệu dev không sử dụng trong bridge để tối ưu dung lượng
+# Các thư mục rác trong runtime
 EXCLUDE_RUNTIME_DIRS = {
     "__pycache__", ".pytest_cache", "test", "tests", "ensurepip", "idlelib", "tkinter",
     "turtledemo", "PIL", "pygments", "pydantic", "pydantic_core", "_pytest",
@@ -33,7 +45,6 @@ EXCLUDE_RUNTIME_DIRS = {
     "unittest"
 }
 
-# Các file dll/pyd/txt thừa không cần thiết (GIỮ LẠI sqlite3.dll và _sqlite3.pyd cho hàng đợi bền vững)
 EXCLUDE_RUNTIME_FILES = {
     "NEWS.txt", "tcl86t.dll", "tk86t.dll", "_tkinter.pyd",
     "_ctypes_test.pyd", "_testcapi.pyd", "_testinternalcapi.pyd",
@@ -51,16 +62,51 @@ def clean_old_zips():
             pass
 
 
+def compute_sha256(filepath: Path) -> str:
+    """Tính toán SHA-256 của file."""
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def generate_package_manifest(zip_path: Path) -> dict:
+    """Sinh manifest SHA-256 cho toàn bộ file bên trong ZIP."""
+    manifest = {
+        "version": VERSION,
+        "package_name": zip_path.name,
+        "package_sha256": compute_sha256(zip_path),
+        "package_size_bytes": os.path.getsize(zip_path),
+        "files": {}
+    }
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for zinfo in zf.infolist():
+            if zinfo.is_dir():
+                continue
+            with zf.open(zinfo.filename) as f:
+                h = hashlib.sha256()
+                while chunk := f.read(65536):
+                    h.update(chunk)
+                manifest["files"][zinfo.filename] = {
+                    "sha256": h.hexdigest(),
+                    "size_bytes": zinfo.file_size
+                }
+    return manifest
+
+
 def create_patch_zip():
     """Tạo gói Patch cập nhật siêu nhẹ chỉ gồm các file vừa thay đổi."""
-    print(f"\n[PACKAGE-PATCH] Đang đóng gói Bản Cập Nhật Siêu Nhẹ ({VERSION}) - Chỉ các file vừa update...")
+    print(f"\n[PACKAGE-PATCH] Đang đóng gói Bản Cập Nhật Siêu Nhẹ ({VERSION})...")
     count = 0
     patch_includes = [
         "main.py",
         "sap_email_teams_bridge.py",
         "README.md",
         "START_BRIDGE.cmd",
-        "START_BACKGROUND.vbs"
+        "START_BACKGROUND.vbs",
+        "STOP_BRIDGE.cmd",
+        "config.json"
     ]
     with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for fname in patch_includes:
@@ -76,8 +122,10 @@ def create_patch_zip():
                     if "__pycache__" in root or ".pytest_cache" in root:
                         continue
                     for file in files:
-                        if file.endswith(".py"):
+                        if file.endswith((".py", ".md", ".json")):
                             file_path = Path(root) / file
+                            if file_path.name in EXCLUDE_FILES or file_path.suffix in EXCLUDE_EXTS:
+                                continue
                             rel_path = file_path.relative_to(BASE_DIR)
                             zf.write(file_path, arcname=str(rel_path))
                             count += 1
@@ -94,7 +142,7 @@ def create_standard_zip():
             dirs[:] = [d for d in dirs if d not in EXCLUDE_SOURCE_DIRS]
             for file in files:
                 file_path = Path(root) / file
-                if file_path.suffix in EXCLUDE_EXTS:
+                if file_path.suffix in EXCLUDE_EXTS or file_path.name in EXCLUDE_FILES:
                     continue
                 if file_path.name.endswith(".zip"):
                     continue
@@ -119,7 +167,7 @@ def create_portable_zip():
             dirs[:] = [d for d in dirs if d not in EXCLUDE_SOURCE_DIRS]
             for file in files:
                 file_path = Path(root) / file
-                if file_path.suffix in EXCLUDE_EXTS:
+                if file_path.suffix in EXCLUDE_EXTS or file_path.name in EXCLUDE_FILES:
                     continue
                 if file_path.name.endswith(".zip"):
                     continue
@@ -149,15 +197,24 @@ if __name__ == "__main__":
     create_standard_zip()
     create_portable_zip()
 
+    # Sinh manifest JSON
+    manifests = {}
+    for zf in [PATCH_ZIP, STANDARD_ZIP, PORTABLE_ZIP]:
+        if zf.exists():
+            manifests[zf.name] = generate_package_manifest(zf)
+
+    with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
+        json.dump(manifests, f, indent=2, ensure_ascii=False)
+    print(f"\n[MANIFEST] Đã sinh file {MANIFEST_FILE.name} kèm SHA-256 cho toàn bộ packages!")
+
     # Tự động đồng bộ ra thư mục Downloads và Artifacts
-    import shutil
     destinations = [
         Path(r"C:\Users\taikt\Downloads"),
         Path(r"C:\Users\taikt\.gemini\antigravity\brain\393da05a-90fd-4275-aec3-dee4a841da63")
     ]
     for dest in destinations:
         if dest.exists():
-            for zf in [PATCH_ZIP, STANDARD_ZIP, PORTABLE_ZIP]:
+            for zf in [PATCH_ZIP, STANDARD_ZIP, PORTABLE_ZIP, MANIFEST_FILE]:
                 if zf.exists():
                     try:
                         shutil.copy2(zf, dest / zf.name)

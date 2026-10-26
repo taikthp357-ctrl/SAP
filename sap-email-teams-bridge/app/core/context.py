@@ -11,6 +11,7 @@ class RequestContext:
     request_id: str
     command: str
     message_id: str = ""
+    sender_email: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
     sap: Any = None                                     # Đối tượng SapEngine
     resolver: Any = None                                # Đối tượng MaterialResolver

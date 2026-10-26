@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG = {
     "data_dir": "data",
-    "allow_sap_writes": True,
+    "allow_sap_writes": False,
     "enable_multi_tab": True,
     "max_batch_tabs": 2,
     "sap_system": "",
@@ -21,7 +21,7 @@ DEFAULT_CONFIG = {
     "default_plant": "3093",
     "max_alv_rows": 15000,
     "keep_alive_idle_seconds": 900,
-    "sap_number_format": "AUTO",
+    "sap_number_format": "EU",
     "strict_session_safety": True,
     "auto_create_session": True,
     "prefer_dedicated_session": True,
@@ -69,6 +69,7 @@ def load_config(config_path: Path = None) -> dict:
     if not config_path.exists():
         return dict(DEFAULT_CONFIG)
 
+    data = None
     try:
         with open(config_path, "r", encoding="utf-8-sig") as f:
             raw_content = f.read()
@@ -76,29 +77,33 @@ def load_config(config_path: Path = None) -> dict:
         # 1. Thử parse trực tiếp chuẩn JSON
         try:
             data = json.loads(raw_content)
-            merged = dict(DEFAULT_CONFIG)
-            merged.update(data)
-            return merged
         except Exception:
-            pass
+            # 2. Cơ chế tự động sửa lỗi phổ biến của người dùng khi sửa bằng Notepad
+            fixed = raw_content
+            # Thay thế dấu nháy kép cong của Windows/Word bằng nháy thẳng
+            fixed = fixed.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+            # Tự bọc ngoặc kép nếu người dùng dán URL không có dấu ngoặc kép
+            fixed = re.sub(
+                r'("teams_webhook_url"\s*:\s*)(https?://[^\s,}\"]+)',
+                r'\1"\2"',
+                fixed
+            )
+            # Xóa dấu phẩy thừa ở phần tử cuối cùng trước dấu }
+            fixed = re.sub(r',\s*\}', '}', fixed)
+            data = json.loads(fixed)
+            print("[CONFIG] Đã tự động hiệu chỉnh và nạp thành công cấu hình từ config.json!")
 
-        # 2. Cơ chế tự động sửa lỗi phổ biến của người dùng khi sửa bằng Notepad
-        fixed = raw_content
-        # Thay thế dấu nháy kép cong của Windows/Word bằng nháy thẳng
-        fixed = fixed.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
-        # Tự bọc ngoặc kép nếu người dùng dán URL không có dấu ngoặc kép
-        fixed = re.sub(
-            r'("teams_webhook_url"\s*:\s*)(https?://[^\s,}\"]+)',
-            r'\1"\2"',
-            fixed
-        )
-        # Xóa dấu phẩy thừa ở phần tử cuối cùng trước dấu }
-        fixed = re.sub(r',\s*\}', '}', fixed)
-
-        data = json.loads(fixed)
-        print("[CONFIG] Đã tự động hiệu chỉnh và nạp thành công cấu hình từ config.json!")
         merged = dict(DEFAULT_CONFIG)
-        merged.update(data)
+        if isinstance(data, dict):
+            merged.update(data)
+
+        # Fail-closed Write Policy Guard:
+        # Nếu allow_sap_writes == True nhưng danh sách trusted_intake_senders rỗng -> tự động hạ về False
+        trusted = [str(x).strip().lower() for x in merged.get("trusted_intake_senders", []) if str(x).strip()]
+        if merged.get("allow_sap_writes") and not trusted:
+            print("[CRITICAL WRITE GUARD] allow_sap_writes=True nhưng danh sách trusted_intake_senders rỗng -> Tự động vô hiệu hóa quyền ghi (allow_sap_writes=False) để bảo vệ SAP!")
+            merged["allow_sap_writes"] = False
+
         return merged
 
     except Exception as e:

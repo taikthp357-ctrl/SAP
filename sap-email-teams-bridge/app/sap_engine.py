@@ -110,21 +110,34 @@ class SapEngine:
 
     @staticmethod
     def _identity(session):
-        info = session.Info
-        identity = {"system": str(info.SystemName).strip(), "client": str(info.Client).strip(),
-                    "user": str(info.User).strip(), "session_id": str(session.Id).strip()}
-        if not all(identity.values()):
-            raise SapExecutionError("Không xác minh được system/client/user/session SAP")
+        info = getattr(session, "Info", None)
+        conn_id = ""
+        sess_id = str(getattr(session, "Id", "")).strip()
+        if "/con[" in sess_id:
+            try:
+                conn_id = sess_id.split("/con[")[1].split("]")[0]
+            except Exception:
+                conn_id = ""
+        identity = {
+            "system": str(getattr(info, "SystemName", "") or "").strip(),
+            "client": str(getattr(info, "Client", "") or "").strip(),
+            "user": str(getattr(info, "User", "") or "").strip(),
+            "session_id": sess_id,
+            "connection_id": conn_id,
+        }
+        for k in ("system", "client", "user", "session_id"):
+            if not identity.get(k):
+                raise SapExecutionError(f"Không xác minh được {k} của phiên SAP")
         return identity
 
     def _check_identity(self, session):
         current = self._identity(session)
-        expected = getattr(self, "expected_identity", {})
-        for key in ("system", "client", "user"):
-            if expected.get(key) and current[key].upper() != str(expected[key]).upper():
-                raise SapExecutionError(f"SAP {key} không khớp cấu hình")
+        expected = getattr(self, "expected_identity", {}) or {}
+        for key in ("system", "client", "user", "session_id", "connection_id"):
+            if expected.get(key) and str(current.get(key, "")).upper() != str(expected[key]).upper():
+                raise SapExecutionError(f"SAP {key} không khớp cấu hình (mong đợi: {expected.get(key)}, thực tế: {current.get(key)})")
         prior = getattr(self, "session_identity", None)
-        if prior and any(current[k] != prior[k] for k in ("system", "client", "user")):
+        if prior and any(current.get(k) != prior.get(k) for k in ("system", "client", "user", "session_id", "connection_id") if prior.get(k)):
             raise SapExecutionError("Danh tính phiên SAP thay đổi; dừng để kiểm tra")
         return current
 
@@ -193,9 +206,12 @@ class SapEngine:
                 except Exception:
                     pass
 
-        # 4. Fallback: Nếu không tìm thấy trong dải Bot (hoặc môi trường test chỉ có 1-2 tab):
+        # 4. Fallback: Nếu không tìm thấy trong dải Bot:
         if selected is None:
-            # Kiểm tra session_index cấu hình nếu hợp lệ và rảnh rỗi
+            if getattr(self, "prefer_dedicated_session", True) and user_reserved > 0:
+                raise RuntimeError("NO_DEDICATED_BOT_SESSION: Tất cả các phiên SAP đều đang bận thao tác của người dùng; dừng để bảo vệ an toàn dữ liệu.")
+
+            # Chỉ áp dụng khi tắt prefer_dedicated_session (môi trường kiểm thử đơn tab):
             if 0 <= self.session_index < total_open:
                 seed = conn.Children(self.session_index)
                 is_busy = bool(getattr(seed, "Busy", False))
@@ -204,21 +220,6 @@ class SapEngine:
                 if not is_busy and (tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True)):
                     selected = seed
 
-            # Quét tìm các phiên rảnh ở các tab đầu nếu không bận và ở SESSION_MANAGER
-            if selected is None and not getattr(self, "prefer_dedicated_session", False):
-                for s_i in range(total_open):
-                    sess = conn.Children(s_i)
-                    try:
-                        if not bool(getattr(sess, "Busy", False)):
-                            s_info = getattr(sess, "Info", None)
-                            s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
-                            if s_tcode in ("SESSION_MANAGER", ""):
-                                selected = sess
-                                break
-                    except Exception:
-                        pass
-
-            # Dự phòng cuối: Nếu prefer_dedicated_session=True nhưng vẫn chưa có tab nào, thử quét tìm tab SESSION_MANAGER ở các tab đầu
             if selected is None:
                 for s_i in range(total_open):
                     sess = conn.Children(s_i)
@@ -226,7 +227,7 @@ class SapEngine:
                         if not bool(getattr(sess, "Busy", False)):
                             s_info = getattr(sess, "Info", None)
                             s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
-                            if s_tcode in ("SESSION_MANAGER", ""):
+                            if s_tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True):
                                 selected = sess
                                 break
                     except Exception:
@@ -234,7 +235,7 @@ class SapEngine:
 
         if selected is None:
             if getattr(self, "strict_session_safety", True):
-                raise RuntimeError("Tất cả các phiên SAP đều đang bận thao tác của người dùng; dừng để bảo vệ an toàn dữ liệu.")
+                raise RuntimeError("NO_DEDICATED_BOT_SESSION: Tất cả các phiên SAP đều đang bận thao tác của người dùng; dừng để bảo vệ an toàn dữ liệu.")
             raise SapExecutionError("Phiên SAP cấu hình đang bận")
 
         self.session_identity = self._check_identity(selected)
@@ -1417,14 +1418,12 @@ class SapEngine:
                 r["availQty"] = format_qty_display(a_val)
                 r["heldQty"] = format_qty_display(held_val)
                 r["qty"] = r["availQty"]
-                if not r.get("plant"):
-                    r["plant"] = str(plant or "3093")
-                if not r.get("sloc"):
-                    r["sloc"] = "1005"
-                if not r.get("unit"):
-                    r["unit"] = "PC"
-                if not r.get("cat"):
-                    r["cat"] = "FT"
+                if not r.get("plant") and plant:
+                    r["plant"] = str(plant)
+                    r["source_plant_verified"] = True
+                if not r.get("sloc") and sloc:
+                    r["sloc"] = str(sloc)
+                    r["source_sloc_verified"] = True
 
             # 10. SẮP XẾP ƯU TIÊN DỮ LIỆU GẦN NHẤT (Ngày GR & Giờ GR mới nhất lên đầu)
             def _gr_sort_key(item):
@@ -1883,8 +1882,8 @@ class SapEngine:
 
     # 4. KIỂM TRA ĐƠN INBOUND (IB) TREO CHƯA GR (VL06I)
     # --------------------------------------------------------------------------
-    def check_inbound_treo_vl06i(self, materials: List[str], plant: str = "3093") -> List[Dict[str, str]]:
-        """Tra cứu các đơn Inbound Delivery (IB) đang treo chưa GR qua VL06I theo chuẩn BBBG."""
+    def check_inbound_treo_vl06i(self, materials: List[str], plant: str = "3093", only_open: bool = True) -> List[Dict[str, str]]:
+        """Tra cứu các đơn Inbound Delivery (IB) qua VL06I theo chuẩn BBBG (only_open=True: chỉ lấy hàng treo chưa GR)."""
         try:
             if not materials:
                 return []
@@ -1944,11 +1943,11 @@ class SapEngine:
                     except Exception:
                         pass
 
-            # 5. ĐIỀU KIỆN THEN CHỐT: Đặt trạng thái Goods Movement IT_WBSTK-LOW = 'a' (chưa GR / Treo)
+            # 5. Đặt trạng thái Goods Movement IT_WBSTK-LOW = 'a' (chưa GR / Treo) nếu only_open=True
             wbstk_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_WBSTK-LOW")
             if wbstk_ctl is not None:
                 try:
-                    wbstk_ctl.text = "a"
+                    wbstk_ctl.text = "a" if only_open else ""
                 except Exception:
                     pass
 
@@ -3290,12 +3289,13 @@ class SapEngine:
     # --------------------------------------------------------------------------
     def find_inbound_vl06i(
         self,
+        inbound_no: str = "",
         po_no: str = "",
         ref_no: str = "",
         materials: Optional[List[str]] = None,
         plant: str = "3093"
     ) -> List[Dict[str, str]]:
-        """Tìm kiếm đơn Inbound chưa biết số dựa theo PO/SA (VGBEL), Số vận đơn/Bill (LIFEX),
+        """Tìm kiếm đơn Inbound dựa theo Inbound Delivery (VBELN), PO/SA (VGBEL), Số vận đơn/Bill (LIFEX),
         hoặc Mã vật tư (MATNR). TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
         try:
             self._open_transaction("VL06I")
@@ -3321,6 +3321,15 @@ class SapEngine:
                     wbstk_ctl.text = ""
                 except Exception:
                     pass
+
+            clean_ib = str(inbound_no or "").strip()
+            if clean_ib:
+                ib_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtIT_VBELN-LOW")
+                if ib_ctl is not None:
+                    try:
+                        ib_ctl.text = clean_ib
+                    except Exception:
+                        pass
 
             clean_po = po_no.strip()
             if clean_po:
@@ -3898,13 +3907,110 @@ class SapEngine:
 
         return records
 
+    def _set_cell(self, table_ctl, row_no, col_no, value_text, label=""):
+        """Điền ô trong TableControl (Token TableField -> GetCell -> Coord)."""
+        val_str = str(value_text or "").strip()
+        migo_token_map = {
+            "Material": "GOITEM-MATNR",
+            "Qty": "GOITEM-ERFMG",
+            "Trạm": "GOITEM-SGTXT",
+            "Plant": "GOITEM-WERKS",
+            "SLoc xuất": "GOITEM-LGORT",
+            "SLoc nhận": "GOITEM-UMLGO",
+            "Batch": "GOITEM-CHARG",
+            "OK": "GOITEM-TAKE_IT"
+        }
+        token = migo_token_map.get(label)
+        if token:
+            try:
+                fld = self.table_field(table_ctl, token, row_no)
+                if fld is not None:
+                    for prop in ("Text", "text"):
+                        try:
+                            setattr(fld, prop, val_str)
+                            return True
+                        except Exception:
+                            pass
+                    try:
+                        fld.SetFocus()
+                        fld.Text = val_str
+                        return True
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if col_no is not None and col_no >= 0:
+            try:
+                cell = table_ctl.GetCell(row_no, col_no)
+                if cell is not None:
+                    for prop in ("Text", "text"):
+                        try:
+                            setattr(cell, prop, val_str)
+                            return True
+                        except Exception:
+                            pass
+                    try:
+                        cell.SetFocus()
+                        cell.Text = val_str
+                        return True
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if col_no is not None and col_no >= 0:
+            suffix = f"[{col_no},{row_no}]"
+            def _find_by_coord(obj, depth=0):
+                if obj is None or depth > 10:
+                    return None
+                try:
+                    cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
+                    if cid.endswith(suffix):
+                        return obj
+                except Exception:
+                    pass
+                try:
+                    children = getattr(obj, "Children", getattr(obj, "children", None))
+                    if children:
+                        try:
+                            for child in children:
+                                res = _find_by_coord(child, depth + 1)
+                                if res is not None:
+                                    return res
+                        except TypeError:
+                            cnt = getattr(children, "Count", 0)
+                            for idx in range(cnt):
+                                res = _find_by_coord(children(idx), depth + 1)
+                                if res is not None:
+                                    return res
+                except Exception:
+                    pass
+                return None
+
+            try:
+                ctl = _find_by_coord(table_ctl)
+                if ctl is not None:
+                    for prop in ("Text", "text"):
+                        try:
+                            setattr(ctl, prop, val_str)
+                            return True
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        print(f"[SAP MIGO WARN] Không thể điền '{label}'='{val_str}' tại row={row_no}, col={col_no}")
+        return False
+
     def post_migo_311_ob_group(
         self,
-        ob_items: List[Dict[str, Any]],
+        ob_items: Any,
         plant: str = "3093",
         source_sloc: str = "1005",
         dest_sloc: str = "3001",
-        dry_run: bool = False
+        dry_run: bool = False,
+        session: Any = None
     ) -> Tuple[bool, str, str]:
         """
         Thực hiện nghiệp vụ MIGO 311 chuyển kho NVL 1005 -> line 3001 (Plant 3093) sinh số OB (10xxxxxxxx).
@@ -3918,11 +4024,20 @@ class SapEngine:
         - Tự động xử lý popups (wnd[1]) và warnings (W/I)
         - Bắt số chứng từ Outbound 10 chữ số (10xxxxxxxx) hoặc Delivery Number từ thanh trạng thái sbar.
         """
+        if session is not None:
+            self.session = session
+
+        if isinstance(ob_items, dict):
+            ob_items = ob_items.get("allocated_items", [])
+
         if not ob_items:
             return False, "", "Không có dòng phân bổ NVL nào để tạo đơn MIGO 311"
 
-        if dry_run or self.session is None:
+        if dry_run:
             return True, "", "Mô phỏng kế hoạch NVL: Chưa thực thi tạo đơn OB trên SAP"
+
+        if self.session is None:
+            return False, "", "ERR_SAP_SESSION_NONE: Không có kết nối SAP GUI phiên hoạt động để tạo đơn MIGO 311"
 
         try:
             self.ensure_session()
@@ -4199,99 +4314,7 @@ class SapEngine:
 
             print(f"[SAP MIGO] Cột TableControl: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
 
-            # Hàm điền ô chuẩn SAP GUI TableControl (Ưu tiên Token TableField bất biến -> Fallback GetCell & Coord)
-            def _set_cell(table_ctl, row_no, col_no, value_text, label=""):
-                val_str = str(value_text or "").strip()
-
-                # 1. ƯU TIÊN 1: Thử qua token TableField kỹ thuật chuẩn MIGO (bất biến theo layout)
-                migo_token_map = {
-                    "Material": "GOITEM-MATNR",
-                    "Qty": "GOITEM-ERFMG",
-                    "Trạm": "GOITEM-SGTXT",
-                    "Plant": "GOITEM-WERKS",
-                    "SLoc xuất": "GOITEM-LGORT",
-                    "SLoc nhận": "GOITEM-UMLGO",
-                    "Batch": "GOITEM-CHARG",
-                    "OK": "GOITEM-TAKE_IT"
-                }
-                token = migo_token_map.get(label)
-                if token:
-                    fld = self.table_field(table_ctl, token, row_no)
-                    if fld is not None:
-                        for prop in ("Text", "text"):
-                            try:
-                                setattr(fld, prop, val_str)
-                                return True
-                            except Exception:
-                                pass
-                        try:
-                            fld.SetFocus()
-                            fld.Text = val_str
-                            return True
-                        except Exception:
-                            pass
-
-                # 2. ƯU TIÊN 2: Thử qua tbl.GetCell(row_no, col_no)
-                if col_no is not None and col_no >= 0:
-                    try:
-                        cell = table_ctl.GetCell(row_no, col_no)
-                        if cell is not None:
-                            for prop in ("Text", "text"):
-                                try:
-                                    setattr(cell, prop, val_str)
-                                    return True
-                                except Exception:
-                                    pass
-                            try:
-                                cell.SetFocus()
-                                cell.Text = val_str
-                                return True
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-
-                # 3. ƯU TIÊN 3: Thử tìm control theo toạ độ ID kết thúc bằng [col_no,row_no]
-                if col_no is not None and col_no >= 0:
-                    suffix = f"[{col_no},{row_no}]"
-                    def _find_by_coord(obj, depth=0):
-                        if obj is None or depth > 10:
-                            return None
-                        try:
-                            cid = str(getattr(obj, "Id", getattr(obj, "id", "")) or "")
-                            if cid.endswith(suffix):
-                                return obj
-                        except Exception:
-                            pass
-                        try:
-                            children = getattr(obj, "Children", getattr(obj, "children", None))
-                            if children:
-                                try:
-                                    for child in children:
-                                        res = _find_by_coord(child, depth + 1)
-                                        if res is not None:
-                                            return res
-                                except TypeError:
-                                    cnt = getattr(children, "Count", 0)
-                                    for idx in range(cnt):
-                                        res = _find_by_coord(children(idx), depth + 1)
-                                        if res is not None:
-                                            return res
-                        except Exception:
-                            pass
-                        return None
-
-                    ctl = _find_by_coord(table_ctl)
-                    if ctl is not None:
-                        for prop in ("Text", "text"):
-                            try:
-                                setattr(ctl, prop, val_str)
-                                return True
-                            except Exception:
-                                pass
-
-                print(f"[SAP MIGO WARN] Không thể điền '{label}'='{val_str}' tại row={row_no}, col={col_no}")
-                return False
+            _set_cell = self._set_cell
 
             def _ensure_visible_row(table_ctl, logical_row):
                 try:
@@ -4332,13 +4355,22 @@ class SapEngine:
                 if dest_sloc_str in ("1003", "", "-"):
                     dest_sloc_str = "3001"
 
-                _set_cell(tbl, table_row, mat_col, mat_str, "Material")
-                _set_cell(tbl, table_row, qty_col, qty_str, "Qty")
+                ok_mat = _set_cell(tbl, table_row, mat_col, mat_str, "Material")
+                ok_qty = _set_cell(tbl, table_row, qty_col, qty_str, "Qty")
                 if tram_str:
                     _set_cell(tbl, table_row, txt_col, tram_str, "Trạm")
-                _set_cell(tbl, table_row, plant_col, plant_str, "Plant")
-                _set_cell(tbl, table_row, src_sloc_col, src_sloc_str, "SLoc xuất")
-                _set_cell(tbl, table_row, dest_sloc_col, dest_sloc_str, "SLoc nhận")
+                ok_plant = _set_cell(tbl, table_row, plant_col, plant_str, "Plant")
+                ok_src = _set_cell(tbl, table_row, src_sloc_col, src_sloc_str, "SLoc xuất")
+                ok_dest = _set_cell(tbl, table_row, dest_sloc_col, dest_sloc_str, "SLoc nhận")
+
+                if not (ok_mat and ok_qty and ok_plant and ok_src and ok_dest):
+                    err_msg = f"ERR_MIGO_INPUT_FAILED: Không thể điền dữ liệu vào bảng MIGO tại dòng {logical_row+1}"
+                    print(f"[SAP MIGO ERROR] {err_msg}")
+                    try:
+                        self._open_transaction("/n")
+                    except Exception:
+                        pass
+                    return False, "", err_msg
 
             print("[SAP MIGO] Gửi Enter Nhịp 1...")
             w0 = self._find_by_id_safe("wnd[0]")
@@ -4355,6 +4387,14 @@ class SapEngine:
             msg_txt = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
             if msg_type:
                 print(f"[SAP MIGO] Trạng thái sau Enter 1 [{msg_type}]: {msg_txt}")
+            if msg_type in ("E", "A"):
+                err_msg = f"ERR_MIGO_N1_SAP_ERROR [{msg_type}]: {msg_txt}"
+                print(f"[SAP MIGO ERROR] {err_msg}")
+                try:
+                    self._open_transaction("/n")
+                except Exception:
+                    pass
+                return False, "", err_msg
 
             # 7. Nhịp 2: Điền số lô Batch động (nếu có lô)
             has_any_batch = any(bool(str(it.get("batch") or "").strip() and str(it.get("batch") or "").strip() != "-") for it in ob_items)
@@ -4377,6 +4417,14 @@ class SapEngine:
                 msg_txt = getattr(sbar, "text", getattr(sbar, "Text", "")) if sbar else ""
                 if msg_type:
                     print(f"[SAP MIGO] Trạng thái sau Enter 2 [{msg_type}]: {msg_txt}")
+                if msg_type in ("E", "A"):
+                    err_msg = f"ERR_MIGO_N2_SAP_ERROR [{msg_type}]: {msg_txt}"
+                    print(f"[SAP MIGO ERROR] {err_msg}")
+                    try:
+                        self._open_transaction("/n")
+                    except Exception:
+                        pass
+                    return False, "", err_msg
 
             # Xác nhận dòng Item OK nếu có cột checkbox OK trong lưới
             if ok_col >= 0 and tbl is not None:
@@ -4458,40 +4506,35 @@ class SapEngine:
             msg_type = getattr(sbar, "messageType", getattr(sbar, "MessageType", "")) if sbar else ""
             print(f"[SAP MIGO] Phản hồi StatusBar [{msg_type}]: {sbar_text}")
 
-            # Bắt số chứng từ Outbound Delivery hoặc Material Document từ StatusBar
-            doc_match = re.search(r"(?:OUTBOUND\s+DELIVERY|DELIVERY|DELIV\.?)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
-            if doc_match:
-                doc_no = doc_match.group(1)
-                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
-                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
-
-            doc_match = re.search(r"\b(10\d{8}|49\d{8}|500\d{7}|\d{10})\b", sbar_text)
-            if doc_match:
-                doc_no = doc_match.group(1)
-                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
-                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
-
-            doc_match = re.search(r"(?:DOCUMENT|CHỨNG\s+TỪ)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
-            if doc_match:
-                doc_no = doc_match.group(1)
-                print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công!")
-                return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
-
-            if msg_type in ("E", "A"):
-                err_msg = f"Lỗi SAP MIGO: {sbar_text}"
+            # Chặn lỗi phủ định và lỗi SAP (E/A) trước tiên - Fail-Closed
+            negative_keywords = [
+                "DOES NOT EXIST", "NOT EXIST", "DEFICIT", "DEFICIT OF", "ERROR", 
+                "FAILED", "NOT POSTED", "KHONG TON TAI", "KHONG THANH CONG", "KHONG THE"
+            ]
+            if msg_type in ("E", "A") or any(neg in sbar_text.upper() for neg in negative_keywords):
+                err_msg = f"Lỗi SAP MIGO [{msg_type}]: {sbar_text}"
                 print(f"[SAP MIGO ERROR] {err_msg}")
                 return False, "", err_msg
 
-            if msg_type == "S":
-                num_match = re.search(r"\b(\d{8,12})\b", sbar_text)
-                if num_match:
-                    doc_no = num_match.group(1)
-                    print(f"[SAP MIGO SUCCESS] Tạo đơn OB {doc_no} thành công từ thông báo trạng thái S!")
-                    return True, doc_no, f"Tạo đơn OB {doc_no} thành công trên SAP MIGO: {sbar_text}"
+            # Chỉ bắt số chứng từ khi SAP báo MessageType 'S' hoặc thông báo thành công rõ ràng
+            has_success_context = (
+                msg_type == "S" 
+                or any(kw in sbar_text.upper() for kw in ["POSTED", "PLACED IN STORAGE", "DOCUMENT", "CHỨNG TỪ", "SAVED"])
+            )
+
+            if has_success_context:
+                doc_match = re.search(r"(?:MATERIAL\s+DOCUMENT|DOCUMENT|CHỨNG\s+TỪ|DELIVERY|OUTBOUND\s+DELIVERY)[^\d]{0,40}(\d{8,12})", sbar_text, re.IGNORECASE)
+                if not doc_match:
+                    doc_match = re.search(r"\b(49\d{8}|500\d{7}|10\d{8}|\d{10})\b", sbar_text)
+                if doc_match:
+                    doc_no = doc_match.group(1)
+                    print(f"[SAP MIGO SUCCESS] Tạo chứng từ MIGO {doc_no} thành công!")
+                    return True, doc_no, f"Tạo chứng từ Material Document (MIGO) {doc_no} thành công trên SAP: {sbar_text}"
+
                 print(f"[SAP MIGO] Thao tác MIGO 311 thành công: {sbar_text}")
                 return True, "", f"Thao tác MIGO 311 thành công: {sbar_text}"
 
-            err_msg = f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ OB'}"
+            err_msg = f"MIGO 311 chưa xác nhận số chứng từ: {sbar_text or 'Không nhận diện được số chứng từ MIGO'}"
             print(f"[SAP MIGO WARN] {err_msg}")
             return False, "", err_msg
 
@@ -4572,8 +4615,16 @@ class SapEngine:
                                     "status": f"CÓ BOM (Usage {usage})"
                                 })
                                 bom_found_for_mat = True
-                            except Exception:
-                                break
+                            except Exception as ex:
+                                results.append({
+                                    "parent": clean_mat,
+                                    "component": "ERR_BOM_ROW",
+                                    "description": f"Lỗi đọc dòng BOM #{r_idx}: {ex}",
+                                    "qty": "0",
+                                    "unit": "",
+                                    "status": "ERR_BOM_ROW"
+                                })
+                                continue
 
                     # Cách 2: Nếu CS03 cấu hình hiển thị dạng ALV Grid
                     if not bom_found_for_mat:
@@ -4680,17 +4731,61 @@ class SapEngine:
                 }
                 raw_records = self._extract_alv_grid(grid, col_map)
                 for rec in raw_records:
-                    doc_val = rec.get("document", "")
-                    err_val = rec.get("error_message", "")
-                    if not err_val and not doc_val:
+                    doc_val = str(rec.get("document", "")).strip()
+                    err_val = str(rec.get("error_message", "")).strip()
+                    q_val = str(rec.get("queue_name", "")).strip()
+                    if not err_val and not doc_val and not q_val:
                         continue
-                    if inbound_filter and inbound_filter not in doc_val:
+                    if inbound_filter and (inbound_filter not in doc_val and inbound_filter not in q_val):
                         continue
                     results.append(rec)
 
             return results
         except Exception as e:
             raise SapExecutionError(f"Lỗi đọc Queue EWM: {e}") from e
+
+    def check_reservation_mb23(self, res_no: str) -> Dict[str, Any]:
+        """Tra cứu phiếu lĩnh Reservation qua T-code MB23. TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY)."""
+        clean_res = str(res_no or "").strip()
+        if not clean_res:
+            return {"found": False, "status": "EMPTY_RES_NO", "message": "Số phiếu Reservation rỗng."}
+        try:
+            self._open_transaction("MB23")
+            self._wait_idle(5.0)
+            res_ctl = self._find_by_id_safe("wnd[0]/usr/ctxtRM07M-RSNUM") or self._find_by_id_safe("wnd[0]/usr/txtRM07M-RSNUM")
+            if res_ctl is None:
+                raise SapExecutionError("Không tìm thấy ô nhập số phiếu Reservation (RM07M-RSNUM).")
+            res_ctl.text = clean_res
+            self.session.findById("wnd[0]").sendVKey(0)
+            self._wait_idle(5.0)
+            self._dismiss_popups()
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                return {"found": False, "res_no": clean_res, "status": "NOT_FOUND", "message": status_txt}
+
+            grid = self._find_largest_grid(max_wait_sec=3.0)
+            items = []
+            if grid is not None:
+                col_map = {
+                    "item": ["RSPOS", "ITEM"],
+                    "material": ["MATNR", "MATERIAL"],
+                    "qty": ["BDMNG", "QTY", "QUANTITY"],
+                    "unit": ["MEINS", "UNIT"],
+                    "plant": ["WERKS", "PLANT"],
+                    "sloc": ["LGORT", "SLOC"]
+                }
+                items = self._extract_alv_grid(grid, col_map)
+            return {
+                "found": True,
+                "res_no": clean_res,
+                "status": "FOUND",
+                "items": items,
+                "message": f"Tìm thấy phiếu Reservation {clean_res}."
+            }
+        except Exception as e:
+            return {"found": False, "res_no": clean_res, "status": "ERROR", "message": str(e)}
+        finally:
+            self._reset_to_session_manager()
 
     def check_attachment_status(
         self,

@@ -59,34 +59,51 @@ def make_runner(session=None, engine=None):
     "Document created and saved"
 ])
 def test_v1072_fast_path_sbar_keywords_skip_readback(success_msg):
-    """Xác minh mọi từ khóa success hợp lệ trên sbar (MessageType='S') đều kích hoạt Fast-path và BỎ QUA readback."""
+    """v1.0.75 P1-07: Xác minh mọi từ khóa trên sbar bắt buộc phải thực hiện readback để đối soát vật lý (Anti-Fake Success)."""
     mock_session = make_mock_session()
     mock_sbar = MagicMock()
     mock_sbar.Text = success_msg
     mock_sbar.MessageType = "S"
 
-    def find_by_id(path):
-        if "sbar" in path:
+    wnd1_open = [True]
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_open.__setitem__(0, False)
+    mock_session.FindByName.return_value = mock_btn
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.return_value = mock_btn
+
+    def find_by_id(path, *args):
+        p = str(path)
+        if "sbar" in p:
             return mock_sbar
+        if "btn" in p:
+            return mock_btn
+        if p == "wnd[1]" or p.startswith("wnd[1]"):
+            if wnd1_open[0]:
+                return mock_wnd1
+            raise Exception("not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
     runner, _ = make_runner(mock_session)
-
-    mock_read_titles = MagicMock(return_value=["should_not_be_called.pdf"])
-    runner.read_sap_attachment_titles = mock_read_titles
 
     with tempfile.NamedTemporaryFile(suffix="_BBBG.pdf", delete=False) as tf:
         tf.write(b"sample pdf data")
         temp_file = Path(tf.name)
 
     try:
+        # P1-07: Readback là bắt buộc để chứng minh file vật lý tồn tại
+        mock_read_titles = MagicMock(return_value=[temp_file.name])
+        runner.read_sap_attachment_titles = mock_read_titles
+
         ok, status = runner.attach_file_to_current_migo(mock_session, temp_file)
         assert ok is True
-        assert "DONE_SAP_SBAR" in status
+        assert "DONE_SAP_READBACK" in status
         assert temp_file.name in status
-        # Tiêu chí sống còn: read_sap_attachment_titles KHÔNG được gọi
-        mock_read_titles.assert_not_called()
+        mock_read_titles.assert_called_once()
         # POPUP_LOCK đã được giải phóng
         assert not POPUP_LOCK.locked()
     finally:
@@ -94,15 +111,32 @@ def test_v1072_fast_path_sbar_keywords_skip_readback(success_msg):
 
 
 def test_v1072_fast_path_negative_keywords_rejected():
-    """Xác minh nếu sbar có từ khóa lỗi (NOT CREATED, FAILED, ERROR) thì KHÔNG được kích hoạt Fast-path."""
+    """Xác minh nếu sbar có từ khóa lỗi (NOT CREATED, FAILED, ERROR) thì KHÔNG được kích hoạt thành công."""
     mock_session = make_mock_session()
     mock_sbar = MagicMock()
     mock_sbar.Text = "Attachment NOT CREATED: Database lock error"
     mock_sbar.MessageType = "S"  # Giả sử SAP bug trả về S nhưng text là NOT CREATED
 
-    def find_by_id(path):
-        if "sbar" in path:
+    wnd1_open = [True]
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_open.__setitem__(0, False)
+    mock_session.FindByName.return_value = mock_btn
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.return_value = mock_btn
+
+    def find_by_id(path, *args):
+        p = str(path)
+        if "sbar" in p:
             return mock_sbar
+        if "btn" in p:
+            return mock_btn
+        if p == "wnd[1]" or p.startswith("wnd[1]"):
+            if wnd1_open[0]:
+                return mock_wnd1
+            raise Exception("not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
@@ -137,9 +171,26 @@ def test_v1072_fallback_invokes_readback_when_sbar_not_explicit_success(msg_type
     mock_sbar.Text = msg_text
     mock_sbar.MessageType = msg_type
 
-    def find_by_id(path):
-        if "sbar" in path:
+    wnd1_open = [True]
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_open.__setitem__(0, False)
+    mock_session.FindByName.return_value = mock_btn
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.return_value = mock_btn
+
+    def find_by_id(path, *args):
+        p = str(path)
+        if "sbar" in p:
             return mock_sbar
+        if "btn" in p:
+            return mock_btn
+        if p == "wnd[1]" or p.startswith("wnd[1]"):
+            if wnd1_open[0]:
+                return mock_wnd1
+            raise Exception("not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
@@ -154,16 +205,12 @@ def test_v1072_fallback_invokes_readback_when_sbar_not_explicit_success(msg_type
         mock_read_titles = MagicMock(return_value=[temp_file.name])
         runner.read_sap_attachment_titles = mock_read_titles
 
-        # Nếu msg_type không phải S/W và text không có success keyword, nó trả ATTACHMENT_UNCERTAIN trước readback
-        if msg_type not in ("S", "W") and not any(k in msg_text.upper() for k in ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS"]):
-            ok, status = runner.attach_file_to_current_migo(mock_session, temp_file)
-            assert ok is False
-            assert "ATTACHMENT_UNCERTAIN" in status
-        else:
-            ok, status = runner.attach_file_to_current_migo(mock_session, temp_file)
-            assert ok is True
-            assert "DONE_SAP_READBACK" in status
-            mock_read_titles.assert_called_once()
+        # Nếu msg_type là I hoặc rỗng và không có file trên SAP thì ATTACHMENT_UNCERTAIN
+        # Nhưng ở đây mock_read_titles trả về đúng file -> DONE_SAP_READBACK
+        ok, status = runner.attach_file_to_current_migo(mock_session, temp_file)
+        assert ok is True
+        assert "DONE_SAP_READBACK" in status
+        mock_read_titles.assert_called_once()
     finally:
         temp_file.unlink(missing_ok=True)
 
@@ -286,25 +333,32 @@ def test_v1072_micro_locking_contention_elimination():
 
         wnd1_visible = {"open": False}
         mock_btn_open = MagicMock()
+        mock_btn_open.Id = "wnd[1]/tbar[0]/btn[0]"
+        mock_btn_open.Name = "btn[0]"
+        mock_btn_open.Type = "GuiButton"
         def on_press():
             wnd1_visible["open"] = False
         mock_btn_open.Press.side_effect = on_press
+        mock_session.FindByName.return_value = mock_btn_open
+        mock_wnd1 = MagicMock()
+        mock_wnd1.FindByName.return_value = mock_btn_open
 
         mock_shell = MagicMock()
         def on_select_menu(cmd):
             wnd1_visible["open"] = True
         mock_shell.SelectContextMenuItem.side_effect = on_select_menu
 
-        def find_by_id(path):
-            if "sbar" in path:
+        def find_by_id(path, *args):
+            p = str(path)
+            if "sbar" in p:
                 return mock_sbar
-            if "shell" in path:
+            if "shell" in p:
                 return mock_shell
-            if "btn[0]" in path:
+            if "btn" in p:
                 return mock_btn_open
-            if "wnd[1]" in path:
+            if p == "wnd[1]" or p.startswith("wnd[1]"):
                 if wnd1_visible["open"]:
-                    return MagicMock()
+                    return mock_wnd1
                 raise RuntimeError("Control not found: wnd[1]")
             return MagicMock()
 
@@ -315,6 +369,8 @@ def test_v1072_micro_locking_contention_elimination():
             tf.write(b"test thread data")
             t_file = Path(tf.name)
 
+        runner.read_sap_attachment_titles = MagicMock(return_value=[t_file.name])
+
         try:
             for _ in range(iterations_per_thread):
                 # Theo dõi trạng thái lock
@@ -324,7 +380,7 @@ def test_v1072_micro_locking_contention_elimination():
                 with lock_measure_lock:
                     lock_hold_durations.append(elapsed)
                 assert ok is True
-                assert "DONE_SAP_SBAR" in status
+                assert "DONE_SAP_READBACK" in status or "DONE" in status
         finally:
             t_file.unlink(missing_ok=True)
 

@@ -29,6 +29,10 @@ class WorkerLease:
             self.handle = None
             raise RuntimeError("Bridge đã chạy với thư mục dữ liệu này; không mở bản thứ hai.") from exc
         self._write("worker.json", {"pid": os.getpid(), "token": self.token, "started": time.time()})
+        try:
+            (self.directory / "bridge.pid").write_text(str(os.getpid()), encoding="utf8")
+        except Exception:
+            pass
         atexit.register(self.close)
         return self
 
@@ -44,6 +48,12 @@ class WorkerLease:
             return False
 
     def close(self):
+        try:
+            pid_file = self.directory / "bridge.pid"
+            if pid_file.exists():
+                pid_file.unlink()
+        except Exception:
+            pass
         if self.handle:
             import msvcrt
             self.handle.seek(0)

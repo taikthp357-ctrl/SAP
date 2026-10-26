@@ -101,12 +101,19 @@ class LogisticsHandler(BaseHandler):
         # -------------------------------------------------------------
         elif cmd in ["TRA_CUU_ASN", "ASN"]:
             inbound_no = ctx.meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
-            raw_asn = ctx.sap.find_inbound_vl06i(materials=resolved_mats, plant=ctx.plant, inbound_no=inbound_no)
+            raw_asn = ctx.sap.find_inbound_vl06i(inbound_no=inbound_no, materials=resolved_mats, plant=ctx.plant)
             asn_res = ExtendedQueryService.track_asn_provenance(inbound_no, raw_asn)
             records = asn_res.get("items", [])
+            # Bảo toàn trạng thái từ service (không ép SUCCEEDED)
+            result_status = asn_res.get("status", result_status)
+            for r in records:
+                if "po_no" in r and "refPo" not in r:
+                    r["refPo"] = r["po_no"]
+                elif "refPo" in r and "po_no" not in r:
+                    r["po_no"] = r["refPo"]
             headers = {
                 "material": "Mã hàng", "batch": "Số lô", "qty": "SL giao",
-                "unit": "ĐVT", "po_no": "Số PO", "status": "Trạng thái"
+                "unit": "ĐVT", "po_no": "Số PO", "refPo": "Số PO", "status": "Trạng thái"
             }
             summary = asn_res["summary"]
 

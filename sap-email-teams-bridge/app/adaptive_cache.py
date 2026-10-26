@@ -68,15 +68,41 @@ class AdaptiveConfigCache:
         except Exception:
             return "HIGH_SPEED"
 
+    def get_namespace_prefix(self, session: Any) -> str:
+        """Sinh namespace từ session: system:client:tcode:program:screen."""
+        try:
+            info = getattr(session, "Info", None)
+            if info is not None:
+                sys_name = str(getattr(info, "SystemName", "") or "").strip()
+                client = str(getattr(info, "Client", "") or "").strip()
+                tcode = str(getattr(info, "Transaction", "") or "").strip()
+                prog = str(getattr(info, "Program", "") or "").strip()
+                screen = str(getattr(info, "ScreenNumber", "") or "").strip()
+                parts = [p for p in (sys_name, client, tcode, prog, screen) if p]
+                if parts:
+                    return ":".join(parts)
+        except Exception:
+            pass
+        return ""
+
     def get_cached_id(self, session: Any, key_alias: str) -> Optional[str]:
-        """Lấy ID từ cache tương ứng với mode của session."""
+        """Lấy ID từ cache tương ứng với mode và namespace của session."""
         mode = self.get_mode(session)
-        return self.data.get(mode, {}).get(key_alias)
+        mode_cache = self.data.get(mode, {})
+        ns = self.get_namespace_prefix(session)
+        if ns and f"{ns}:{key_alias}" in mode_cache:
+            return mode_cache[f"{ns}:{key_alias}"]
+        return mode_cache.get(key_alias)
 
     def set_cached_id(self, session: Any, key_alias: str, element_id: str):
-        """Lưu ID vào cache tương ứng với mode của session."""
+        """Lưu ID vào cache tương ứng với mode và namespace của session."""
+        if not isinstance(element_id, str) or not element_id.strip():
+            return
         mode = self.get_mode(session)
         mode_cache = self.data.setdefault(mode, {})
+        ns = self.get_namespace_prefix(session)
+        if ns:
+            mode_cache[f"{ns}:{key_alias}"] = element_id
         mode_cache[key_alias] = element_id
         self.save()
 
@@ -91,6 +117,23 @@ class AdaptiveConfigCache:
         mode_cache = self.data.setdefault(mode, {})
         mode_cache[key] = value
         self.save()
+
+    @staticmethod
+    def _is_control_valid(el: Any, field_name: Optional[str], element_type: Optional[str]) -> bool:
+        """Kiểm tra control tìm được có khớp với kiểu và tên mong đợi không."""
+        if el is None:
+            return False
+        # Kiểm tra Type nếu element_type được chỉ định
+        if element_type is not None:
+            c_type = getattr(el, "Type", getattr(el, "type", None))
+            if isinstance(c_type, str) and c_type.lower() != str(element_type).lower():
+                return False
+        # Kiểm tra Name nếu field_name được chỉ định
+        if field_name is not None:
+            c_name = getattr(el, "Name", getattr(el, "name", None))
+            if isinstance(c_name, str) and c_name.strip() and c_name.strip().lower() != str(field_name).strip().lower():
+                return False
+        return True
 
     def resolve_element(
         self,
@@ -109,18 +152,23 @@ class AdaptiveConfigCache:
 
         mode = self.get_mode(session)
         mode_cache = self.data.setdefault(mode, {})
+        ns = self.get_namespace_prefix(session)
+        cached_id = None
+        if ns and f"{ns}:{key_alias}" in mode_cache:
+            cached_id = mode_cache[f"{ns}:{key_alias}"]
+        if not cached_id:
+            cached_id = mode_cache.get(key_alias)
 
         # 1. Thử lấy nhanh bằng ID đã lưu trong cache
-        cached_id = mode_cache.get(key_alias)
         if cached_id:
             try:
                 el = session.findById(cached_id, False)
-                if el is not None:
+                if el is not None and self._is_control_valid(el, field_name, element_type):
                     return el
             except TypeError:
                 try:
                     el = session.findById(cached_id)
-                    if el is not None:
+                    if el is not None and self._is_control_valid(el, field_name, element_type):
                         return el
                 except Exception:
                     pass
@@ -145,7 +193,9 @@ class AdaptiveConfigCache:
                 el = root.FindByName(field_name, element_type)
                 if el is not None:
                     el_id = getattr(el, "Id", getattr(el, "id", ""))
-                    if el_id:
+                    if isinstance(el_id, str) and el_id.strip():
+                        if ns:
+                            mode_cache[f"{ns}:{key_alias}"] = el_id
                         mode_cache[key_alias] = el_id
                         self.save()
                     return el
@@ -163,7 +213,9 @@ class AdaptiveConfigCache:
                 el = root.FindByName(field_name, c_type)
                 if el is not None:
                     el_id = getattr(el, "Id", getattr(el, "id", ""))
-                    if el_id:
+                    if isinstance(el_id, str) and el_id.strip():
+                        if ns:
+                            mode_cache[f"{ns}:{key_alias}"] = el_id
                         mode_cache[key_alias] = el_id
                         self.save()
                     return el

@@ -6,9 +6,14 @@ explicitly; guessing a factor of 1000 is unsafe for stock decisions.
 """
 import math
 import re
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Union
+
+
+class NumericParseError(ValueError):
+    """Ném ra khi bóc tách số liệu SAP không hợp lệ hoặc gây mơ hồ (Fail-Closed)."""
+    pass
 
 _GLOBAL_SAP_NUMBER_FORMAT = "AUTO"
 
@@ -48,22 +53,33 @@ def parse_sap_decimal(value: Any, fmt: Optional[str] = None) -> Decimal:
             raise ValueError("Invalid space grouping")
         s = s.replace(" ", "")
     active = str(fmt or _GLOBAL_SAP_NUMBER_FORMAT).upper()
-    if active == "AUTO":
-        if "." in s and "," in s:
-            active = "US" if s.rfind(".") > s.rfind(",") else "EU"
-        elif s.count(".") > 1:
+    # Nếu chứa cả hai dấu phân cách thì format đã rõ ràng 100%
+    if "." in s and "," in s:
+        active = "US" if s.rfind(".") > s.rfind(",") else "EU"
+    elif active == "AUTO":
+        if s.count(".") > 1:
             active = "EU"
         elif s.count(",") > 1:
             active = "US"
         elif "." in s or "," in s:
             sep = "." if "." in s else ","
             left, right = s.split(sep)
-            if sep == ".":
-                if len(right) == 3 and 1 <= len(left) <= 3 and int(left or "0") != 0 and right != "000":
-                    raise ValueError("Ambiguous quantity: configure US or EU format")
-                active = "US"
+            if left == "0":
+                active = "US" if sep == "." else "EU"
+            elif sep == ".":
+                if len(right) != 3:
+                    active = "US"
+                elif 1 <= len(left) <= 3 and int(left or "0") != 0 and right != "000":
+                    raise NumericParseError("Ambiguous quantity: configure US or EU format")
+                else:
+                    active = "US"
             else:
-                active = "US" if len(right) == 3 else "EU"
+                if len(right) != 3:
+                    active = "EU"
+                elif 1 <= len(left) <= 3 and right != "000":
+                    raise NumericParseError("Ambiguous quantity: configure US or EU format")
+                else:
+                    active = "US"
         else:
             active = "US"
     if active == "US":
@@ -71,9 +87,19 @@ def parse_sap_decimal(value: Any, fmt: Optional[str] = None) -> Decimal:
             raise ValueError("Invalid US quantity")
         canonical = s.replace(",", "")
     elif active in {"EU", "VN", "DE"}:
-        if not re.fullmatch(r"(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?|,\d+", s):
-            raise ValueError("Invalid EU quantity")
-        canonical = s.replace(".", "").replace(",", ".")
+        if "," not in s and "." in s:
+            left, right = s.split(".")
+            if left == "0" or len(right) != 3:
+                # Dạng số lẻ canonical (ví dụ: 0.001, 100.00, 50.5) trong môi trường EU
+                canonical = s
+            else:
+                if not re.fullmatch(r"(?:\d+|\d{1,3}(?:\.\d{3})+)", s):
+                    raise NumericParseError("Invalid EU quantity")
+                canonical = s.replace(".", "")
+        else:
+            if not re.fullmatch(r"(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?|,\d+", s):
+                raise NumericParseError("Invalid EU quantity")
+            canonical = s.replace(".", "").replace(",", ".")
     else:
         raise ValueError("Unknown SAP number format")
     try:
@@ -94,8 +120,17 @@ def parse_sap_float(val: Any, default: float = 0.0, fmt: Optional[str] = None) -
         return default
 
 
-def format_qty_display(val: Union[int, float, str]) -> str:
+def format_qty_display(val: Union[int, float, str, Decimal]) -> str:
     """Render canonical quantities without locale-sensitive grouping."""
+    if isinstance(val, bool) or val is None:
+        return "0"
+    if isinstance(val, (int, float, Decimal)):
+        d_val = float(val)
+        if math.isnan(d_val) or math.isinf(d_val):
+            return "0"
+        if d_val.is_integer():
+            return str(int(d_val))
+        return f"{d_val:.4f}".rstrip("0").rstrip(".")
     try:
         try:
             value = parse_sap_decimal(val)
@@ -106,10 +141,6 @@ def format_qty_display(val: Union[int, float, str]) -> str:
             return str(int(d_val))
         return f"{d_val:.4f}".rstrip("0").rstrip(".")
     except Exception:
-        if isinstance(val, (int, float)):
-            if float(val).is_integer():
-                return str(int(val))
-            return f"{float(val):.4f}".rstrip("0").rstrip(".")
         clean_v = str(val or "0").strip()
         return clean_v if clean_v else "0"
 
@@ -133,28 +164,40 @@ def parse_sap_datetime_sort_key(d_str: Any, t_str: Any = "") -> tuple:
         m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", d_clean)
         m_raw8 = re.match(r"^(\d{4})(\d{2})(\d{2})$", d_clean)
 
+        y_i, m_i, d_i = None, None, None
         if m_eu:
-            day, month, year = m_eu.groups()
-            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+            d_i, m_i, y_i = int(m_eu.group(1)), int(m_eu.group(2)), int(m_eu.group(3))
         elif m_slash:
-            day, month, year = m_slash.groups()
-            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+            d_i, m_i, y_i = int(m_slash.group(1)), int(m_slash.group(2)), int(m_slash.group(3))
         elif m_iso:
-            year, month, day = m_iso.groups()
-            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+            y_i, m_i, d_i = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
         elif m_raw8:
-            date_val = d_clean
+            y_i, m_i, d_i = int(m_raw8.group(1)), int(m_raw8.group(2)), int(m_raw8.group(3))
+
+        if y_i is not None:
+            try:
+                dt_obj = datetime(y_i, m_i, d_i)
+                date_val = dt_obj.strftime("%Y%m%d")
+            except (ValueError, OverflowError):
+                return ("INVALID_DATE", "INVALID_TIME")
 
     t_clean = str(t_str or "").strip()
     if t_clean and t_clean.upper() not in ("N/A", "-", "NONE", "NULL"):
         m_time = re.match(r"^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$", t_clean)
         m_raw6 = re.match(r"^(\d{2})(\d{2})(\d{2})$", t_clean)
 
+        h_i, min_i, sec_i = None, None, 0
         if m_time:
-            h, m, s_val = m_time.groups()
-            s_int = int(s_val) if s_val is not None else 0
-            time_val = f"{int(h):02d}{int(m):02d}{s_int:02d}"
+            h_i, min_i = int(m_time.group(1)), int(m_time.group(2))
+            sec_i = int(m_time.group(3)) if m_time.group(3) is not None else 0
         elif m_raw6:
-            time_val = t_clean
+            h_i, min_i, sec_i = int(m_raw6.group(1)), int(m_raw6.group(2)), int(m_raw6.group(3))
+
+        if h_i is not None:
+            try:
+                tm_obj = dt_time(h_i, min_i, sec_i)
+                time_val = tm_obj.strftime("%H%M%S")
+            except (ValueError, OverflowError):
+                return ("INVALID_DATE", "INVALID_TIME")
 
     return (date_val, time_val)

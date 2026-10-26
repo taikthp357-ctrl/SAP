@@ -56,6 +56,7 @@ class CommandRouter:
         # 3. Nhóm Tồn kho, Vị trí & Lịch sử (StockHandler)
         stock_commands = [
             "VITRI", "VỊ TRÍ", "BIN", "POST",
+            "SCWM", "/SCWM/POST", "SCWM_POST", "/SCWM/MON", "SCWM_MON",
             "TON_KHO", "TONKHO",
             "TON", "TỒN", "MB52",
             "LICHSU", "LỊCH SỬ", "MB51",

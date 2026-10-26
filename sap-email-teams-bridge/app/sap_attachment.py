@@ -259,6 +259,13 @@ def wait_for_wnd1(session, appear: bool = True, timeout: float = 2.0, poll: floa
         wnd1 = None
         try:
             wnd1 = session.findById("wnd[1]")
+            if wnd1 is not None:
+                try:
+                    sbar = session.findById("wnd[0]/sbar")
+                    if wnd1 is sbar:
+                        wnd1 = None
+                except Exception:
+                    pass
         except Exception:
             wnd1 = None
         if appear and wnd1 is not None:
@@ -412,7 +419,7 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
     return None
 
 
-def ensure_sap_tabs(target_tabs: int = 5) -> int:
+def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     """Đảm bảo mở sẵn đủ số Tab cần thiết (Tabs 0-2: User Reserved, Tabs 3-4: Bot Batch Pool, Tab 5: Bot Fast Lane)."""
     if pythoncom is None or win32com is None:
         return 1
@@ -420,9 +427,9 @@ def ensure_sap_tabs(target_tabs: int = 5) -> int:
     try:
         sap_gui = win32com.client.GetObject("SAPGUI")
         app = sap_gui.GetScriptingEngine
-        if app.Children.Count == 0:
+        if app.Children.Count == 0 or connection_index >= app.Children.Count:
             return 1
-        conn = app.Children(0)
+        conn = app.Children(connection_index)
         current = conn.Children.Count
         while current < target_tabs and current < 6:
             try:
@@ -888,8 +895,18 @@ class MigoAttachmentRunner:
 
     def __init__(self, sap_engine=None, expected_session_identity=None):
         self.sap_engine = sap_engine
+        if not expected_session_identity and sap_engine is not None:
+            expected_session_identity = getattr(sap_engine, "session_identity", None)
         self.expected_session_identity = dict(expected_session_identity or {})
         self._local = threading.local()
+
+    @property
+    def session_identity(self):
+        return self.expected_session_identity
+
+    @session_identity.setter
+    def session_identity(self, val):
+        self.expected_session_identity = dict(val or {})
 
     @property
     def _active_document(self):
@@ -903,19 +920,70 @@ class MigoAttachmentRunner:
         if session is None:
             return False, "NO_SESSION"
         if not self.expected_session_identity:
-            return True, "SESSION_VERIFIED"
+            return False, "SESSION_IDENTITY_REQUIRED"
         required = ("system", "client", "user")
         if not all(self.expected_session_identity.get(key) for key in required):
             return False, "SESSION_IDENTITY_REQUIRED"
         try:
-            actual = {"system": session.Info.SystemName, "client": session.Info.Client,
-                      "user": session.Info.User}
+            info = getattr(session, "Info", None)
+            actual = {
+                "system": getattr(info, "SystemName", None),
+                "client": getattr(info, "Client", None),
+                "user": getattr(info, "User", None)
+            }
             if any(not isinstance(actual[key], str) or actual[key].strip().casefold() != str(self.expected_session_identity[key]).strip().casefold() for key in required):
                 return False, "SESSION_IDENTITY_MISMATCH"
-            if session.Busy:
+
+            # Kiểm tra session_id nếu có
+            exp_sess_id = self.expected_session_identity.get("session_id")
+            if exp_sess_id:
+                act_id = getattr(session, "Id", getattr(session, "id", None))
+                if not act_id:
+                    return False, "SESSION_IDENTITY_MISMATCH"
+                act_str = str(act_id).strip().casefold()
+                exp_str = str(exp_sess_id).strip().casefold()
+                if "/" in exp_str:
+                    if act_str != exp_str:
+                        return False, "SESSION_IDENTITY_MISMATCH"
+                else:
+                    if not (act_str == exp_str or act_str.endswith(f"/{exp_str}")):
+                        return False, "SESSION_IDENTITY_MISMATCH"
+
+            # Kiểm tra session_index nếu có
+            exp_sess_idx = self.expected_session_identity.get("session_index")
+            if exp_sess_idx is not None:
+                act_idx = None
+                if info is not None and hasattr(info, "SessionNumber"):
+                    act_idx = info.SessionNumber
+                elif hasattr(session, "Id") and "/ses[" in str(session.Id):
+                    try:
+                        act_idx = int(str(session.Id).split("/ses[")[1].split("]")[0])
+                    except Exception:
+                        pass
+                if act_idx is None or int(act_idx) != int(exp_sess_idx):
+                    return False, "SESSION_IDENTITY_MISMATCH"
+
+            # Kiểm tra connection_index hoặc connection_id nếu có
+            exp_conn_idx = self.expected_session_identity.get("connection_index")
+            if exp_conn_idx is None:
+                exp_conn_idx = self.expected_session_identity.get("connection_id")
+            if exp_conn_idx is not None:
+                act_conn = None
+                act_id_val = getattr(session, "Id", getattr(session, "id", None))
+                if act_id_val and "/con[" in str(act_id_val):
+                    try:
+                        act_conn = str(act_id_val).split("/con[")[1].split("]")[0]
+                    except Exception:
+                        pass
+                if act_conn is None or str(act_conn).strip().casefold() != str(exp_conn_idx).strip().casefold():
+                    return False, "SESSION_IDENTITY_MISMATCH"
+
+            if getattr(session, "Busy", False):
                 return False, "SESSION_BUSY"
-            if require_migo and str(session.Info.Transaction).upper() != "MIGO":
-                return False, "SESSION_TRANSACTION_MISMATCH"
+            if require_migo:
+                tcode = getattr(info, "Transaction", "")
+                if str(tcode).upper() != "MIGO":
+                    return False, "SESSION_TRANSACTION_MISMATCH"
             return True, "SESSION_VERIFIED"
         except Exception:
             return False, "SESSION_IDENTITY_UNAVAILABLE"
@@ -1116,12 +1184,17 @@ class MigoAttachmentRunner:
 
             # Trường hợp 1: Đã có sẵn HeadText -> Kiểm tra trùng khớp hay khác biệt (A01 Review Guard)
             if current_text:
-                curr_tokens, curr_compact = extract_search_tokens(current_text)
-                tick_tokens, tick_compact = extract_search_tokens(ticket_clean)
+                curr_words = [w.upper() for w in re.findall(r"[A-Za-z0-9]+", current_text)]
+                tick_words = [w.upper() for w in re.findall(r"[A-Za-z0-9]+", ticket_clean)]
+                curr_compact = re.sub(r"[^A-Za-z0-9]+", "", current_text).upper()
+                tick_compact = re.sub(r"[^A-Za-z0-9]+", "", ticket_clean).upper()
+
+                # So khớp token chính xác (exact token match hoặc regex ranh giới từ \b)
+                # Ngăn chặn trường hợp OUT_P1_123 khớp nhầm OUT_P1_1234
                 is_matched = (
                     curr_compact == tick_compact
-                    or (tick_compact and tick_compact in curr_compact)
-                    or (tick_tokens and set(tick_tokens).issubset(set(curr_tokens)))
+                    or (tick_words and len(tick_words) == len(curr_words) and tick_words == curr_words)
+                    or bool(re.search(rf"\b{re.escape(ticket_clean.strip())}\b", current_text, re.IGNORECASE))
                 )
                 if is_matched:
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
@@ -1166,6 +1239,20 @@ class MigoAttachmentRunner:
                 return "HEADTEXT_UNCERTAIN", "Không đọc được phản hồi lưu SAP; cần kiểm tra thủ công"
             if s_type != "S":
                 return "HEADTEXT_UNCERTAIN", f"SAP chưa xác nhận lưu: {s_msg}"
+
+            # Readback kiểm tra HeadText thực tế sau khi lưu
+            try:
+                head_field_after = smart_find(session, "GOHEAD-BKTXT", "GuiTextField")
+                if head_field_after:
+                    saved_val = getattr(head_field_after, "Text", getattr(head_field_after, "text", ""))
+                    if saved_val:
+                        saved_compact = re.sub(r"[^A-Za-z0-9]+", "", str(saved_val)).upper()
+                        tick_compact = re.sub(r"[^A-Za-z0-9]+", "", ticket_clean).upper()
+                        if saved_compact != tick_compact and not re.search(rf"\b{re.escape(ticket_clean.strip())}\b", str(saved_val), re.IGNORECASE):
+                            return "HEADTEXT_FAIL", f"Readback không khớp sau lưu: '{saved_val}' != '{ticket_clean}'"
+            except Exception as rb_ex:
+                print(f"[ATT READBACK WARN] Không thể readback HeadText: {rb_ex}")
+
             # Khi SAP đã xác nhận lưu thành công (sbar MessageType 'S'), chứng từ đã được ghi vào SAP.
             # Giữ nguyên MIGO ở chế độ CHANGE (A12) cho các chứng từ tiếp theo trong batch,
             # tuyệt đối KHÔNG reload lại chứng từ ở chế độ DISPLAY (A04) làm mất trạng thái CHANGE.
@@ -1304,7 +1391,7 @@ class MigoAttachmentRunner:
         identity_ok, identity_status = self.verify_session_identity(session, require_migo=True)
         if not identity_ok or self._active_document is None:
             return False, identity_status if not identity_ok else "DOCUMENT_NOT_VERIFIED"
-        abs_path = file_path.resolve()
+        abs_path = Path(file_path).resolve()
         if not abs_path.exists():
             return False, f"FILE_NOT_FOUND: {abs_path}"
 
@@ -1343,11 +1430,13 @@ class MigoAttachmentRunner:
             else:
                 session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
-            # 3. FAST-PATH & CHỐNG STALE STATUS BAR:
+            # 3. KIỂM TRA ĐÓNG DIALOG VÀ XÁC MINH STATUSBAR:
             # Điều kiện 1: Xác nhận wnd[1] đã đóng lại hoàn toàn sau khi nhấn btn[0]
-            wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
+            wnd1_closed = wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
+            if not wnd1_closed:
+                return False, "FAILED_POPUP_STUCK: Hộp thoại đính kèm không đóng sau khi nhấn nút tải"
 
-            # Điều kiện 2: Kiểm tra session.findById("wnd[0]/sbar").MessageType == 'S'
+            # Điều kiện 2: Kiểm tra session.findById("wnd[0]/sbar").MessageType != 'E'/'A'
             sbar = session.findById("wnd[0]/sbar")
             msg = getattr(sbar, "Text", "")
             msg_type = getattr(sbar, "MessageType", "")
@@ -1356,19 +1445,8 @@ class MigoAttachmentRunner:
             if msg_type in ("E", "A") or any(k in text for k in ["NOT CREATED", "NOT SAVED", "FAILED", "ERROR", "CANCELLED", "CANCELED", "KHONG THANH CONG"]):
                 return False, f"SAP_ERROR: {msg}"
 
-            # FAST-PATH SBAR CONFIRMATION:
-            # Nếu sbar trả về MessageType "S" và nội dung xác nhận upload thành công (hoặc mã thông báo GOS thành công),
-            # xác nhận thành công ngay (DONE_SAP_SBAR) mà KHÔNG mở lại popup attachment list để đọc lại.
-            # Tiết kiệm 2.5 - 3 giây/file (loại bỏ 95% mở popup readback).
-            gos_success_keywords = ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS", "THANH CONG", "DA TAO", "DA LUU"]
-            is_explicit_success = (msg_type == "S" and any(k in text for k in gos_success_keywords))
-            if is_explicit_success:
-                return True, f"DONE_SAP_SBAR: {filename}"
-
-            if msg_type != "S" and not any(k in text for k in ["CREATED", "ATTACHMENT", "SAVED", "SUCCESS"]):
-                return False, f"ATTACHMENT_UNCERTAIN: {msg}"
-
-            # Fallback chỉ chạy khi sbar không rõ ràng hoặc trả về cảnh báo/nghi ngờ (hoặc stale message)
+            # Điều kiện 3: Bắt buộc readback danh sách attachment để xác nhận tồn tại vật lý
+            # Tuyệt đối không chỉ dựa vào statusbar tạm thời (chống giả mạo và tránh stale sbar)
             titles = self.read_sap_attachment_titles(session)
             target_name = Path(filename).name.casefold()
             target_stem = Path(filename).stem.casefold()
@@ -1393,7 +1471,7 @@ class MigoAttachmentRunner:
                     break
 
             if not matched:
-                return False, "ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file trên SAP"
+                return False, f"ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file '{filename}' trong Attachment list trên SAP"
             return True, f"DONE_SAP_READBACK: {filename}"
 
         except Exception as e:
@@ -1427,19 +1505,22 @@ class MigoAttachmentRunner:
                 url_field = smart_find(session, "URL", "GuiTextField", window="wnd[1]")
                 if url_field is None:
                     url_field = smart_find(session, "DY_URL", "GuiTextField", window="wnd[1]")
-                if url_field is not None:
-                    url_field.Text = str(link_address).strip()
+                if title_field is None or url_field is None:
+                    return False, "URL_CONTROLS_MISSING: Không tìm thấy trường Title hoặc URL trên wnd[1]"
+                url_field.Text = str(link_address).strip()
 
                 session.findById("wnd[1]/tbar[0]/btn[0]").Press()
             except Exception as fill_err:
                 return False, f"URL_FILL_ERROR: {fill_err}"
 
-            wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
+            wnd1_closed = wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
+            if not wnd1_closed:
+                return False, "FAILED_POPUP_STUCK: Hộp thoại URL không đóng sau khi nhấn nút xác nhận"
 
             sbar = session.findById("wnd[0]/sbar")
             msg = getattr(sbar, "Text", "")
             msg_type = getattr(sbar, "MessageType", "")
-            if msg_type in ("E", "A"):
+            if msg_type in ("E", "A", "W"):
                 return False, f"SAP_ERROR: {msg}"
             return True, f"DONE_SAP_URL: {link_title}"
         except Exception as e:
@@ -1895,16 +1976,16 @@ class MigoAttachmentRunner:
                     is_succ = True
                 elif b_ok and not v_ok:
                     overall_status = "PARTIAL (Thiếu VAT)"
-                    is_succ = True
+                    is_succ = False
                 elif v_ok and not b_ok:
                     overall_status = "PARTIAL (Thiếu BBBG)"
-                    is_succ = True
+                    is_succ = False
                 elif m_ok:
                     overall_status = "DONE"
                     is_succ = True
                 elif headtext_res in ("HEADTEXT_DONE", "HEADTEXT_OK"):
                     overall_status = "PARTIAL (Chỉ có HeadText)"
-                    is_succ = True
+                    is_succ = False
                 else:
                     overall_status = "FILE_NOT_FOUND"
                     is_succ = False
@@ -1989,6 +2070,7 @@ class MigoAttachmentRunner:
 
         results = []
         total_success = 0
+        total_partial = 0
         total_missing = 0
 
         total_items = len(items)
@@ -2003,28 +2085,38 @@ class MigoAttachmentRunner:
             and pythoncom is not None
         )
 
+        user_res_val = getattr(self.sap_engine, "user_reserved_sessions", 3)
+        user_reserved = user_res_val if isinstance(user_res_val, int) else 3
+        max_bot_val = getattr(self.sap_engine, "max_batch_tabs", 3)
+        max_bot_tabs = max_bot_val if isinstance(max_bot_val, int) else 3
+
+        conn_idx = 0
+        if isinstance(self.expected_session_identity, dict) and ("connection_index" in self.expected_session_identity or "connection_id" in self.expected_session_identity):
+            try:
+                conn_idx = int(self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0)))
+            except Exception:
+                conn_idx = 0
+        elif hasattr(self.sap_engine, "connection_index"):
+            conn_idx = int(getattr(self.sap_engine, "connection_index", 0))
+
         active_tab_indices = [0]
         if is_multi_tab_eligible:
             user_res_val = getattr(self.sap_engine, "user_reserved_sessions", 3)
             user_reserved = user_res_val if isinstance(user_res_val, int) else 3
-            # Cấu hình linh hoạt số tab tối đa cho Bot (mặc định 3, có thể nâng lên 4)
             max_bot_val = getattr(self.sap_engine, "max_batch_tabs", 3)
             max_bot_tabs = max_bot_val if isinstance(max_bot_val, int) else 3
             target_tabs = min(6, user_reserved + max_bot_tabs)
-            available_tabs = ensure_sap_tabs(target_tabs)
+            available_tabs = ensure_sap_tabs(target_tabs, connection_index=conn_idx)
             bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]
             if len(bot_tabs) >= 2:
-                # Sử dụng toàn bộ bot_tabs khả dụng theo max_bot_tabs (3-4 tabs)
                 active_tab_indices = bot_tabs[:max_bot_tabs]
                 tabs_str = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
                 print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải tự thích ứng trên {len(active_tab_indices)} tabs ({tabs_str}) (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             elif len(bot_tabs) == 1:
-                active_tab_indices = [bot_tabs[0]] # Ví dụ: [3] (Tab 4)
+                active_tab_indices = [bot_tabs[0]]
                 print(f"[ATT RUNNER] SAP có Tab {active_tab_indices[0]+1} khả dụng: Chạy Batch trên Tab {active_tab_indices[0]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             else:
-                fallback_tab = max(0, available_tabs - 1)
-                active_tab_indices = [fallback_tab]
-                print(f"[ATT RUNNER WARN] Không có tab trong dải Bot >= {user_reserved}, tạm thời dùng Tab {fallback_tab+1}.")
+                raise RuntimeError("NO_DEDICATED_BOT_SESSION: Không có session SAP khả dụng cho bot (bảo tồn toàn bộ tab người dùng)")
 
         # ---------------------------------------------------------------------
         # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)
@@ -2051,7 +2143,13 @@ class MigoAttachmentRunner:
                     worker_session = None
                     try:
                         sap_gui = win32com.client.GetObject("SAPGUI")
-                        conn = sap_gui.GetScriptingEngine.Children(0)
+                        conn_idx = 0
+                        if isinstance(self.expected_session_identity, dict) and "connection_index" in self.expected_session_identity:
+                            try:
+                                conn_idx = int(self.expected_session_identity["connection_index"])
+                            except Exception:
+                                conn_idx = 0
+                        conn = sap_gui.GetScriptingEngine.Children(conn_idx)
                         if tab_idx < conn.Children.Count:
                             worker_session = conn.Children(tab_idx)
                     except Exception as conn_err:
@@ -2114,8 +2212,10 @@ class MigoAttachmentRunner:
             indexed_results.sort(key=lambda x: x[0])
             for _, r_dict, is_s in indexed_results:
                 results.append(r_dict)
-                is_actually_succ = is_s or r_dict.get("is_succ") is True or r_dict.get("overall_status") == "DONE" 
-                if is_actually_succ:
+                st = str(r_dict.get("overall_status", "")).upper()
+                if "PARTIAL" in st:
+                    total_partial += 1
+                elif is_s or r_dict.get("is_succ") is True or st == "DONE":
                     total_success += 1
                 else:
                     total_missing += 1
@@ -2129,7 +2229,7 @@ class MigoAttachmentRunner:
                 single_tab_idx = active_tab_indices[0]
                 if single_tab_idx > 0:
                     try:
-                        conn = win32com.client.GetObject("SAPGUI").GetScriptingEngine.Children(0)
+                        conn = win32com.client.GetObject("SAPGUI").GetScriptingEngine.Children(conn_idx)
                         session = conn.Children(single_tab_idx)
                     except Exception:
                         session = self.sap_engine.ensure_session()
@@ -2154,8 +2254,10 @@ class MigoAttachmentRunner:
                     is_folder_requested, has_folder, folder_error, dry_run
                 )
                 results.append(res_dict)
-                is_actually_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
-                if is_actually_succ:
+                st = str(res_dict.get("overall_status", "")).upper()
+                if "PARTIAL" in st:
+                    total_partial += 1
+                elif is_s or res_dict.get("is_succ") is True or st == "DONE":
                     total_success += 1
                 else:
                     total_missing += 1
@@ -2165,6 +2267,7 @@ class MigoAttachmentRunner:
             "folder_error": folder_error,
             "total_items": len(items),
             "total_success": total_success,
+            "total_partial": total_partial,
             "total_missing": total_missing,
             "simulated": dry_run,
             "total_preview_ready": sum(bool(r.get("preview_ready")) for r in results),

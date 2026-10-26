@@ -3,6 +3,7 @@
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
 from app.handlers.base_handler import BaseHandler
+from app.extended_query_service import ExtendedQueryService
 from app.ob_service import ObService
 
 
@@ -34,20 +35,33 @@ class ProductionHandler(BaseHandler):
         # 1. TRA CỨU PHIẾU LĨNH RESERVATION (MB23/MB25)
         # -------------------------------------------------------------
         if cmd in ["CHECK_RES", "MB23", "MB25"]:
-            req_id_display = ctx.meta.get("requestId") or ctx.request_id
-            custom_html = (
-                f"<div style='font-family:Segoe UI,sans-serif;background:#fff8c5;border:1px solid #d4a72c;"
-                f"border-left:4px solid #9a6700;padding:12px 14px;border-radius:4px;color:#24292f;'>"
-                f"<div style='font-weight:bold;color:#9a6700;font-size:14px;margin-bottom:6px;'>"
-                f"📋 Kiểm tra Phiếu Lĩnh / Reservation (MB23/MB25)</div>"
-                f"<div style='font-size:12px;line-height:1.6;'>"
-                f"• <strong>Mã yêu cầu:</strong> {req_id_display}<br>"
-                f"• <strong>Trạng thái:</strong> Hệ thống đã tiếp nhận yêu cầu kiểm tra Reservation.<br>"
-                f"• <strong>Hướng dẫn:</strong> Vui lòng cung cấp số phiếu Reservation (RSNUM 10 số) để tra cứu chi tiết."
-                f"</div></div>"
-            )
-            summary = "Tra cứu thông tin phiếu lĩnh Reservation (MB23/MB25)"
-            audit_target = req_id_display
+            res_no = ctx.meta.get("resNo") or (raw_mats[0] if raw_mats else "")
+            if not res_no:
+                req_id_display = ctx.meta.get("requestId") or ctx.request_id
+                custom_html = (
+                    f"<div style='font-family:Segoe UI,sans-serif;background:#fff8c5;border:1px solid #d4a72c;"
+                    f"border-left:4px solid #9a6700;padding:12px 14px;border-radius:4px;color:#24292f;'>"
+                    f"<div style='font-weight:bold;color:#9a6700;font-size:14px;margin-bottom:6px;'>"
+                    f"📋 Kiểm tra Phiếu Lĩnh / Reservation (MB23/MB25)</div>"
+                    f"<div style='font-size:12px;line-height:1.6;'>"
+                    f"• <strong>Mã yêu cầu:</strong> {req_id_display}<br>"
+                    f"• <strong>Trạng thái:</strong> Hệ thống đã tiếp nhận yêu cầu kiểm tra Reservation.<br>"
+                    f"• <strong>Hướng dẫn:</strong> Vui lòng cung cấp số phiếu Reservation (RSNUM 10 số) để tra cứu chi tiết."
+                    f"</div></div>"
+                )
+                summary = "Vui lòng cung cấp số phiếu Reservation (RSNUM) để tra cứu (MB23)"
+                result_status = "INVALID_OR_EMPTY_QUERY"
+                audit_target = req_id_display
+            else:
+                res_info = ctx.sap.check_reservation_mb23(res_no) if ctx.sap else {"found": False, "message": "Không có kết nối SAP"}
+                records = res_info.get("items", [])
+                headers = {
+                    "item": "Item", "material": "Mã hàng", "qty": "SL Lĩnh",
+                    "unit": "ĐVT", "plant": "Plant", "sloc": "Kho xuất"
+                }
+                summary = res_info.get("message", f"Tra cứu phiếu Reservation {res_no}")
+                result_status = "SUCCEEDED" if res_info.get("found") else "NOT_FOUND"
+                audit_target = res_no
             audit_message = summary
 
         # -------------------------------------------------------------
@@ -88,13 +102,16 @@ class ProductionHandler(BaseHandler):
         # -------------------------------------------------------------
         elif cmd in ["CHECK_QUEUE", "QUEUE"]:
             inbound_filter = ctx.meta.get("inboundNo", "") or (raw_mats[0] if raw_mats else "")
-            records = ctx.sap.check_ewm_queue_mon(inbound_filter=inbound_filter)
+            raw_queues = ctx.sap.check_ewm_queue_mon(inbound_filter=inbound_filter) if ctx.sap else []
+            diag_res = ExtendedQueryService.diagnose_ewm_queues(raw_queues)
+            records = diag_res.get("diagnostics", [])
             headers = {
-                "document": "Số IB / Doc", "error_message": "Nội dung lỗi Queue",
-                "queue_name": "Tên Queue"
+                "document": "Số IB / Doc", "queue_name": "Tên Queue",
+                "error_category": "Phân loại", "error_message": "Nội dung lỗi Queue",
+                "action_advice": "Hướng xử lý"
             }
             filter_info = f" (Lọc theo: {inbound_filter})" if inbound_filter else ""
-            summary = f"Danh sách lỗi kẹt Queue EWM (/SCWM/MON){filter_info}"
+            summary = diag_res.get("summary", f"Danh sách lỗi kẹt Queue EWM (/SCWM/MON){filter_info}")
             audit_target = inbound_filter or "ALL"
             audit_message = summary
 

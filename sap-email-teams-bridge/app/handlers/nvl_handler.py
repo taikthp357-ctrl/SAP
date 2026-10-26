@@ -2,6 +2,7 @@
 """Handler chuyên trách nghiệp vụ ra đơn NVL MIGO 311 và đối soát Posting Change Kho 1005."""
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
+from app.core.security import assert_write_permission, WritePermissionError
 from app.handlers.base_handler import BaseHandler
 from app.nvl_service import NvlService
 
@@ -37,9 +38,12 @@ class NvlHandler(BaseHandler):
             )
 
         # -------------------------------------------------------------
-        # NHÁNH 2: RA ĐƠN NVL (PHÂN BỔ FIFO & TẠO ĐƠN OB MIGO 311)
+        # NHÁNH 2: KẾ HOẠCH NVL & RA ĐƠN NVL (PHÂN BỔ FIFO & TẠO ĐƠN OB MIGO 311)
         # -------------------------------------------------------------
         elif cmd in ["RA_DON_NVL", "KE_HOACH_NVL"]:
+            is_plan_only = (cmd == "KE_HOACH_NVL")
+            is_preview = is_plan_only or (ctx.meta.get("dryRun", False) is True)
+
             raw_orders = ctx.meta.get("nvlOrders") or ctx.meta.get("orders") or []
             if raw_orders:
                 orders = []
@@ -72,39 +76,22 @@ class NvlHandler(BaseHandler):
 
             all_query_mats = list(dict.fromkeys(o["material"] for o in orders if o.get("material")))
             stock_records = ctx.sap.check_position_posting_change(all_query_mats, batch="", plant=ctx.plant)
+
+            # Đánh giá tính toàn vẹn của nguồn dữ liệu tồn: không tự bịa thông tin
+            has_invalid_records = any(
+                not r.get("plant") or not r.get("sloc") or not r.get("unit")
+                for r in (stock_records or [])
+            )
+            is_source_complete = (stock_records is not None) and (not has_invalid_records)
+
             plan = NvlService.allocate_orders(
                 orders, stock_records, source_plant=ctx.plant,
-                db_path=ctx.state_mgr.db_path, request_id=ctx.request_id, source_complete=True
+                db_path=ctx.state_mgr.db_path, request_id=ctx.request_id,
+                source_complete=is_source_complete
             )
             plan_id = plan["plan_id"]
+            alloc_unit = plan['allocated_items'][0]['unit'] if plan.get('allocated_items') else 'PC'
 
-            is_preview = ctx.meta.get("dryRun", False) is True
-            delivery_no = ""
-            post_msg = ""
-            if not is_preview:
-                print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(plan.get('allocated_items', []))} dòng NVL (Plant {ctx.plant}, 1005 -> 3001)...")
-                ok_post, doc_num, post_msg = ctx.sap.post_migo_311_ob_group(
-                    plan.get("allocated_items", []),
-                    plant=ctx.plant,
-                    source_sloc="1005",
-                    dest_sloc="3001",
-                    dry_run=False
-                )
-                print(f"[SAP MIGO] Kết quả tạo đơn MIGO 311: ok={ok_post} | Số chứng từ='{doc_num}' | Chi tiết: {post_msg}")
-                delivery_no = doc_num if ok_post else ""
-                result_status = "SUCCEEDED" if ok_post else "FAILED"
-            else:
-                delivery_no = ""
-                result_status = "PREVIEW"
-
-            if ctx.config.get("allow_nvl_reservations"):
-                plan_id = NvlService.save_plan_and_reserve(plan, created_by=ctx.meta.get("senderName") or "BOT", db_path=ctx.state_mgr.db_path)
-
-            records = NvlService.group_into_ob_groups(
-                plan.get("allocated_items", []),
-                shortages=plan.get("shortages", []),
-                delivery_no=delivery_no
-            )
             headers = {
                 "stt": "OB",
                 "delivery_no": "Số OB",
@@ -115,11 +102,128 @@ class NvlHandler(BaseHandler):
                 "station": "Trạm",
                 "status": "TT"
             }
-            alloc_unit = plan['allocated_items'][0]['unit'] if plan.get('allocated_items') else 'PC'
+
+            # ---------------------------------------------------------
+            # 2A. CHẾ ĐỘ KẾ HOẠCH / XEM TRƯỚC (PREVIEW - 100% READ-ONLY)
+            # ---------------------------------------------------------
+            if is_preview:
+                records = NvlService.group_into_ob_groups(
+                    plan.get("allocated_items", []),
+                    shortages=plan.get("shortages", []),
+                    delivery_no=""
+                )
+                summary = (
+                    f"Xem trước kế hoạch ra đơn NVL Kho 1005 (Plant {ctx.plant}) ({plan_id}): "
+                    f"Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}"
+                )
+                return CommandResult(
+                    status="PREVIEW",
+                    summary=summary,
+                    records=records,
+                    headers=headers,
+                    audit_target=plan_id,
+                    audit_message="Xem trước kế hoạch phân bổ NVL (PREVIEW - 0 ghi SAP)"
+                )
+
+            # ---------------------------------------------------------
+            # 2B. CHẾ ĐỘ RA ĐƠN THỰC TẾ (RA_DON_NVL - WRITE TO SAP MIGO 311)
+            # ---------------------------------------------------------
+            # Điều kiện 1: Kiểm tra quyền ghi tập trung & người gửi thật
+            assert_write_permission(ctx)
+
+            # Điều kiện 2: Trạng thái kế hoạch không bị BLOCKED
+            if plan.get("status") == "BLOCKED":
+                records = NvlService.group_into_ob_groups([], shortages=plan.get("shortages", []), delivery_no="")
+                return CommandResult(
+                    status="BLOCKED",
+                    summary=f"Kế hoạch phân bổ NVL bị chặn (BLOCKED): {'; '.join(plan.get('errors', ['Lỗi an toàn']))}",
+                    records=records,
+                    headers=headers,
+                    audit_target=plan_id,
+                    audit_message="Kế hoạch phân bổ NVL bị chặn trước khi ghi SAP"
+                )
+
+            # Điều kiện 3: Bắt buộc có dòng phân bổ hợp lệ
+            allocated_lines = plan.get("allocated_items", [])
+            if not allocated_lines:
+                records = NvlService.group_into_ob_groups([], shortages=plan.get("shortages", []), delivery_no="")
+                return CommandResult(
+                    status="FAILED",
+                    summary="Không có dòng hàng nào được phân bổ để tạo đơn MIGO",
+                    records=records,
+                    headers=headers,
+                    audit_target=plan_id,
+                    audit_message="Không có dòng phân bổ để tạo đơn MIGO"
+                )
+
+            # Điều kiện 4: Bắt buộc phân bổ đủ 100% (Fail-closed khi thiếu tồn)
+            if not plan.get("is_full_allocation") or plan.get("shortages"):
+                records = NvlService.group_into_ob_groups(
+                    allocated_lines,
+                    shortages=plan.get("shortages", []),
+                    delivery_no="---"
+                )
+                return CommandResult(
+                    status="BLOCKED_PARTIAL_STOCK",
+                    summary=(
+                        f"Kế hoạch phân bổ thiếu tồn ({plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}). "
+                        f"Chính sách an toàn chặn tự ý xuất tồn lẻ khi chưa đủ số lượng yêu cầu."
+                    ),
+                    records=records,
+                    headers=headers,
+                    audit_target=plan_id,
+                    audit_message="Chặn tạo MIGO do thiếu tồn (BLOCKED_PARTIAL_STOCK)"
+                )
+
+            # Vòng đời Reservation 2 pha (Two-Phase Reservation)
+            has_reservations = bool(ctx.config.get("allow_nvl_reservations"))
+            if has_reservations:
+                try:
+                    NvlService.save_plan_and_reserve(
+                        plan,
+                        created_by=ctx.meta.get("actualSenderEmail") or ctx.meta.get("senderName") or "BOT",
+                        db_path=ctx.state_mgr.db_path
+                    )
+                except Exception as res_err:
+                    print(f"[RESERVATION WARN] Không thể lưu giữ chỗ snapshot: {res_err}")
+
+            print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(allocated_lines)} dòng NVL (Plant {ctx.plant}, 1005 -> 3001)...")
+            ok_post, doc_num, post_msg = ctx.sap.post_migo_311_ob_group(
+                allocated_lines,
+                plant=ctx.plant,
+                source_sloc="1005",
+                dest_sloc="3001",
+                dry_run=False
+            )
+            print(f"[SAP MIGO] Kết quả tạo đơn MIGO 311: ok={ok_post} | Số chứng từ='{doc_num}' | Chi tiết: {post_msg}")
+
+            delivery_no = doc_num if ok_post else ""
+            if ok_post and doc_num:
+                result_status = "SUCCEEDED"
+                if has_reservations:
+                    try:
+                        NvlService.confirm_plan_reservation(plan_id, delivery_no, db_path=ctx.state_mgr.db_path)
+                    except Exception as db_sync_err:
+                        print(f"[RESERVATION WARN] SAP post thành công ({delivery_no}) nhưng lỗi DB sync: {db_sync_err}")
+                        result_status = "AMBIGUOUS_RESERVATION"
+            else:
+                result_status = "FAILED"
+                if has_reservations:
+                    try:
+                        NvlService.release_plan_reservation(plan_id, db_path=ctx.state_mgr.db_path)
+                    except Exception:
+                        pass
+
+            records = NvlService.group_into_ob_groups(
+                allocated_lines,
+                shortages=plan.get("shortages", []),
+                delivery_no=delivery_no
+            )
+
             if result_status == "SUCCEEDED" and delivery_no:
                 summary = f"Đã chạy FIFO và tạo đơn OB cấp NVL Kho 1005 (Plant {ctx.plant}) - Số OB: {delivery_no} ({plan['total_allocated']}/{plan['total_ordered']} {alloc_unit})"
-            elif result_status == "PREVIEW" or is_preview:
-                summary = f"Xem trước kế hoạch ra đơn NVL Kho 1005 (Plant {ctx.plant}) ({plan_id}): Có thể phân bổ {plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}"
+            elif result_status == "AMBIGUOUS_RESERVATION":
+                summary = f"Đã tạo chứng từ MIGO thành công trên SAP (Số: {delivery_no}) nhưng gặp sự cố đồng bộ dữ liệu DB nội bộ (AMBIGUOUS_RESERVATION). Vui lòng đối soát kiểm tra trước khi chạy lại."
             else:
                 summary = f"Kế hoạch ra đơn NVL Kho 1005 ({post_msg or 'Chưa tạo được đơn OB trên SAP'}) - Đã phân bổ {plan['total_allocated']}/{plan['total_ordered']} {alloc_unit}"
 

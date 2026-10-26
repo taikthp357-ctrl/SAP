@@ -20,19 +20,38 @@ class SystemHandler(BaseHandler):
         # 1. LỆNH PING KẾT NỐI
         # -------------------------------------------------------------
         if cmd == "PING":
+            sap_connected = False
+            sap_status_desc = "Chưa kết nối SAP (Không có phiên COM)"
+            if ctx.sap is not None:
+                try:
+                    if hasattr(ctx.sap, "session") and ctx.sap.session is not None:
+                        _sys = getattr(getattr(ctx.sap.session, "Info", None), "SystemName", "SAP")
+                        _cli = getattr(getattr(ctx.sap.session, "Info", None), "Client", "")
+                        _usr = getattr(getattr(ctx.sap.session, "Info", None), "User", "")
+                        sap_connected = True
+                        sap_status_desc = f"Đã kết nối SAP ({_sys} / Client {_cli} / User {_usr})"
+                    else:
+                        sap_status_desc = "Chưa khởi tạo phiên SAP"
+                except Exception as ex:
+                    sap_status_desc = f"Mất kết nối SAP ({ex})"
+
+            badge_color = "#1a7f37" if sap_connected else "#9a6700"
+            bg_color = "#dafbe1" if sap_connected else "#fff8c5"
+            border_color = "#4ac26b" if sap_connected else "#d4a72c"
+
             custom_html = (
-                f"<div style='font-family:Segoe UI,sans-serif;background:#dafbe1;border:1px solid #4ac26b;"
-                f"border-left:4px solid #1a7f37;padding:12px 14px;border-radius:4px;color:#24292f;'>"
-                f"<div style='font-weight:bold;color:#1a7f37;font-size:14px;margin-bottom:6px;'>"
-                f"🏓 PONG! Kết nối hoàn tất thành công!</div>"
+                f"<div style='font-family:Segoe UI,sans-serif;background:{bg_color};border:1px solid {border_color};"
+                f"border-left:4px solid {badge_color};padding:12px 14px;border-radius:4px;color:#24292f;'>"
+                f"<div style='font-weight:bold;color:{badge_color};font-size:14px;margin-bottom:6px;'>"
+                f"🏓 PONG! Kết nối ứng dụng Bridge hoạt động!</div>"
                 f"<div style='font-size:12px;line-height:1.6;'>"
                 f"• <strong>Request ID:</strong> {req_id_display}<br>"
                 f"• <strong>Plant:</strong> {ctx.plant}<br>"
-                f"• <strong>Trạng thái SAP:</strong> Kết nối bình thường<br>"
+                f"• <strong>Trạng thái SAP:</strong> {sap_status_desc}<br>"
                 f"• <strong>Ghi chú:</strong> {ctx.meta.get('note', 'Kiểm tra đường truyền hoàn tất.')}"
                 f"</div></div>"
             )
-            summary = f"Kiểm tra kết nối PING-PONG thành công (Request ID: {req_id_display})"
+            summary = f"Kiểm tra kết nối PING-PONG (Bridge: OK, SAP: {'OK' if sap_connected else 'DISCONNECTED'})"
 
         # -------------------------------------------------------------
         # 2. LỆNH WHO_IS_TAI

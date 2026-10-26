@@ -46,19 +46,20 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     """Return an eligible, typed lot; reject missing evidence and zero availability."""
     material = _text(_first(row, "product", "material"))
     batch, bin_no = _text(row.get("batch")), _text(row.get("bin"))
-    # Nếu layout /SCWM/POST ẩn cột AUn (unit), mặc định lấy PC
-    unit = _text(_first(row, "unit", "uom") or "PC")
-    # /SCWM/POST đã lọc theo Owner=source_plant nên kế thừa source_plant & source_sloc nếu dòng không có cột plant/sloc
-    plant = _text(_first(row, "plant", "source_plant") or source_plant)
-    sloc = _text(_first(row, "sloc", "source_sloc") or source_sloc)
-    cat = _text(_first(row, "cat", "stock_type") or "FT")
+    unit = _text(_first(row, "unit", "uom", "meins") or "PC")
+    plant = _text(_first(row, "plant", "source_plant", "werks") or source_plant)
+    sloc = _text(_first(row, "sloc", "source_sloc", "lgort") or source_sloc)
+    cat = _text(_first(row, "cat", "stock_type", "stock_category") or "FT")
+
     if not require_fifo:
         if not bin_no:
             bin_no = "N/A"
         if not cat:
             cat = "UNRESTRICTED"
     if not all((material, batch, bin_no, unit, plant, sloc)):
-        raise ValueError("Thiếu material/batch/bin/plant/sloc/ĐVT được xác minh")
+        raise ValueError("Thiếu material/batch/bin/plant/sloc/ĐVT được xác minh từ nguồn SAP")
+    if not cat:
+        raise ValueError("Thiếu Stock Category (Cat/Stock Type) được xác minh từ nguồn SAP")
     if plant != _text(source_plant) or sloc != _text(source_sloc):
         raise ValueError("Tồn kho ngoài phạm vi plant/sloc yêu cầu")
     if cat not in {"FT", "F1", "F2", "UNRESTRICTED"} or row.get("eligible") is False:
@@ -70,8 +71,9 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     gr_date = _first(row, "grDate", "gr_date")
     gr_time = _first(row, "grTime", "gr_time")
     gr_key = parse_sap_datetime_sort_key(gr_date, gr_time)
-    if require_fifo and (gr_key[0] == "99999999" or gr_key[1] == "999999"):
-        raise ValueError("Thiếu hoặc sai thời điểm GR để xếp FIFO")
+    if gr_key[0] in ("99999999", "INVALID_DATE") or gr_key[1] in ("999999", "INVALID_TIME"):
+        if require_fifo:
+            raise ValueError("Thời điểm GR không hợp lệ trên lịch (INVALID_FIFO_TIMESTAMP)")
     hsd = _first(row, "hsd", "expiry_date")
     hsd_key = parse_sap_datetime_sort_key(hsd, "00:00:00")[0]
     if hsd and hsd_key == "99999999":
@@ -313,6 +315,22 @@ class NvlService:
                 conn.execute("""INSERT INTO nvl_reservations (res_id,plan_id,material,batch,qty,reserved_at,status,stock_key,expires_at)
                     VALUES (?,?,?,?,?,?,'ACTIVE',?,?)""", (res_id, plan_id, item["material"], item["batch"], float(qty), _now().isoformat(), key, plan["expires_at"]))
         return plan_id
+
+    @classmethod
+    def confirm_plan_reservation(cls, plan_id, mat_doc, db_path=None):
+        """Xác nhận reservation sau khi SAP Post thành công chứng từ."""
+        cls.init_tables(db_path)
+        with cls._get_connection(db_path) as conn:
+            conn.execute("UPDATE nvl_plans SET status='CONFIRMED', mat_doc=? WHERE plan_id=?", (mat_doc, str(plan_id)))
+            conn.execute("UPDATE nvl_reservations SET status='CONFIRMED' WHERE plan_id=?", (str(plan_id),))
+
+    @classmethod
+    def release_plan_reservation(cls, plan_id, db_path=None):
+        """Hủy reservation khi SAP Post thất bại hoặc bị hủy."""
+        cls.init_tables(db_path)
+        with cls._get_connection(db_path) as conn:
+            conn.execute("UPDATE nvl_plans SET status='RELEASED' WHERE plan_id=?", (str(plan_id),))
+            conn.execute("UPDATE nvl_reservations SET status='RELEASED' WHERE plan_id=?", (str(plan_id),))
 
     @classmethod
     def validate_migo_precheck(cls, plan):

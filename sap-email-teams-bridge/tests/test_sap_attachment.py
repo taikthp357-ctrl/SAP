@@ -195,11 +195,28 @@ def test_sap_session_gos_mock():
     mock_sbar.MessageType = "S"
 
     mock_shell = MagicMock()
+    wnd1_active = [False]
+    mock_shell.SelectContextMenuItem.side_effect = lambda *a, **k: wnd1_active.__setitem__(0, True)
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_active.__setitem__(0, False)
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.side_effect = lambda name, *args: mock_btn if "btn" in name else MagicMock()
+
     def find_by_id(path):
-        if "shell" in path:
+        path_str = str(path)
+        if "shell" in path_str:
             return mock_shell
-        elif "sbar" in path:
+        elif "sbar" in path_str:
             return mock_sbar
+        elif "btn" in path_str:
+            return mock_btn
+        elif path_str == "wnd[1]" or path_str.startswith("wnd[1]"):
+            if wnd1_active[0]:
+                return mock_wnd1
+            raise Exception("Control wnd[1] not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
@@ -555,9 +572,10 @@ def test_process_attachment_batch_with_sap_existing_attachments():
         assert item["bbbg_status"] == "DONE"
         # VAT chưa có trên SAP và thư mục không có -> FILE_NOT_FOUND
         assert item["vat_status"] == "FILE_NOT_FOUND"
-        # Overall status thành công vì đã có BBBG hợp lệ
+        # Overall status thành công vì đã có BBBG hợp lệ (PARTIAL)
         assert item["overall_status"] in ("DONE", "PARTIAL (Thiếu VAT)")
-        assert res["total_success"] == 1
+        assert res["total_partial"] == 1
+        assert res["total_success"] == 0
 
 
 def test_multiple_vat_files_matching():
@@ -845,10 +863,10 @@ def test_multi_tab_session_identity_and_eligibility():
     mock_session_tab1.Id = "/app/con[0]/ses[1]"
     mock_session_tab1.Busy = False
 
-    # Phải pass vì cùng thuộc connection được bảo vệ
+    # Tab 1: Khác session_id -> Phải reject vì không khớp ownership được giao
     ok1, msg1 = runner.verify_session_identity(mock_session_tab1)
-    assert ok1 is True
-    assert msg1 == "SESSION_VERIFIED"
+    assert ok1 is False
+    assert msg1 == "SESSION_IDENTITY_MISMATCH"
 
     # Tab khác Client -> Phải reject
     mock_session_bad = MagicMock()
@@ -922,8 +940,9 @@ def test_incremental_multi_vat_attachment():
         mock_session.Id = "/app/con[0]/ses[0]"
         mock_session.Busy = False
         mock_sap.ensure_session.return_value = mock_session
-
-        runner = MigoAttachmentRunner(mock_sap)
+        identity = {"system": "PRD", "client": "100", "user": "TEST_USER", "session_id": "/app/con[0]/ses[0]"}
+        mock_sap.session_identity = identity
+        runner = MigoAttachmentRunner(mock_sap, expected_session_identity=identity)
         runner.open_migo_document = lambda session, doc, year=None, mode="CHANGE": (True, "OK")
         # Giả lập SAP đã có sẵn file 'VAT_5122' và 'BBBG 5122'
         runner.read_sap_attachment_titles = lambda session: ["VAT_5122", "BBBG 5122"]
@@ -1014,11 +1033,28 @@ def test_fast_path_sbar_confirmation_skips_readback():
     mock_sbar.MessageType = "S"
 
     mock_shell = MagicMock()
+    wnd1_active = [False]
+    mock_shell.SelectContextMenuItem.side_effect = lambda *a, **k: wnd1_active.__setitem__(0, True)
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_active.__setitem__(0, False)
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.side_effect = lambda name, *args: mock_btn if "btn" in name else MagicMock()
+
     def find_by_id(path):
-        if "shell" in path:
+        path_str = str(path)
+        if "shell" in path_str:
             return mock_shell
-        elif "sbar" in path:
+        elif "sbar" in path_str:
             return mock_sbar
+        elif "btn" in path_str:
+            return mock_btn
+        elif path_str == "wnd[1]" or path_str.startswith("wnd[1]"):
+            if wnd1_active[0]:
+                return mock_wnd1
+            raise Exception("Control wnd[1] not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
@@ -1032,11 +1068,12 @@ def test_fast_path_sbar_confirmation_skips_readback():
         dummy_file = Path(tf.name)
 
     try:
+        # P1-07: Xác minh vật lý qua readback là bắt buộc để chống stale sbar và fake success
+        mock_read_titles.return_value = [dummy_file.name]
         ok, msg = runner.attach_file_to_current_migo(mock_session, dummy_file)
         assert ok is True
-        assert "DONE_SAP_SBAR" in msg
-        # Fast path xác nhận ngay, KHÔNG gọi read_sap_attachment_titles (tiết kiệm 2.5 - 3 giây)
-        mock_read_titles.assert_not_called()
+        assert "DONE_SAP_READBACK" in msg or "DONE_SAP_SBAR" in msg
+        mock_read_titles.assert_called_once()
         # POPUP_LOCK phải được release, không bị kẹt
         assert not POPUP_LOCK.locked()
     finally:
@@ -1055,11 +1092,28 @@ def test_fallback_readback_when_sbar_uncertain():
     mock_sbar.MessageType = "I"
 
     mock_shell = MagicMock()
+    wnd1_active = [False]
+    mock_shell.SelectContextMenuItem.side_effect = lambda *a, **k: wnd1_active.__setitem__(0, True)
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_active.__setitem__(0, False)
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.side_effect = lambda name, *args: mock_btn if "btn" in name else MagicMock()
+
     def find_by_id(path):
-        if "shell" in path:
+        path_str = str(path)
+        if "shell" in path_str:
             return mock_shell
-        elif "sbar" in path:
+        elif "sbar" in path_str:
             return mock_sbar
+        elif "btn" in path_str:
+            return mock_btn
+        elif path_str == "wnd[1]" or path_str.startswith("wnd[1]"):
+            if wnd1_active[0]:
+                return mock_wnd1
+            raise Exception("Control wnd[1] not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id
@@ -1140,11 +1194,28 @@ def test_stale_sbar_message_falls_back_to_readback_and_verifies_exact_match():
     mock_sbar.MessageType = "S"
 
     mock_shell = MagicMock()
+    wnd1_active = [False]
+    mock_shell.SelectContextMenuItem.side_effect = lambda *a, **k: wnd1_active.__setitem__(0, True)
+    mock_btn = MagicMock()
+    mock_btn.Id = "wnd[1]/tbar[0]/btn[0]"
+    mock_btn.Name = "btn[0]"
+    mock_btn.Type = "GuiButton"
+    mock_btn.Press.side_effect = lambda: wnd1_active.__setitem__(0, False)
+    mock_wnd1 = MagicMock()
+    mock_wnd1.FindByName.side_effect = lambda name, *args: mock_btn if "btn" in name else MagicMock()
+
     def find_by_id(path):
-        if "shell" in path:
+        path_str = str(path)
+        if "shell" in path_str:
             return mock_shell
-        elif "sbar" in path:
+        elif "sbar" in path_str:
             return mock_sbar
+        elif "btn" in path_str:
+            return mock_btn
+        elif path_str == "wnd[1]" or path_str.startswith("wnd[1]"):
+            if wnd1_active[0]:
+                return mock_wnd1
+            raise Exception("Control wnd[1] not found")
         return MagicMock()
 
     mock_session.findById.side_effect = find_by_id

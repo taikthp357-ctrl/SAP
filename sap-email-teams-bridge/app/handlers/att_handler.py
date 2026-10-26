@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
+from app.core.security import assert_write_permission, WritePermissionError
 from app.handlers.base_handler import BaseHandler
 from app.sap_attachment import MigoAttachmentRunner
 from app.teams_dispatcher import TeamsDispatcher
@@ -27,7 +28,9 @@ class AttHandler(BaseHandler):
                 raise ValueError("Vui lòng cung cấp ít nhất một số chứng từ DOC (10 chữ số) để kiểm tra đính kèm")
 
             company_code = ctx.meta.get("companyCode") or ctx.meta.get("bukrs") or "2301"
-            target_year = ctx.meta.get("year") or str(datetime.now().year)
+            target_year = (ctx.meta.get("year") or "").strip()
+            if not target_year:
+                target_year = str(datetime.now().year)
             ticket_no = ctx.meta.get("refNo") or ctx.meta.get("ticket_no") or ""
 
             records = ctx.sap.check_attachment_status(
@@ -67,12 +70,8 @@ class AttHandler(BaseHandler):
                 raise ValueError("ATT_MIGO cần lệnh đính kèm/điền HeadText rõ ràng")
 
             if not is_preview:
-                if not ctx.config.get("allow_sap_writes", True):
-                    raise ValueError("Ghi SAP chưa được bật trong cấu hình; dùng dryRun để xem trước")
-                trusted = {str(x).strip().lower() for x in ctx.config.get("trusted_intake_senders", []) if str(x).strip()}
-                sender_addr = (ctx.meta.get("senderEmail") or "").strip().lower()
-                if trusted and sender_addr not in trusted:
-                    raise ValueError("Ghi SAP chưa được bật cho nguồn thư đã xác thực; dùng dryRun để xem trước")
+                # Chốt chặn quyền ghi an toàn & xác thực người gửi thực tế từ Mail Header
+                assert_write_permission(ctx)
                 expected_sys = ctx.config.get("sap_system", "")
                 if expected_sys and ctx.sap.session_identity and ctx.sap.session_identity.get("system", "").upper() != expected_sys.upper():
                     raise ValueError(f"Hệ thống SAP ({ctx.sap.session_identity.get('system')}) không khớp cấu hình ({expected_sys})")
@@ -99,7 +98,9 @@ class AttHandler(BaseHandler):
                 except Exception as ex:
                     print(f"[PROGRESS WARN] Không thể gửi cập nhật tiến độ: {ex}")
 
-            target_year = ctx.meta.get("year") or str(datetime.now().year)
+            target_year = (ctx.meta.get("year") or "").strip()
+            if not target_year:
+                raise ValueError("Yêu cầu đính kèm thiếu năm chứng từ tài chính (MISSING_DOC_YEAR); vui lòng cung cấp năm chứng từ (ví dụ: 2026)")
 
             att_summary = runner.process_attachment_batch(
                 folder_path,
@@ -111,11 +112,15 @@ class AttHandler(BaseHandler):
             )
             records = att_summary["results"]
 
+            has_partial = any("PARTIAL" in str(r.get("overall_status", "")).upper() for r in records)
+            all_done = all(r.get("overall_status") == "DONE" for r in records) and len(records) > 0
+            any_success = att_summary.get("total_success", 0) > 0 or any(r.get("is_succ") for r in records)
+
             if is_preview:
                 result_status = "SIMULATED"
-            elif att_summary["total_success"] == att_summary["total_items"]:
+            elif all_done and not has_partial:
                 result_status = "SUCCEEDED"
-            elif att_summary["total_success"] > 0:
+            elif has_partial or any_success:
                 result_status = "PARTIAL"
             else:
                 result_status = "FAILED"
