@@ -1,9 +1,16 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.72
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.73
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Đột Phá Tốc Độ Xử Lý Đính Kèm Mail: Micro-Lock 50ms, Fast-Path Sbar & Multi-Tab Pool 3–4 Tabs (v1.0.72):**
+1. **Khắc Phục Lỗi Nhận Nhầm Lệnh Tra Cứu Đính Kèm ZFIR266 Sang Ra Đơn NVL (v1.0.73):**
+   - **Triệt tiêu hiện tượng chiếm quyền ý định (Intent Hijacking):** Khắc phục dứt điểm lỗi khi người dùng gửi lệnh `SAP check att` kèm danh sách chứng từ (dán dạng bảng từ Excel hoặc SAP gồm cột Số chứng từ và Năm tài chính `50xxxxxxxx 2026`), bộ parser hiểu nhầm năm `2026` là số lượng `qty` và chuyển hướng nhầm sang flow `RA_DON_NVL`.
+   - **Lá chắn nhận diện cặp DOC + Year:** Trong `parse_nvl_table_rows`, tự động loại trừ các cặp số chứng từ 10 chữ số (`50xxxxxxxx`, `49xxxxxxxx`, `10xxxxxxxx`) đi kèm năm tài chính 4 chữ số (`20xx`).
+   - **Khóa bảo vệ ý định gốc:** Khi câu lệnh đã xác định rõ ràng là `CHECK_ATT`, `CHECK_ATT_DOC` hoặc `ATT_MIGO`, bot tuyệt đối không để các bảng dữ liệu tự do ghi đè sang `RA_DON_NVL` nếu không có từ khóa ra đơn rõ ràng.
+   - **Tự động trích xuất Năm tài chính (`MJAHR`):** Bóc tách chính xác năm tài chính đi kèm chứng từ để nạp vào giao dịch `ZFIR266` / `MIGO Display`.
+   - **Chuẩn hóa phản hồi & Greeting:** Bổ sung lời chào và báo lỗi riêng biệt cho tác vụ tra cứu file đính kèm ZFIR266 trên Teams.
+
+2. **Đột Phá Tốc Độ Xử Lý Đính Kèm Mail: Micro-Lock 50ms, Fast-Path Sbar & Multi-Tab Pool 3–4 Tabs (v1.0.72):**
    - **Tái Cấu Trúc Micro-Lock (`POPUP_LOCK` ~50–100ms):** Tháo bỏ toàn bộ lock ở hàm đọc ALV Grid `read_sap_attachment_titles` và màn hình nạp chứng từ `wnd[0]`. Chỉ khóa khi mở menu GOS, ngay khi hộp thoại modal (`wnd[1]`) xuất hiện thì nhả lock lập tức để các Tab điền đường dẫn/URL và bấm nút xác nhận song song 100%. Triệt tiêu hiện tượng tranh chấp mutex giữa các session.
    - **Xác Nhận Nhanh Qua StatusBar (Fast-Path Sbar) & Zero-Popup Verification:** Sau khi bấm nút xác nhận gắn file/link, bot kiểm tra `wait_for_wnd1(appear=False)` và `sbar.MessageType == 'S'` chứa từ khóa thành công (`CREATED`, `SAVED`, `ATTACHMENT`). Xác nhận thành công ngay mà không cần mở lại popup ALV list để đối soát, tiết kiệm ~1.2–1.5 giây cho mỗi file.
    - **Chống Đọc Nhầm Trạng Thái Cũ (Anti-Stale StatusBar Guard):** Chỉ kích hoạt Fast-Path khi nội dung StatusBar chứa đúng từ khóa ghi nhận GOS thành công tươi mới. Nếu StatusBar còn sót lại thông báo cũ (ví dụ *"Material document displayed"*), bot tự động fallback mở popup đối soát an toàn, bảo đảm không bao giờ báo thành công giả khi gắn 2 file liên tiếp (BBBG + VAT).

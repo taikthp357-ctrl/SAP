@@ -223,6 +223,12 @@ class SmartCommandParser:
                 except ValueError:
                     continue
 
+                # Loại trừ trường hợp copy bảng số chứng từ DOC (10 chữ số: 50xxxxxxxx, 49xxxxxxxx, 10xxxxxxxx)
+                # và Cột thứ 2 là Năm tài chính (20xx). Đây là bảng tra cứu DOC (CHECK_ATT/ZFIR266),
+                # tuyệt đối KHÔNG coi là mã vật tư NVL và số lượng xuất kho!
+                if re.fullmatch(r"(?:49|50|10)\d{8}", mat_cand) and re.fullmatch(r"(?:19|20|21)\d{2}", qty_str):
+                    continue
+
                 station_cand = cols[2].strip() if len(cols) >= 3 else ""
                 int_or_float = int(qty_val) if qty_val.is_integer() else qty_val
                 rows.append({
@@ -485,10 +491,20 @@ class SmartCommandParser:
 
         # Nhận diện bảng yêu cầu cấp NVL (nhiều dòng: Mã NVL, Số lượng, Trạm)
         nvl_table_rows = cls.parse_nvl_table_rows(command_text)
-        if nvl_table_rows and (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") or best_score == 0 or "ra don" in norm_text or "don nvl" in norm_text or len(nvl_table_rows) >= 2):
-            best_intent = "RA_DON_NVL"
-            best_score = max(best_score, 95)
-            matched_keywords.append(f"RA_DON_NVL: Bảng yêu cầu cấp NVL ({len(nvl_table_rows)} dòng)")
+        has_explicit_ra_don = any(k in norm_text for k in ["ra don", "don nvl", "ke hoach nvl", "phan bo nvl", "nvl v31", "nvl zone"])
+        is_att_or_doc_intent = best_intent in ("CHECK_ATT", "CHECK_ATT_DOC", "ATT_MIGO")
+
+        # BẢO VỆ CHẶN NHẦM Ý ĐỊNH:
+        # Nếu câu lệnh đã được nhận diện rõ ràng là kiểm tra/đính kèm file (CHECK_ATT, ZFIR266, ATT_MIGO)
+        # và KHÔNG có từ khóa 'ra don' / 'don nvl', TUYỆT ĐỐI KHÔNG để nvl_table_rows ghi đè sang RA_DON_NVL!
+        if nvl_table_rows and not (is_att_or_doc_intent and not has_explicit_ra_don):
+            if best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") or best_score == 0 or has_explicit_ra_don or len(nvl_table_rows) >= 2:
+                best_intent = "RA_DON_NVL"
+                best_score = max(best_score, 95)
+                matched_keywords.append(f"RA_DON_NVL: Bảng yêu cầu cấp NVL ({len(nvl_table_rows)} dòng)")
+        elif is_att_or_doc_intent and not has_explicit_ra_don:
+            # Dọn sạch nvl_table_rows để không kích hoạt luồng ra đơn NVL
+            nvl_table_rows = []
 
         # Phân biệt TỒN KHO (Chỉ kiểm tra Kho 1005 & 3093) vs TỒN TỔNG HỢP (Toàn bộ SLoc)
         if best_intent == "TON":
@@ -794,8 +810,11 @@ class SmartCommandParser:
                 else (re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text).group(1).upper()
                       if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else "")
             ),
-            "year": (re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
-                     if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text) else ""),
+            "year": (
+                re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
+                if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text)
+                else (re.search(r"\b(202[0-9])\b", command_text).group(1) if (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and re.search(r"\b(202[0-9])\b", command_text)) else "")
+            ),
             "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)),
             "explicitWriteIntent": best_intent in ("ATT_MIGO", "RA_DON_NVL"),
             "executionMode": (

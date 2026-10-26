@@ -845,3 +845,27 @@ def test_parse_ra_don_nvl_table_end_to_end():
     assert res["station"] == "KV08-Thức/Vũ"
     assert len(res["nvlOrders"]) == 4
     assert res["nvlOrders"][0]["qty"] == 100
+
+
+def test_check_att_with_table_doc_and_year_not_hijacked_by_ra_don():
+    """Kiểm tra lệnh SAP check att kèm bảng DOC và Năm (2026) không bao giờ bị nhận nhầm thành Ra đơn NVL."""
+    sample = """SAP check att
+
+5007143035	2026
+5007143041	2026
+5007143054	2026
+5007144319	2026
+5007143040	2026
+5007143014	2026
+5007143036	2026"""
+    res = EmailCommandParser.parse(sample)
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "CHECK_ATT"
+    assert res["year"] == "2026"
+    assert len(res["attachmentDocs"]) == 7
+    assert "5007143035" in res["attachmentDocs"]
+    assert "5007144319" in res["attachmentDocs"]
+    # nvlOrders phải tuyệt đối rỗng
+    assert not res.get("nvlOrders")
+    assert not res.get("orders")

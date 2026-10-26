@@ -738,6 +738,8 @@ class TeamsDispatcher:
             if status == "FAILED":
                 if cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
                     greeting = "Sếp ơi, đính kèm MIGO gặp sự cố hoặc chưa tìm thấy file đính kèm phù hợp ạ 👇"
+                elif cmd_u in ["CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266"]:
+                    greeting = "Sếp ơi, kiểm tra đính kèm ZFIR266/MIGO gặp sự cố truy xuất SAP ạ 👇"
                 else:
                     greeting = "Sếp ơi, lần này em chưa tra cứu được SAP ạ. Chi tiết em để bên dưới nhé."
             elif status == "PARTIAL":
@@ -797,6 +799,8 @@ class TeamsDispatcher:
                     greeting = "Sếp ơi, em đã tự động điền số phiếu vào Header Text MIGO cho sếp rồi ạ 👇"
                 else:
                     greeting = "Sếp ơi, em đã thực hiện xong tự động đính kèm và điền số phiếu MIGO cho sếp rồi ạ 👇"
+            elif cmd_u in ["CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266"]:
+                greeting = "Sếp ơi, em đã kiểm tra trạng thái file đính kèm BBBG & VAT trên SAP (ZFIR266/MIGO) cho sếp rồi ạ 👇"
             else:
                 greeting = "Sếp ơi, em tra được rồi ạ. Kết quả của sếp đây 👇"
 
