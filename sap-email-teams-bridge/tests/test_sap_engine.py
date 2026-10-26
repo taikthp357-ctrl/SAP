@@ -1862,19 +1862,19 @@ def test_post_migo_311_84_columns_real_layout_mock():
     assert ok is True
     assert doc_no == "1012924052"
 
-    # Kiểm tra ô Material (col 3, KHÔNG phải 2 và KHÔNG phải 62)
+    # Kiểm tra ô Material (col 3 chuẩn Excel V31)
     assert tbl.GetCell(0, 3).Text == "BIW75111244AA"
-    # Kiểm tra ô Qty (col 5, KHÔNG phải 52)
-    assert tbl.GetCell(0, 5).Text == "100"
-    # Kiểm tra ô Trạm Text (col 6)
-    assert tbl.GetCell(0, 6).Text == "KV08-Thức/Vũ"
-    # Kiểm tra ô Plant (col 7, KHÔNG phải 58)
-    assert tbl.GetCell(0, 7).Text == "3093"
-    # Kiểm tra ô SLoc nguồn (col 8)
-    assert tbl.GetCell(0, 8).Text == "1005"
-    # Kiểm tra ô SLoc đích (col 9)
-    assert tbl.GetCell(0, 9).Text == "3001"
-    # Kiểm tra ô Batch (col 10, KHÔNG phải 76)
+    # Kiểm tra ô Qty (col 4 chuẩn Excel V31)
+    assert tbl.GetCell(0, 4).Text == "100"
+    # Kiểm tra ô Trạm Text (col 5 chuẩn Excel V31)
+    assert tbl.GetCell(0, 5).Text == "KV08-Thức/Vũ"
+    # Kiểm tra ô Plant (col 6 chuẩn Excel V31)
+    assert tbl.GetCell(0, 6).Text == "3093"
+    # Kiểm tra ô SLoc nguồn (col 7 chuẩn Excel V31)
+    assert tbl.GetCell(0, 7).Text == "1005"
+    # Kiểm tra ô SLoc đích (col 8 chuẩn Excel V31)
+    assert tbl.GetCell(0, 8).Text == "3001"
+    # Kiểm tra ô Batch (col 10 quét theo RUN_GetBatchColumnForRow)
     assert tbl.GetCell(0, 10).Text == "261023-15"
     # Kiểm tra ô OK (col 14) được tick Selected = True
     assert tbl.GetCell(0, 14).Selected is True

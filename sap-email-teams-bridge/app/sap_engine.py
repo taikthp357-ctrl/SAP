@@ -4068,120 +4068,67 @@ class SapEngine:
 
             print(f"[SAP MIGO] Đã tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM. Đang phân giải cột...")
 
-            # 5. Phân giải động các cột trong bảng MIGO (Chuẩn RUN_GetPreBatchColumnMap & VBA ErrorGuard)
-            # Baseline VBA defaults: Product=3, Qty=4 (hoặc 5 nếu có ShortText), Text/Trạm=5 (hoặc 6), Plant=6 (hoặc 7), SLoc=7 (hoặc 8), SLocTo=8 (hoặc 9), Batch=10
-            col_indices = {}
-            col_names_dump = []
+            # 5. CHỐT NGHIỆP VỤ & VỊ TRÍ CỘT 100% THEO FILE EXCEL V31 (260810_RA_DON_NVL_V31_ZONE.xlsm)
+            # Chuẩn RUN_GetPreBatchColumnMap đã chốt theo layout cố định của nhà máy:
+            mat_col = 3       # Product (Material)
+            qty_col = 4       # Qty in UnE (Số lượng)
+            txt_col = 5       # Text (Trạm)
+            plant_col = 6     # Plant (Plnt)
+            src_sloc_col = 7  # SLoc (Kho xuất 1005)
+            dest_sloc_col = 8 # SLocTo (Kho nhận 3001)
 
-            def _get_col_item(cols, idx):
-                for accessor in ("ElementAt", "Item"):
-                    try:
-                        fn = getattr(cols, accessor, None)
-                        if callable(fn):
-                            return fn(idx)
-                    except Exception:
-                        pass
-                try:
-                    return cols(idx)
-                except Exception:
-                    pass
-                try:
-                    return cols[idx]
-                except Exception:
-                    pass
-                return None
+            # Cột Lô (Batch) theo chuẩn RUN_GetBatchColumnForRow trong Excel V31:
+            # Quét từ cột 0, gặp cột đầu tiên mang tiêu đề BATCH (loại trừ TRFR/TRANSFER/PSTG) thì THOÁT NGAY LẬP TỨC (Exit Function)
+            batch_col = 9     # Mặc định theo layout chuẩn Excel là cột 9
+            ok_col = -1       # Checkbox OK
 
             try:
                 col_cnt = int(getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0)))
-                # Thu thập thông tin tất cả các cột
-                col_info_list = []
+                # 1. Tìm cột Batch theo chuẩn RUN_GetBatchColumnForRow (Exit Function ngay cột đầu tiên)
                 for c_i in range(col_cnt):
-                    col_obj = _get_col_item(tbl.Columns, c_i)
-                    c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip()
-                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip()
-                    col_info_list.append((c_i, c_name, c_title))
-                    col_names_dump.append(f"[{c_i}] {c_name} ('{c_title}')")
+                    col_obj = None
+                    for acc in ("ElementAt", "Item"):
+                        try:
+                            fn = getattr(tbl.Columns, acc, None)
+                            if callable(fn):
+                                col_obj = fn(c_i)
+                                break
+                        except Exception:
+                            pass
+                    if col_obj is None:
+                        try:
+                            col_obj = tbl.Columns(c_i)
+                        except Exception:
+                            pass
+                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
+                    if "BATCH" in c_title and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")):
+                        batch_col = c_i
+                        break  # Dừng ngay tại cột đầu tiên theo chuẩn VBA V31!
 
-                # Lượt 1: Phân giải theo Technical Name chuẩn ABAP GOITEM (First Match Wins)
-                for c_i, c_name, c_title in col_info_list:
-                    c_name_u = c_name.upper()
-                    if "material" not in col_indices and ("MATNR" in c_name_u and not any(k in c_name_u for k in ("UMMAT", "EMATN", "MATKL"))):
-                        col_indices["material"] = c_i
-                    if "qty" not in col_indices and "ERFMG" in c_name_u:
-                        col_indices["qty"] = c_i
-                    if "text" not in col_indices and "SGTXT" in c_name_u:
-                        col_indices["text"] = c_i
-                    if "plant" not in col_indices and ("WERKS" in c_name_u and not any(k in c_name_u for k in ("UMWRK", "REC"))):
-                        col_indices["plant"] = c_i
-                    if "dest_sloc" not in col_indices and "UMLGO" in c_name_u:
-                        col_indices["dest_sloc"] = c_i
-                    if "source_sloc" not in col_indices and ("LGORT" in c_name_u and not any(k in c_name_u for k in ("UMLGO", "REC"))):
-                        col_indices["source_sloc"] = c_i
-                    if "batch" not in col_indices and ("CHARG" in c_name_u and not any(k in c_name_u for k in ("UMCHA", "XCHAR", "EXT"))):
-                        col_indices["batch"] = c_i
-                    if "ok" not in col_indices and ("TAKE_IT" in c_name_u or c_name_u == "OK"):
-                        col_indices["ok"] = c_i
-
-                # Lượt 2: Phân giải theo Title nếu cột nào chưa có (với bộ lọc loại trừ chặt chẽ, First Match Wins)
-                for c_i, c_name, c_title in col_info_list:
-                    c_title_u = c_title.upper()
-                    if "material" not in col_indices:
-                        if ("MATERIAL" in c_title_u or "MÃ" in c_title_u) and not any(k in c_title_u for k in ("TRFR", "TRANSFER", "SHORT", "TEXT", "DESC", "GROUP", "KLAS")):
-                            col_indices["material"] = c_i
-                    if "qty" not in col_indices:
-                        if ("QTY" in c_title_u or "SỐ LƯỢNG" in c_title_u or "QUANTITY" in c_title_u) and not any(k in c_title_u for k in ("UNIT", "PO", "ORDER", "DELIV", "PICK", "DIFF")):
-                            col_indices["qty"] = c_i
-                    if "text" not in col_indices:
-                        if ("TEXT" in c_title_u or "TRẠM" in c_title_u) and not any(k in c_title_u for k in ("SHORT", "HEADER")):
-                            col_indices["text"] = c_i
-                    if "plant" not in col_indices:
-                        if ("PLANT" in c_title_u or "PLNT" in c_title_u or "NHÀ MÁY" in c_title_u) and not any(k in c_title_u for k in ("REC", "DEST", "NHẬN", "TRFR")):
-                            col_indices["plant"] = c_i
-                    if "dest_sloc" not in col_indices:
-                        if any(k in c_title_u for k in ("SLOC TRA", "REC. SLOC", "DEST", "NHẬN")):
-                            col_indices["dest_sloc"] = c_i
-                    if "source_sloc" not in col_indices:
-                        if ("SLOC" in c_title_u or "XUẤT" in c_title_u or "STORAGE LOC" in c_title_u) and not any(k in c_title_u for k in ("TRA", "TRFR", "REC", "DEST", "NHẬN", "TO")):
-                            col_indices["source_sloc"] = c_i
-                    if "batch" not in col_indices:
-                        # Chuẩn RUN_IsRealBatchTitle trong VBA baseline:
-                        if ("BATCH" in c_title_u or "LÔ" in c_title_u) and not any(k in c_title_u for k in ("TRFR", "TRANSFER", "PSTG", "REC", "DEST", "EXT", "MGMT", "MANAGEMENT")):
-                            col_indices["batch"] = c_i
-                    if "ok" not in col_indices:
-                        if c_title_u == "OK":
-                            col_indices["ok"] = c_i
+                # 2. Tìm cột OK nếu có theo chuẩn RUN_FindOKColumn
+                for c_i in range(col_cnt):
+                    col_obj = None
+                    for acc in ("ElementAt", "Item"):
+                        try:
+                            fn = getattr(tbl.Columns, acc, None)
+                            if callable(fn):
+                                col_obj = fn(c_i)
+                                break
+                        except Exception:
+                            pass
+                    if col_obj is None:
+                        try:
+                            col_obj = tbl.Columns(c_i)
+                        except Exception:
+                            pass
+                    c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
+                    if c_title == "OK":
+                        ok_col = c_i
+                        break
             except Exception as col_err:
-                print(f"[SAP MIGO WARN] Lỗi đọc tên cột: {col_err}")
+                print(f"[SAP MIGO WARN] Lỗi đọc cột Batch/OK: {col_err}")
 
-            # Lượt 3: Fallback mặc định theo VBA baseline RUN_GetPreBatchColumnMap nếu có trường chưa tìm thấy
-            # Tự động đồng bộ khoảng bù nếu cột Mat Short Text hiển thị ở các cột đầu
-            has_short_text = any("SHORT" in s for s in col_names_dump[:6])
-            default_shift = 1 if has_short_text else 0
-
-            fallback_defaults = {
-                "material": 3,
-                "qty": 4 + default_shift,
-                "text": 5 + default_shift,
-                "plant": 6 + default_shift,
-                "source_sloc": 7 + default_shift,
-                "dest_sloc": 8 + default_shift,
-                "batch": 10,
-                "ok": 14,
-            }
-            for k, def_val in fallback_defaults.items():
-                if k not in col_indices:
-                    col_indices[k] = def_val
-
-            mat_col = col_indices["material"]
-            qty_col = col_indices["qty"]
-            txt_col = col_indices["text"]
-            plant_col = col_indices["plant"]
-            src_sloc_col = col_indices["source_sloc"]
-            dest_sloc_col = col_indices["dest_sloc"]
-            batch_col = col_indices["batch"]
-            ok_col = col_indices.get("ok", 14)
-
-            print(f"[SAP MIGO] Cột nhận diện: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
+            print(f"[SAP MIGO] Cột chốt chuẩn Excel V31: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
 
             # Hàm điền ô chuẩn SAP GUI TableControl (GetCell + Coordinate fallback)
             def _set_cell(table_ctl, row_no, col_no, value_text, label=""):

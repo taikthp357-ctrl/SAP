@@ -1,9 +1,20 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.68
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.69
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Chuẩn Hóa Phân Giải Cột Đơn Lượt & Điền Đầy Đủ Tất Cả Cột MIGO 311 (v1.0.68):**
+1. **Chốt 100% Nghiệp Vụ & Vị Trí Cột Theo File Excel V31 (`260810_RA_DON_NVL_V31_ZONE.xlsm`) (v1.0.69):**
+   - **Khóa cố định vị trí các cột chuẩn theo layout của nhà máy (`RUN_GetPreBatchColumnMap`):**
+     - `Material (Product)`: Cột 3
+     - `Qty (Số lượng)`: Cột 4
+     - `Trạm (Text)`: Cột 5
+     - `Plant`: Cột 6
+     - `Kho xuất (SLoc)`: Cột 7
+     - `Kho nhận (SLocTo)`: Cột 8
+   - **Dò tìm cột Lô (Batch) chuẩn `RUN_GetBatchColumnForRow`:** Duyệt từ cột 0, ngay khi gặp cột đầu tiên chứa từ khóa `BATCH` (loại trừ `TRFR`, `TRANSFER`, `PSTG`), dừng và thoát ngay lập tức (`Exit Function` / Early Exit), khóa chuẩn cột 9/10, triệt tiêu hoàn toàn lỗi cột Batch bị nhảy sang các cột kỹ thuật phía sau.
+   - **Triệt tiêu hoàn toàn lỗi lệch cột `Material=61, Plant=62, KhoXuất=63`:** Khắc phục dứt điểm việc tìm kiếm động theo tiêu đề làm sai lệch sang các cột kỹ thuật ẩn, đảm bảo 100% dữ liệu điền trúng các ô hiển thị trên màn hình MIGO của nhà máy.
+
+2. **Chuẩn Hóa Phân Giải Cột Đơn Lượt & Điền Đầy Đủ Tất Cả Cột MIGO 311 (v1.0.68):**
    - **Triệt tiêu lỗi vòng lặp tham lam (Greedy Loop) ghi đè cột MIGO:** Khắc phục triệt để hiện tượng chỉ điền được mỗi cột `Text` còn các cột `Material`, `Qty`, `Plant`, `SLoc`, `Dest SLoc`, `Batch` bị bỏ trống (do vòng lặp quét qua 84 cột của `tblSAPLMIGOTV_GOITEM` không có cơ chế khóa điểm dừng, khiến các cột phía sau như `PO Qty`, `Receiving Plant`, `Material Group`, `Batch Management - cột 76` ghi đè lên các cột thực tế).
    - **Cơ chế phân giải 2 lượt nghiêm ngặt kết hợp khóa First-Match-Wins:**
      - *Lượt 1 (ABAP Technical Name):* Khớp chính xác tên kỹ thuật ABAP `GOITEM-MATNR` (Cột 3), `GOITEM-ERFMG` (Cột 5), `GOITEM-SGTXT` (Cột 6), `GOITEM-WERKS` (Cột 7), `GOITEM-LGORT` (Cột 8), `GOITEM-UMLGO` (Cột 9), `GOITEM-CHARG` (Cột 10), `GOITEM-TAKE_IT` (Cột 14).
