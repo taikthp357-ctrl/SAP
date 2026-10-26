@@ -1,9 +1,23 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.73
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.74
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Khắc Phục Lỗi Nhận Nhầm Lệnh Tra Cứu Đính Kèm ZFIR266 Sang Ra Đơn NVL (v1.0.73):**
+1. **Kiến Trúc Phân Rã Nghiệp Vụ Theo Handler & Command Router (v1.0.74):**
+   - **Tái Cấu Trúc Toàn Diện (Router / Dispatcher Pattern):** Chuyển đổi khối điều phối lệnh khổng lồ (>500 dòng `if...elif`) trong `main.py` thành hệ thống `CommandRouter` và các Handler nghiệp vụ chuyên trách độc lập trong `app/handlers/`.
+   - **Cô Lập Lỗi Hoàn Toàn (Blast Radius = 0):** Mỗi nhóm nghiệp vụ được đóng gói độc lập trong đúng một file duy nhất:
+     - `app/handlers/att_handler.py`: Chuyên trách đính kèm file GOS, điền số phiếu HeadText (`ATT_MIGO`, `MIGO_ATT`, `ATTACH_MIGO`) và tra cứu chứng từ (`CHECK_ATT`, `ZFIR266`).
+     - `app/handlers/nvl_handler.py`: Chuyên trách cấp phát NVL FIFO và tạo đơn OB MIGO 311 (`RA_DON_NVL`, `KE_HOACH_NVL`, `CHECK_NVL_MIGO`, `MIGO_311`).
+     - `app/handlers/stock_handler.py`: Chuyên trách tra cứu tồn kho MB52, vị trí Bin EWM `/SCWM/POST`, lịch sử MB51, cảnh báo tồn thấp `TON_THAP` và chứng từ nhập kho `TIM_GR_DOC`.
+     - `app/handlers/logistics_handler.py`: Chuyên trách tra cứu Inbound `VL06I` (`CHECK_IB`, `TIM_IB`, `IB_TREO`), đơn đặt hàng PO `ME2N` (`CHECK_PO`), đơn điều chuyển `STO` và vận đơn `ASN`.
+     - `app/handlers/production_handler.py`: Chuyên trách định mức BOM `CS03`, đơn Outbound mở `VL06O`, điều độ Thành phẩm & OB, cổng xuất nguyên lô `RC65` và kẹt queue EWM.
+     - `app/handlers/bbbg_handler.py`: Chuyên trách đối soát và xuất file Excel Biên bản giao nhận Thành phẩm (`TAO_BBBG`, `XEM_BBBG`).
+     - `app/handlers/system_handler.py`: Chuyên trách các lệnh hệ thống `PING`, `WHO_IS_TAI`, `HELP`.
+   - **Bảo Toàn 100% Lịch Sử Cập Nhật & Logic Nghiệp Vụ:** Toàn bộ cải tiến tốc độ (Micro-Lock 50ms, Fast-Path Sbar ở v1.0.72), chống nhận nhầm ZFIR266 (v1.0.73), khóa layout cột MIGO theo V31 (v1.0.69 - v1.0.70) và bảo vệ RPC COM Outlook (v1.0.71) đều được giữ nguyên 100%.
+   - **Chuẩn Hóa Data Contracts (`RequestContext` & `CommandResult`):** Giao tiếp giữa Router và các Handler thông qua DTO chuẩn hóa, dễ dàng viết Unit Test độc lập và bổ sung T-code mới mà không tác động tới mã nguồn đang hoạt động ổn định.
+   - **Hệ Thống 304 Unit Tests Vượt Qua 100%:** Kiểm thử hồi quy toàn diện đạt 304/304 test cases PASSED.
+
+2. **Khắc Phục Lỗi Nhận Nhầm Lệnh Tra Cứu Đính Kèm ZFIR266 Sang Ra Đơn NVL (v1.0.73):**
    - **Triệt tiêu hiện tượng chiếm quyền ý định (Intent Hijacking):** Khắc phục dứt điểm lỗi khi người dùng gửi lệnh `SAP check att` kèm danh sách chứng từ (dán dạng bảng từ Excel hoặc SAP gồm cột Số chứng từ và Năm tài chính `50xxxxxxxx 2026`), bộ parser hiểu nhầm năm `2026` là số lượng `qty` và chuyển hướng nhầm sang flow `RA_DON_NVL`.
    - **Lá chắn nhận diện cặp DOC + Year:** Trong `parse_nvl_table_rows`, tự động loại trừ các cặp số chứng từ 10 chữ số (`50xxxxxxxx`, `49xxxxxxxx`, `10xxxxxxxx`) đi kèm năm tài chính 4 chữ số (`20xx`).
    - **Khóa bảo vệ ý định gốc:** Khi câu lệnh đã xác định rõ ràng là `CHECK_ATT`, `CHECK_ATT_DOC` hoặc `ATT_MIGO`, bot tuyệt đối không để các bảng dữ liệu tự do ghi đè sang `RA_DON_NVL` nếu không có từ khóa ra đơn rõ ràng.

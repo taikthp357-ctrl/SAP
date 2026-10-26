@@ -23,39 +23,52 @@ def test_main_syntax_and_compile():
         assert py_compile.compile(str(bridge_py), doraise=True) is not None
 
 
+def _get_system_source() -> str:
+    root = Path(__file__).resolve().parent.parent
+    files = [
+        root / "main.py",
+        root / "app" / "router.py",
+        root / "app" / "handlers" / "stock_handler.py",
+        root / "app" / "handlers" / "logistics_handler.py",
+        root / "app" / "handlers" / "production_handler.py",
+        root / "app" / "handlers" / "bbbg_handler.py",
+        root / "app" / "handlers" / "nvl_handler.py",
+        root / "app" / "handlers" / "att_handler.py",
+        root / "app" / "handlers" / "system_handler.py",
+    ]
+    return "\n".join(f.read_text(encoding="utf-8") for f in files if f.exists())
+
+
 def test_main_no_undefined_cfg_and_valid_dispatch():
-    """Kiểm tra không còn biến cfg chưa khai báo trong main.py (P1 bugfix)."""
+    """Kiểm tra không còn biến cfg chưa khai báo và có cấu hình warehouse_slocs hợp lệ."""
     root = Path(__file__).resolve().parent.parent
     main_py = root / "main.py"
     content = main_py.read_text(encoding="utf-8")
     assert 'cfg.get(' not in content, "Found undefined cfg.get in main.py!"
-    assert 'config.get("warehouse_slocs"' in content, "Expected config.get('warehouse_slocs' in main.py!"
+    system_content = _get_system_source()
+    assert 'config.get("warehouse_slocs"' in system_content, "Expected config.get('warehouse_slocs' in system handlers!"
 
 
 def test_main_dispatch_contains_expansion_a_commands():
-    """Kiểm tra main.py có đầy đủ 4 nhánh dispatch cho Mở rộng A (TIM_GR_DOC, CHECK_IB, TIM_IB, CHECK_PO)."""
-    root = Path(__file__).resolve().parent.parent
-    main_py = root / "main.py"
-    content = main_py.read_text(encoding="utf-8")
+    """Kiểm tra hệ thống có đầy đủ 4 nhánh dispatch cho Mở rộng A (TIM_GR_DOC, CHECK_IB, TIM_IB, CHECK_PO)."""
+    system_content = _get_system_source()
     for cmd in ["TIM_GR_DOC", "CHECK_IB", "TIM_IB", "CHECK_PO"]:
-        assert f'cmd in ["{cmd}"' in content or f'"{cmd}"' in content, f"Command {cmd} missing in main.py!"
-    assert "sap.check_gr_doc_mb51" in content
-    assert "sap.check_inbound_detail_vl06i" in content
-    assert "sap.find_inbound_vl06i" in content
-    assert "sap.check_po_me2n" in content
+        assert f'"{cmd}"' in system_content, f"Command {cmd} missing in system dispatch!"
+    assert "check_gr_doc_mb51" in system_content
+    assert "check_inbound_detail_vl06i" in system_content
+    assert "find_inbound_vl06i" in system_content
+    assert "check_po_me2n" in system_content
 
 
 def test_main_dispatch_contains_warehouse_phases_commands():
-    """Kiểm tra main.py có đầy đủ các nhánh dispatch cho toàn bộ 5 tool kho (BBBG, NVL, OB, ASN)."""
-    root = Path(__file__).resolve().parent.parent
-    main_py = root / "main.py"
-    content = main_py.read_text(encoding="utf-8")
+    """Kiểm tra hệ thống có đầy đủ các nhánh dispatch cho toàn bộ 5 tool kho (BBBG, NVL, OB, ASN)."""
+    system_content = _get_system_source()
     for cmd in ["TAO_BBBG", "RA_DON_NVL", "DIEU_PHOI_OB", "TRA_CUU_ASN"]:
-        assert cmd in content, f"Command {cmd} missing in main.py!"
-    assert "BbbgService.reconcile" in content
-    assert "NvlService.allocate_orders" in content
-    assert "ObService.validate_whole_batch_gate" in content
-    assert "ExtendedQueryService.track_asn_provenance" in content
+        assert cmd in system_content, f"Command {cmd} missing in system dispatch!"
+    assert "BbbgService.reconcile" in system_content
+    assert "NvlService.allocate_orders" in system_content
+    assert "ObService.validate_whole_batch_gate" in system_content
+    assert "ExtendedQueryService.track_asn_provenance" in system_content
 
 
 def test_complete_mail_item_defensive_behavior():

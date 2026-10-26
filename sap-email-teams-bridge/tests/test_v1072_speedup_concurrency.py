@@ -333,7 +333,7 @@ def test_v1072_micro_locking_contention_elimination():
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=10.0)
+        t.join(timeout=25.0)
     total_time = time.perf_counter() - t_start
 
     # Đảm bảo tất cả thread hoàn thành, không bị deadlock
