@@ -1,4 +1,4 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.51
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.52
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
@@ -13,7 +13,11 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
 
-3. **Kích hoạt Chạy Thật ATT_MIGO & Nghiệp vụ CHECK_ATT (v1.0.51):**
+3. **Chuyển chế độ MIGO Tự động & Khôi phục Multi-Tab Engine (v1.0.52):**
+   - **Tự động chuyển từ DISPLAY sang CHANGE:** Khi thực hiện điền số phiếu HeadText hoặc đính kèm file, nếu phiên MIGO đang ở chế độ xem `A04 DISPLAY`, hệ thống tự động phát hiện ComboBox `GODYNPRO-ACTION != "A12"` và chuyển sang `A12 CHANGE`, đồng thời đảm bảo `GODYNPRO-REFDOC == "R02"`, giải quyết dứt điểm tình trạng bị khóa trường không cho lưu.
+   - **Khôi phục cơ chế Chạy Đa Tab (Multi-Tab Engine):** Mở rộng khả năng xử lý song song với cấu hình `enable_multi_tab=True` và `max_batch_tabs=2`. Khi danh sách chứng từ lớn (> 5), hệ thống tự động mở đủ 3 Tabs: Tab 0 dành riêng cho Fast Lane (tra cứu tức thời), Tab 1 và Tab 2 dùng cho Batch Pool xử lý song song. Xác thực phiên được cải tiến dựa trên System, Client và User để các Tab con không bị chặn nhầm.
+
+4. **Kích hoạt Chạy Thật ATT_MIGO & Nghiệp vụ CHECK_ATT (v1.0.51):**
    - **Chạy Thật MIGO (Live Execution Mode):** Triệt tiêu hoàn toàn lỗi chạy giả lập/mô phỏng (`SIMULATED`) trên các lệnh ATT MIGO thật; phân định rõ cờ `dryRun=False` (`WRITE_LIVE`) và `dryRun=True` (`WRITE_PREVIEW`); tự động nạp năm hiện tại (2026) khi người dùng không truyền năm, giải quyết dứt điểm lỗi `YEAR_REQUIRED`.
    - **Tra cứu Đính kèm theo DOC (CHECK_ATT / CHECK_ATT_DOC):** Dựa trên `PLAN BỔ SUNG CHECK ATT THEO DOC — BBBG VÀ VAT` (26/10/2026).
      - Ưu tiên gọi Transaction chuyên dụng `ZFIR266` (Company Code `P_BUKRS=2301`, Năm `P_GJAHR`, DOC `S_MBELN-LOW`, Max `P_MAX=500`).

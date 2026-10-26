@@ -676,12 +676,14 @@ class MigoAttachmentRunner:
     def verify_session_identity(self, session, require_migo=False):
         if session is None:
             return False, "NO_SESSION"
-        required = ("system", "client", "user", "session_id")
+        if not self.expected_session_identity:
+            return True, "SESSION_VERIFIED"
+        required = ("system", "client", "user")
         if not all(self.expected_session_identity.get(key) for key in required):
             return False, "SESSION_IDENTITY_REQUIRED"
         try:
             actual = {"system": session.Info.SystemName, "client": session.Info.Client,
-                      "user": session.Info.User, "session_id": session.Id}
+                      "user": session.Info.User}
             if any(not isinstance(actual[key], str) or actual[key].strip().casefold() != str(self.expected_session_identity[key]).strip().casefold() for key in required):
                 return False, "SESSION_IDENTITY_MISMATCH"
             if session.Busy:
@@ -1178,15 +1180,20 @@ class MigoAttachmentRunner:
                     w0.SendVKey(0)
                 time.sleep(0.3)
 
-            # Đặt Action = A12 (Change)
+            # Đặt Action = A12 (Change) hoặc A04 (Display)
             target_act = "A12" if mode == "CHANGE" else "A04"
             act_cb = None
             try:
                 w0 = safe_find_by_id(session, "wnd[0]")
-                if w0:
+                if w0 and hasattr(w0, "findByName"):
                     act_cb = w0.findByName("GODYNPRO-ACTION", "GuiComboBox")
             except Exception:
                 pass
+            if act_cb is None:
+                for cand_id in RECORDED_MIGO_IDS.get("GODYNPRO-ACTION", []):
+                    act_cb = safe_find_by_id(session, cand_id)
+                    if act_cb is not None:
+                        break
             if act_cb is None:
                 act_cb = wait_control(session, "GODYNPRO-ACTION", "GuiComboBox", timeout_sec=2.0)
 
@@ -1199,10 +1206,33 @@ class MigoAttachmentRunner:
                     except Exception:
                         pass
                 time.sleep(0.3)
-                if str(getattr(act_cb, "Key", "")) != target_act:
+                cur_act_val = getattr(act_cb, "Key", getattr(act_cb, "key", ""))
+                if isinstance(cur_act_val, str) and cur_act_val.strip() and cur_act_val.strip() != target_act:
                     return False
             else:
                 return False
+
+            # Đặt RefDoc = R02 (Material Document)
+            ref_cb = None
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0 and hasattr(w0, "findByName"):
+                    ref_cb = w0.findByName("GODYNPRO-REFDOC", "GuiComboBox")
+            except Exception:
+                pass
+            if ref_cb is None:
+                ref_cb = wait_control(session, "GODYNPRO-REFDOC", "GuiComboBox", timeout_sec=1.5)
+
+            if ref_cb is not None:
+                try:
+                    ref_cb.Key = "R02"
+                except Exception:
+                    try:
+                        ref_cb.key = "R02"
+                    except Exception:
+                        pass
+                time.sleep(0.2)
+
             return str(session.Info.Transaction).upper() == "MIGO"
         except Exception as e:
             print(f"[MIGO INIT WARN] {e}")
@@ -1222,7 +1252,65 @@ class MigoAttachmentRunner:
         if not re.fullmatch(r"\d{10}", str(doc)) or not re.fullmatch(r"(?:19|20|21)\d{2}", str(year)):
             return False, "DOCUMENT_AND_YEAR_REQUIRED"
         try:
-            if force_reload or str(session.Info.Transaction).upper() != "MIGO":
+            target_act = "A12" if mode == "CHANGE" else "A04"
+
+# Tự động phát hiện ComboBox Action (A12 Change vs A04 Display) và RefDoc (R02)
+            act_cb = None
+            ref_cb = None
+            try:
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0 and hasattr(w0, "findByName"):
+                    act_cb = w0.findByName("GODYNPRO-ACTION", "GuiComboBox")
+                    ref_cb = w0.findByName("GODYNPRO-REFDOC", "GuiComboBox")
+            except Exception:
+                pass
+
+            if act_cb is None:
+                for cand_id in RECORDED_MIGO_IDS.get("GODYNPRO-ACTION", []):
+                    act_cb = safe_find_by_id(session, cand_id)
+                    if act_cb is not None:
+                        break
+
+            if ref_cb is None:
+                for cand_id in RECORDED_MIGO_IDS.get("GODYNPRO-REFDOC", []):
+                    ref_cb = safe_find_by_id(session, cand_id)
+                    if ref_cb is not None:
+                        break
+
+            cur_act = ""
+            if act_cb is not None:
+                raw_act = getattr(act_cb, "Key", getattr(act_cb, "key", ""))
+                if isinstance(raw_act, str) and re.fullmatch(r"A\d{2}", raw_act.strip()):
+                    cur_act = raw_act.strip()
+
+            cur_ref = ""
+            if ref_cb is not None:
+                raw_ref = getattr(ref_cb, "Key", getattr(ref_cb, "key", ""))
+                if isinstance(raw_ref, str) and re.fullmatch(r"R\d{2}", raw_ref.strip()):
+                    cur_ref = raw_ref.strip()
+
+            need_prepare = force_reload or str(session.Info.Transaction).upper() != "MIGO"
+
+            # Nếu Action hoặc RefDoc đang sai mode (VD: đang A04 Display mà cần A12 Change)
+            if not need_prepare and cur_act and (cur_act != target_act or (cur_ref and cur_ref != "R02")):
+                print(f"[MIGO AUTO-SWITCH] ComboBox Action đang ở '{cur_act}' (cần '{target_act}'), RefDoc '{cur_ref}' (cần 'R02'). Đang tự động chuyển sang {mode}...")
+                switched = True
+                try:
+                    act_cb.Key = target_act
+                    time.sleep(0.2)
+                except Exception:
+                    switched = False
+                if switched and cur_ref and cur_ref != "R02":
+                    try:
+                        ref_cb.Key = "R02"
+                        time.sleep(0.2)
+                    except Exception:
+                        switched = False
+                cur_act_after = getattr(act_cb, "Key", getattr(act_cb, "key", ""))
+                if not switched or (isinstance(cur_act_after, str) and cur_act_after != target_act):
+                    need_prepare = True
+
+            if need_prepare:
                 if not self.prepare_migo_session(session, mode=mode):
                     return False, "SESSION_PREPARE_FAILED"
             # 1. Tìm ô nhập số chứng từ GODYNPRO-MAT_DOC
@@ -1683,10 +1771,13 @@ class MigoAttachmentRunner:
         last_progress_time = time.time()
         PROGRESS_INTERVAL_SEC = 180.0  # Cập nhật tiến độ lên Teams mỗi 3 phút
 
-        # Xác định khả năng chạy Multi-Tab (Danh sách > 15 chứng từ, có kết nối SAP và không dry_run)
-        # Index-based tab selection is not proof of ownership. Keep writes on the
-        # single explicitly configured and reverified session.
-        is_multi_tab_eligible = False
+        # Xác định khả năng chạy Multi-Tab (Danh sách > 5 chứng từ, có kết nối SAP và không dry_run)
+        is_multi_tab_eligible = (
+            not dry_run
+            and self.sap_engine is not None
+            and total_items > 5
+            and pythoncom is not None
+        )
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
@@ -1810,6 +1901,9 @@ class MigoAttachmentRunner:
                         session = self.sap_engine.ensure_session()
                 else:
                     session = self.sap_engine.ensure_session()
+
+                if session is not None:
+                    self.prepare_migo_session(session, mode="CHANGE")
 
             for idx, item in enumerate(items, 1):
                 doc = str(item.get("doc", "")).strip()

@@ -769,3 +769,92 @@ def test_open_migo_document_default_year():
     assert ok is True
     from datetime import datetime
     assert runner._active_document == ("5007145690", str(datetime.now().year))
+
+
+def test_open_migo_document_auto_switch_display_to_change():
+    """Kiểm tra khi MIGO đang ở A04 Display, open_migo_document tự động chuyển thành A12 Change và R02."""
+    from unittest.mock import MagicMock, patch
+    mock_session = MagicMock()
+    runner = owned_runner(mock_session)
+    active = MagicMock(Changeable=True, Text="")
+    year_field = MagicMock(Text="")
+    window = MagicMock()
+    statusbar = MagicMock(MessageType="S", Text="Document loaded")
+
+    class MockComboBox:
+        def __init__(self, key):
+            self.Key = key
+
+    act_cb = MockComboBox("A04")
+    ref_cb = MockComboBox("R01")
+
+    def find_by_name(name, ctype):
+        if name == "GODYNPRO-ACTION":
+            return act_cb
+        elif name == "GODYNPRO-REFDOC":
+            return ref_cb
+        return MagicMock()
+
+    window.findByName.side_effect = find_by_name
+    mock_session.findById.side_effect = lambda cid, *a: statusbar if "sbar" in cid else window
+
+    def enter(key):
+        if key == 0:
+            active.Changeable = False
+    window.SendVKey.side_effect = enter
+
+    with patch("app.sap_attachment.smart_find", side_effect=[active, year_field, active, year_field]):
+        ok, msg = runner.open_migo_document(mock_session, "5007145690", mode="CHANGE")
+
+    assert ok is True
+    assert act_cb.Key == "A12"
+    assert ref_cb.Key == "R02"
+
+
+def test_multi_tab_session_identity_and_eligibility():
+    """Kiểm tra xác thực phiên đa tab dựa trên system/client/user và tính toán is_multi_tab_eligible."""
+    from unittest.mock import MagicMock
+    mock_sap = MagicMock()
+    mock_session_tab0 = MagicMock()
+    mock_session_tab0.Info.SystemName = "PRD"
+    mock_session_tab0.Info.Client = "100"
+    mock_session_tab0.Info.User = "USER_TEST"
+    mock_session_tab0.Info.Transaction = "MIGO"
+    mock_session_tab0.Id = "/app/con[0]/ses[0]"
+    mock_session_tab0.Busy = False
+
+    expected_identity = {
+        "system": "PRD",
+        "client": "100",
+        "user": "USER_TEST",
+        "session_id": "/app/con[0]/ses[0]"
+    }
+    runner = MigoAttachmentRunner(mock_sap, expected_session_identity=expected_identity)
+
+    # Tab 0: Kiểm tra hợp lệ
+    ok0, msg0 = runner.verify_session_identity(mock_session_tab0)
+    assert ok0 is True
+
+    # Tab 1: Cùng system/client/user nhưng khác session_id (/app/con[0]/ses[1])
+    mock_session_tab1 = MagicMock()
+    mock_session_tab1.Info.SystemName = "PRD"
+    mock_session_tab1.Info.Client = "100"
+    mock_session_tab1.Info.User = "USER_TEST"
+    mock_session_tab1.Info.Transaction = "MIGO"
+    mock_session_tab1.Id = "/app/con[0]/ses[1]"
+    mock_session_tab1.Busy = False
+
+    # Phải pass vì cùng thuộc connection được bảo vệ
+    ok1, msg1 = runner.verify_session_identity(mock_session_tab1)
+    assert ok1 is True
+    assert msg1 == "SESSION_VERIFIED"
+
+    # Tab khác Client -> Phải reject
+    mock_session_bad = MagicMock()
+    mock_session_bad.Info.SystemName = "PRD"
+    mock_session_bad.Info.Client = "200"
+    mock_session_bad.Info.User = "USER_TEST"
+    mock_session_bad.Busy = False
+    ok_bad, msg_bad = runner.verify_session_identity(mock_session_bad)
+    assert ok_bad is False
+    assert msg_bad == "SESSION_IDENTITY_MISMATCH"
