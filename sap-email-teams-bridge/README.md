@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.57
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.58
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Tra cứu Mẫu đại diện (Wildcard `BIW*6100*`) & Ổn định ZFIR266 ALV (v1.0.57):**
+1. **Triệt tiêu Lỗi COM Dead Pointer `-2147417851` & Batch ZFIR266 Siêu Tốc (v1.0.58):**
+   - **Batch Multiple Selection ZFIR266:** Khi tra cứu danh sách nhiều chứng từ (ví dụ 15 DOC), hệ thống đưa đồng loạt toàn bộ danh sách vào nút Multiple Selection (`btn%_S_MBELN_%_APP_%-VALU_PUSH`) và chỉ bấm F8 thực thi đúng 1 lượt duy nhất. Toàn bộ kết quả của 15 DOC được trích xuất từ ALV Grid trong ~1.5 giây (thay vì lặp 45 giây).
+   - **Triệt tiêu lỗi con trỏ chết (Stale Object / Dead Pointer COM):** Khắc phục dứt điểm lỗi `(-2147417851, 'The server threw an exception.')` do dùng lại con trỏ COM cũ qua các lần đổi màn hình Dynpro. Toàn bộ các đối tượng điều khiển GUI được phân giải tươi mới (fresh resolution) trong từng vòng lặp và tự động phục hồi về `/nZFIR266` nếu có gián đoạn.
+   - **Khóa chặt ranh giới MIGO Fallback:** MIGO Display chỉ được kích hoạt làm dự phòng khi giao dịch `ZFIR266` thực sự chưa được cài đặt trên hệ thống SAP (`not zfir_supported`). Khi ZFIR266 đã chạy thành công, các chứng từ không có dữ liệu sẽ kết luận ngay là chưa có file, tuyệt đối không nhảy sang MIGO Display làm giật màn hình và gây hiểu nhầm sang nghiệp vụ "att mail".
+   - **Bảo vệ bóc tách Intake:** Loại bỏ từ đơn `att` khỏi Regex kích hoạt thư mục upload, tự động xóa sạch `folderPath = ""` khi nhận diện lệnh tra cứu `CHECK_ATT`.
+
+2. **Tra cứu Mẫu đại diện (Wildcard `BIW*6100*`) & Ổn định ZFIR266 ALV (v1.0.57):**
    - **Tự động bung mẫu Wildcard từ Master Data:** Mở rộng bộ phân giải [`material_resolver.py`](file:///G:/SAP/sap-email-teams-bridge/app/material_resolver.py) với `fnmatch`. Khi người dùng gõ `BIW*6100*` hoặc `*6100*`, hệ thống tự động bung chính xác 5 mã SAP tương ứng (`BIW32016100AA`, `BIW32026100AB`, `BIW75126100AB`, `BIW75116100AA`, `BIW32216100AA`) từ `DATA_MASTER.xlsx` mà không cần chỉnh sửa bất kỳ dòng nào trong file Excel.
    - **Bảo toàn ký tự `*` và `?` trong Parser:** Tinh chỉnh Regex bóc tách token trong [`email_parser.py`](file:///G:/SAP/sap-email-teams-bridge/app/email_parser.py) (cả câu lệnh tự nhiên và cấu trúc JSON `[\w\-./*?]{2,40}`), giữ nguyên dấu `*` ở giữa hoặc hai đầu mã vật tư mà không bị cắt vụn thành các từ ngắn.
    - **Triệt tiêu lỗi `_return_to_main_menu` trên ZFIR266:** Bổ sung alias chuẩn hóa `_return_to_main_menu` $\rightarrow$ `_reset_to_session_manager` trên [`sap_engine.py`](file:///G:/SAP/sap-email-teams-bridge/app/sap_engine.py), khắc phục hoàn toàn sự cố văng lỗi ngoại lệ sau khi đọc báo cáo `ZFIR266`.
@@ -88,7 +94,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (241 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (243 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm

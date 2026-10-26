@@ -124,3 +124,83 @@ def test_sap_engine_zfir266_alv_robust_reading():
     assert rec["status_code"] == "MISSING_BBBG"
     assert "Đã có VAT, thiếu BBBG" in rec["overall_status"]
     engine._reset_to_session_manager.assert_called()
+
+
+def test_email_parser_check_att_no_folder_path():
+    text = """SAP check att
+5007145691 | Thành Đạt IN-6489
+5007145669 | Thành Đạt IN-6489"""
+    r = EmailCommandParser.parse(text)
+    assert r is not None
+    assert r["command"] == "CHECK_ATT"
+    # folderPath must NOT be populated for check att
+    assert r.get("folderPath") == ""
+    assert len(r.get("attachmentDocs", [])) == 2
+
+
+def test_sap_engine_zfir266_batch_multi_selection():
+    engine = SapEngine()
+    mock_session = MagicMock()
+    mock_session.Info.Transaction = "ZFIR266"
+    engine.ensure_session = MagicMock(return_value=mock_session)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._fill_multiple_selection = MagicMock()
+    engine._reset_to_session_manager = MagicMock()
+
+    mock_multi_btn = MagicMock()
+    mock_bukrs = MagicMock()
+    mock_gjahr = MagicMock()
+    mock_max = MagicMock()
+    mock_wnd0 = MagicMock()
+
+    # ALV Grid with 2 rows: one for 5007145691 (VAT), one for 5007145669 (BBBG)
+    mock_grid = MagicMock()
+    mock_grid.RowCount = 2
+    mock_col_order = MagicMock()
+    mock_col_order.Count = 3
+    mock_col_order.ElementAt.side_effect = lambda idx: ["DOCUMENTNO", "FILE_NAME", "AMOUNT"][idx]
+    mock_grid.ColumnOrder = mock_col_order
+
+    def get_cell(row, col):
+        if col == "DOCUMENTNO":
+            return "5007145691" if row == 0 else "5007145669"
+        if col == "FILE_NAME":
+            return "VAT_6489.PDF" if row == 0 else "5007145669_BBBG.pdf"
+        return ""
+
+    mock_grid.GetCellValue.side_effect = get_cell
+
+    def find_mock(ctl_id):
+        if "btn%_S_MBELN_%_APP_%-VALU_PUSH" in ctl_id: return mock_multi_btn
+        if "ctxtP_BUKRS" in ctl_id: return mock_bukrs
+        if "txtP_GJAHR" in ctl_id: return mock_gjahr
+        if "txtP_MAX" in ctl_id: return mock_max
+        if ctl_id == "wnd[0]": return mock_wnd0
+        if "cntlGRID1" in ctl_id: return mock_grid
+        return None
+
+    engine._find_by_id_safe = MagicMock(side_effect=find_mock)
+
+    docs = ["5007145691", "5007145669", "5007145670"]
+    records = engine.check_attachment_status(docs, year="2026")
+    assert len(records) == 3
+
+    # Multi selection should be called with all docs
+    engine._fill_multiple_selection.assert_called_once_with(
+        "wnd[0]/usr/btn%_S_MBELN_%_APP_%-VALU_PUSH", docs
+    )
+
+    rec1 = next(r for r in records if r["doc"] == "5007145691")
+    assert rec1["vat_status"] == "CÓ"
+    assert rec1["bbbg_status"] == "CHƯA"
+
+    rec2 = next(r for r in records if r["doc"] == "5007145669")
+    assert rec2["bbbg_status"] == "CÓ"
+    assert rec2["vat_status"] == "CHƯA"
+
+    rec3 = next(r for r in records if r["doc"] == "5007145670")
+    assert rec3["bbbg_status"] == "CHƯA"
+    assert rec3["vat_status"] == "CHƯA"
+    assert rec3["status_code"] == "NO_ATT"

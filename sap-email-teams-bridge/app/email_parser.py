@@ -492,7 +492,7 @@ class SmartCommandParser:
         folder_path = ""
         if raw_folder:
             folder_path = clean_folder_path(raw_folder)
-        elif re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail|att)\b", norm_text):
+        elif re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text):
             # Nếu người dùng gửi lệnh đính kèm 'SAP att mail' mà không dán link dài:
             # Tự động lấy thư mục mặc định từ ô B3 của file 261002_MIGO_ATT_V3_4_3.xlsm
             folder_path = DEFAULT_MIGO_ATT_FOLDER
@@ -620,6 +620,10 @@ class SmartCommandParser:
                     if re.fullmatch(r"[A-Z0-9_-]{4,12}", candidate) and candidate not in cls.STOP_WORDS and candidate != plant:
                         batch = candidate
                         break
+
+        # Bảo vệ: Nếu là lệnh CHECK_ATT / CHECK_ATT_DOC, không nạp folderPath để tránh nhầm với tác vụ upload
+        if best_intent in ("CHECK_ATT", "CHECK_ATT_DOC"):
+            folder_path = ""
 
         # 5. Xử lý Thông minh (Smart Fallback & Coaching):
         if best_score == 0 and att_items and all(item.get("ticket_no") for item in att_items):
