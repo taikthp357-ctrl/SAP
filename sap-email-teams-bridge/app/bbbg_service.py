@@ -374,13 +374,17 @@ class BbbgService:
             ws.cell(row=row, column=5, value=it.get("doc_no", "")).alignment = align_center
             ws.cell(row=row, column=6, value=it.get("unit", "PC")).alignment = align_center
 
-            c_g = ws.cell(row=row, column=7, value=it.get("handover_qty", 0.0))
+            h_qty = it.get("handover_qty")
+            r_qty = it.get("received_qty")
+            c_g = ws.cell(row=row, column=7, value=h_qty if h_qty is not None else "N/A")
             c_g.alignment = align_right
-            c_g.number_format = "#,##0.00"
+            if isinstance(h_qty, (int, float)):
+                c_g.number_format = "#,##0.00"
 
-            c_h = ws.cell(row=row, column=8, value=it.get("received_qty", 0.0))
+            c_h = ws.cell(row=row, column=8, value=r_qty if r_qty is not None else "N/A")
             c_h.alignment = align_right
-            c_h.number_format = "#,##0.00"
+            if isinstance(r_qty, (int, float)):
+                c_h.number_format = "#,##0.00"
 
             ws.cell(row=row, column=9, value=it.get("gr_status", "")).alignment = align_center
             ws.cell(row=row, column=10, value=it.get("mat_doc", "")).alignment = align_center
@@ -390,7 +394,7 @@ class BbbgService:
             fill_to_apply = None
             if it.get("is_manual"):
                 fill_to_apply = fill_manual
-            elif it.get("status") in ["MISMATCH_QTY", "MISSING_INBOUND", "MISSING_MB51"]:
+            elif it.get("status") in ["MISMATCH_QTY", "MISSING_INBOUND", "MISSING_MB51", "REVIEW_REQUIRED"]:
                 fill_to_apply = fill_warn
             elif idx % 2 == 0:
                 fill_to_apply = fill_zebra
@@ -505,7 +509,7 @@ class BbbgService:
         items = reconciliation_result.get("items", [])
         for idx, it in enumerate(items[:15], 1):
             bg = "#fff" if idx % 2 == 1 else "#f6f8fa"
-            if it.get("status") in ["MISMATCH_QTY", "MISSING_INBOUND", "MISSING_MB51"]:
+            if it.get("status") in ["MISMATCH_QTY", "MISSING_INBOUND", "MISSING_MB51", "REVIEW_REQUIRED"]:
                 bg = "#ffebe9"
             elif it.get("is_manual"):
                 bg = "#fff8c5"

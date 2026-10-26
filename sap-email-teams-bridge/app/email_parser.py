@@ -704,9 +704,9 @@ class SmartCommandParser:
                     if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else ""),
             "year": (re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
                      if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text) else ""),
-            "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|preview|chay\s*thu|test)\b", norm_text)),
+            "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)),
             "explicitWriteIntent": best_intent == "ATT_MIGO",
-            "executionMode": "WRITE_PREVIEW" if (best_intent == "ATT_MIGO" and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|preview|chay\s*thu|test)\b", norm_text))) else ("WRITE_LIVE" if best_intent == "ATT_MIGO" else "READ_ONLY")
+            "executionMode": "WRITE_PREVIEW" if (best_intent == "ATT_MIGO" and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text))) else ("WRITE_LIVE" if best_intent == "ATT_MIGO" else "READ_ONLY")
         })
         return meta
 

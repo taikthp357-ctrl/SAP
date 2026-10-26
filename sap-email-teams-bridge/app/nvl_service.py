@@ -50,6 +50,11 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     plant = _text(_first(row, "plant", "source_plant"))
     sloc = _text(_first(row, "sloc", "source_sloc"))
     cat = _text(_first(row, "cat", "stock_type"))
+    if not require_fifo:
+        if not bin_no:
+            bin_no = "N/A"
+        if not cat:
+            cat = "UNRESTRICTED"
     if not all((material, batch, bin_no, unit, plant, sloc)):
         raise ValueError("Thiếu material/batch/bin/plant/sloc/ĐVT được xác minh")
     if plant != _text(source_plant) or sloc != _text(source_sloc):
@@ -57,7 +62,7 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     if cat not in {"FT", "F1", "F2", "UNRESTRICTED"} or row.get("eligible") is False:
         raise ValueError("Tồn QC/blocked/category chưa xác định không được phân bổ")
     # Zero must not fall back to total stock. Availability must be provided.
-    qty = parse_sap_decimal(_first(row, "availQty", "available_qty"), fmt=row.get("number_format"))
+    qty = parse_sap_decimal(_first(row, "availQty", "available_qty", "unrest", "qty"), fmt=row.get("number_format"))
     if qty < ZERO:
         raise ValueError("Số lượng tồn khả dụng âm")
     gr_date = _first(row, "grDate", "gr_date")

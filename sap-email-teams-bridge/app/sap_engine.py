@@ -4047,8 +4047,14 @@ class SapEngine:
 
                             # 3. Trích xuất ALV Grid
                             grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell") or self._find_by_id_safe("wnd[0]/usr/shell")
-                            if grid is not None and hasattr(grid, "RowCount") and grid.RowCount > 0:
+                            has_grid = grid is not None and hasattr(grid, "RowCount") and grid.RowCount > 0
+                            if has_grid:
                                 for r in range(grid.RowCount):
+                                    if r % 20 == 0:
+                                        try:
+                                            grid.firstVisibleRow = r
+                                        except Exception:
+                                            pass
                                     fname = ""
                                     for col_cand in ["FILE_NAME", "FILENAME", "FILE", "TITLE", "DESCRIPT", "DESCR", "NAME"]:
                                         try:
@@ -4061,11 +4067,12 @@ class SapEngine:
                                     if fname and fname not in titles_found:
                                         titles_found.append(fname)
 
-                            # 4. Quay lại màn hình Selection bằng F3 (sendVKey 3)
-                            if w0:
+                            # 4. CHỈ bấm F3 quay lại màn hình Selection khi THỰC SỰ đang đứng ở màn hình Grid
+                            # (Nếu không có grid mà bấm F3 sẽ văng thẳng ra SESSION_MANAGER làm hỏng các DOC sau!)
+                            if has_grid and w0:
                                 w0.sendVKey(3)
-                            self._wait_idle(1.0)
-                            self._dismiss_popups()
+                                self._wait_idle(1.0)
+                                self._dismiss_popups()
                         except Exception as e:
                             print(f"[ZFIR266 DOC WARN] Lỗi đọc DOC {doc}: {e}")
                         zfir_results[doc] = titles_found
@@ -4073,10 +4080,13 @@ class SapEngine:
             print(f"[ZFIR266 EXCEPTION] {zfir_err}")
             zfir_supported = False
 
+        # 5. DỰ PHÒNG MIGO DISPLAY CHO TỪNG DOC RỖNG HOẶC KHI ZFIR266 KHÔNG CÓ
+        docs_need_migo_fallback = [d for d in clean_docs if not zfir_supported or not zfir_results.get(d)]
         migo_results = {}
-        if not zfir_supported:
+        if docs_need_migo_fallback:
+            print(f"[CHECK_ATT FALLBACK] Có {len(docs_need_migo_fallback)}/{len(clean_docs)} DOC cần kiểm tra GOS qua MIGO Display...")
             runner = MigoAttachmentRunner(sap_engine=self, expected_session_identity=self.session_identity)
-            for doc in clean_docs:
+            for doc in docs_need_migo_fallback:
                 titles = []
                 try:
                     loaded_ok, nav_msg = runner.open_migo_document(session, doc, year=year, mode="DISPLAY", force_reload=True)
@@ -4090,7 +4100,7 @@ class SapEngine:
 
         records = []
         for doc in clean_docs:
-            titles = zfir_results.get(doc) if zfir_supported else migo_results.get(doc, [])
+            titles = zfir_results.get(doc) or migo_results.get(doc, [])
             info = classify_sap_attachments(titles, ticket_no=ticket_no)
             records.append({
                 "doc": doc,

@@ -151,7 +151,8 @@ class StateManager:
         with self._get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             self._insert_outbox(conn, req_id, webhook_url, payload)
-            conn.execute("INSERT OR IGNORE INTO processed_messages VALUES(?,?,?,?,?,?)", (message_id or entry_id or req_id,entry_id or "",req_id,command,status,datetime.now().isoformat()))
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("INSERT OR IGNORE INTO processed_messages VALUES(?,?,?,?,?,?)", (message_id or entry_id or req_id,entry_id or "",req_id,command,status,now_str))
             conn.execute("UPDATE request_claims SET status='COMPLETED' WHERE request_id=?", (req_id,))
 
     def claim_request(self, req_id):
@@ -216,9 +217,11 @@ class StateManager:
                     pl = json.loads(r["payload_json"])
                 except Exception:
                     conn.execute("UPDATE outbox_queue SET status='CORRUPT',last_error='Invalid JSON payload' WHERE id=?", (r["id"],))
+                    conn.commit()
                     continue
                 if not isinstance(pl, dict):
                     conn.execute("UPDATE outbox_queue SET status='CORRUPT' WHERE id=?", (r["id"],))
+                    conn.commit()
                     continue
                 results.append({
                     "id": r["id"],

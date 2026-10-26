@@ -131,9 +131,10 @@ class MaterialResolver:
         # 3. Tìm kiếm theo cụm số / chuỗi con (Fuzzy lookup)
         # Ví dụ người dùng gõ chỉ 6-8 số nằm bên trong mã
         matched_fulls = []
-        for full_code, meta in self.full_to_meta.items():
-            if clean in full_code or clean in meta.get("short", ""):
-                matched_fulls.append(full_code)
+        if len(clean) >= 5:
+            for full_code, meta in self.full_to_meta.items():
+                if clean in full_code or clean in meta.get("short", ""):
+                    matched_fulls.append(full_code)
 
         if matched_fulls:
             note = f"Tìm thấy {len(matched_fulls)} mã tương ứng từ cụm '{clean}'"
@@ -164,13 +165,22 @@ class MaterialResolver:
 
     @staticmethod
     def detect_model_and_shop(text: str) -> Tuple[Optional[str], str, List[str]]:
-        """Phân tích văn bản để nhận diện Model và xác định Shop (BODY vs XMĐ) cùng danh sách Plant chuẩn.
+        """Phân tích văn bản để nhận diện Model và xác định Shop (BODY vs XMĐ vs EDC) cùng danh sách Plant chuẩn.
         
         Trả về: (model_name, shop_name, list_of_plants)
+        - EDC:  Plant 4007 & 3093
         - BODY: Plant 3093 & 3001
         - XMĐ:  Plant 3093, 2001 & 3001
         """
         norm = text.upper()
+        # 0. Kiểm tra Xưởng Sơn EDC / Plant 4007
+        edc_patterns = [
+            ("EDC", ["EDC", "SON EDC", "SƠN EDC", "XUONG SON", "XƯỞNG SƠN", "4007", "4004"])
+        ]
+        for m_name, kws in edc_patterns:
+            if any(re.search(rf"\b{re.escape(kw)}\b", norm) for kw in kws):
+                return m_name, "EDC", ["4007", "3093"]
+
         # 1. Kiểm tra XMĐ trước nếu có từ khóa xe máy điện / trạm mạ / xmd
         xmd_patterns = [
             ("XMD", ["XMD", "XE MAY DIEN", "XE MÁY ĐIỆN", "TRAM MA", "TRẠM MẠ", "MA SAU SON", "MÃ SAU SƠN"]),

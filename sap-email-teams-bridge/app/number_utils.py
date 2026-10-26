@@ -97,32 +97,64 @@ def parse_sap_float(val: Any, default: float = 0.0, fmt: Optional[str] = None) -
 def format_qty_display(val: Union[int, float, str]) -> str:
     """Render canonical quantities without locale-sensitive grouping."""
     try:
-        value = parse_sap_decimal(val, fmt="US")
-    except ValueError:
-        return "N/A"
-    rendered = format(value, "f")
-    return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
+        try:
+            value = parse_sap_decimal(val)
+        except Exception:
+            value = parse_sap_decimal(val, fmt="EU")
+        d_val = float(value)
+        if d_val.is_integer():
+            return str(int(d_val))
+        return f"{d_val:.4f}".rstrip("0").rstrip(".")
+    except Exception:
+        if isinstance(val, (int, float)):
+            if float(val).is_integer():
+                return str(int(val))
+            return f"{float(val):.4f}".rstrip("0").rstrip(".")
+        clean_v = str(val or "0").strip()
+        return clean_v if clean_v else "0"
 
 
-def parse_sap_datetime_sort_key(d_raw: Any, t_raw: Any) -> tuple[str, str]:
-    """Validate real calendar dates/times; unknown values sort after known ones."""
-    d_text, t_text = str(d_raw or "").strip(), str(t_raw or "").strip()
-    parsed_date = None
-    for pattern in ("%Y%m%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d"):
-        try:
-            parsed_date = datetime.strptime(d_text, pattern)
-            break
-        except ValueError:
-            continue
-    if parsed_date is None:
-        return "99999999", "999999"
-    parsed_time = None
-    for pattern in ("%H:%M:%S", "%H:%M", "%H.%M.%S", "%H.%M", "%H%M%S", "%H%M"):
-        try:
-            if pattern in ("%H%M%S", "%H%M") and len(t_text) != (6 if pattern == "%H%M%S" else 4):
-                continue
-            parsed_time = datetime.strptime(t_text, pattern)
-            break
-        except ValueError:
-            continue
-    return parsed_date.strftime("%Y%m%d"), parsed_time.strftime("%H%M%S") if parsed_time else "999999"
+def parse_sap_datetime_sort_key(d_str: Any, t_str: Any = "") -> tuple:
+    """Phân giải chuỗi ngày giờ từ SAP thành tuple (YYYYMMDD, HHMMSS) để sắp xếp FIFO chuẩn xác.
+
+    Hỗ trợ các định dạng ngày:
+    - DD.MM.YYYY (Chuẩn SAP Việt Nam / Đức, ví dụ: 15.10.2026)
+    - DD/MM/YYYY (Chuẩn ngày tháng Việt Nam phổ biến, ví dụ: 15/10/2026)
+    - YYYY-MM-DD (Chuẩn ISO, ví dụ: 2026-10-15)
+    - YYYYMMDD (Chuẩn thô SAP Date, ví dụ: 20261015)
+    """
+    date_val = "99999999"
+    time_val = "999999"
+
+    d_clean = str(d_str or "").strip()
+    if d_clean and d_clean.upper() not in ("N/A", "-", "NONE", "NULL"):
+        m_eu = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", d_clean)
+        m_slash = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", d_clean)
+        m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", d_clean)
+        m_raw8 = re.match(r"^(\d{4})(\d{2})(\d{2})$", d_clean)
+
+        if m_eu:
+            day, month, year = m_eu.groups()
+            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+        elif m_slash:
+            day, month, year = m_slash.groups()
+            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+        elif m_iso:
+            year, month, day = m_iso.groups()
+            date_val = f"{int(year):04d}{int(month):02d}{int(day):02d}"
+        elif m_raw8:
+            date_val = d_clean
+
+    t_clean = str(t_str or "").strip()
+    if t_clean and t_clean.upper() not in ("N/A", "-", "NONE", "NULL"):
+        m_time = re.match(r"^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$", t_clean)
+        m_raw6 = re.match(r"^(\d{2})(\d{2})(\d{2})$", t_clean)
+
+        if m_time:
+            h, m, s_val = m_time.groups()
+            s_int = int(s_val) if s_val is not None else 0
+            time_val = f"{int(h):02d}{int(m):02d}{s_int:02d}"
+        elif m_raw6:
+            time_val = t_clean
+
+    return (date_val, time_val)
