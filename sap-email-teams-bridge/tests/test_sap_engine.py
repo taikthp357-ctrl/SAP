@@ -1306,3 +1306,88 @@ def test_check_low_stock_sloc_breakdown_body_v37():
     assert r["transit"] == "5"
     assert r["total_stock"] == "350"  # 40 + 60 + 200 + 50 (không cộng 5 của 9999)
     assert r["bd_carset"] == "100"    # (40 + 60) / 1
+
+
+def test_check_attachment_status_zfir266_mock():
+    """Kiểm tra check_attachment_status qua ZFIR266 giả lập thành công."""
+    from unittest.mock import MagicMock
+    engine = SapEngine()
+    mock_session = MagicMock()
+    mock_session.Info.Transaction = "ZFIR266"
+    engine.ensure_session = MagicMock(return_value=mock_session)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._return_to_main_menu = MagicMock()
+
+    mock_bukrs = MagicMock()
+    mock_gjahr = MagicMock()
+    mock_doc = MagicMock()
+    mock_max = MagicMock()
+    mock_wnd0 = MagicMock()
+    mock_grid = MagicMock()
+    mock_grid.RowCount = 2
+    mock_grid.GetCellValue.side_effect = lambda row, col: "5007145690_BBBG.pdf" if row == 0 else "HDGTGT_3874.xlsx"
+
+    def find_mock(ctl_id):
+        if "ctxtP_BUKRS" in ctl_id: return mock_bukrs
+        if "txtP_GJAHR" in ctl_id: return mock_gjahr
+        if "ctxtS_MBELN-LOW" in ctl_id: return mock_doc
+        if "txtP_MAX" in ctl_id: return mock_max
+        if ctl_id == "wnd[0]": return mock_wnd0
+        if "cntlGRID1" in ctl_id: return mock_grid
+        return None
+
+    engine._find_by_id_safe = MagicMock(side_effect=find_mock)
+
+    records = engine.check_attachment_status(["5007145690"], year="2026")
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["doc"] == "5007145690"
+    assert rec["status_code"] == "FULL_ATT"
+    assert rec["bbbg_status"] == "CÓ"
+    assert rec["vat_status"] == "CÓ"
+    assert "Đã có cả BBBG và VAT" in rec["overall_status"]
+
+
+def test_check_attachment_status_migo_fallback_mock():
+    """Kiểm tra check_attachment_status tự động fallback sang MIGO Display khi ZFIR266 không tồn tại."""
+    from unittest.mock import MagicMock
+    from app.sap_attachment import MigoAttachmentRunner
+
+    engine = SapEngine()
+    mock_session = MagicMock()
+    mock_session.Info.Transaction = "SESSION_MANAGER"
+    mock_session.Info.SystemName = "PRD"
+    mock_session.Info.Client = "100"
+    mock_session.Info.User = "TESTUSER"
+    mock_session.Id = "ses[0]"
+    mock_session.Busy = False
+    engine.session_identity = {"system": "PRD", "client": "100", "user": "TESTUSER", "session_id": "ses[0]"}
+
+    engine.ensure_session = MagicMock(return_value=mock_session)
+    engine._open_transaction = MagicMock()
+    engine._wait_idle = MagicMock()
+    engine._dismiss_popups = MagicMock()
+    engine._return_to_main_menu = MagicMock()
+
+    mock_sbar = MagicMock()
+    mock_sbar.Text = "Transaction ZFIR266 does not exist"
+    engine._find_by_id_safe = MagicMock(return_value=mock_sbar)
+
+    original_open = MigoAttachmentRunner.open_migo_document
+    original_read = MigoAttachmentRunner.read_sap_attachment_titles
+    try:
+        MigoAttachmentRunner.open_migo_document = MagicMock(return_value=(True, "OK"))
+        MigoAttachmentRunner.read_sap_attachment_titles = MagicMock(return_value=["5007145690_BBBG.pdf"])
+
+        records = engine.check_attachment_status(["5007145690"], year="2026")
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["doc"] == "5007145690"
+        assert rec["status_code"] == "MISSING_VAT"
+        assert rec["bbbg_status"] == "CÓ"
+        assert rec["vat_status"] == "CHƯA"
+    finally:
+        MigoAttachmentRunner.open_migo_document = original_open
+        MigoAttachmentRunner.read_sap_attachment_titles = original_read

@@ -24,6 +24,13 @@ class SmartCommandParser:
             (r"\b(?:ai\s+tao\s+ra\s+bot|ai\s+viet\s+bot|tac\s+gia\s+bot|pham\s+tien\s+tai|ai\s+lam\s+ra\s+bot)\b", 100),
             (r"\b(?:who\s+is\s+tai|author|tac\s*gia|cha\s+de\s+bot)\b", 100),
         ],
+        "CHECK_ATT": [
+            (r"\b(?:check\s*att|kiem\s*tra\s*att|tra\s*cuu\s*att|soi\s*att|check\s*dinh\s*kem|kiem\s*tra\s*dinh\s*kem)\b", 97),
+            (r"\b(?:co\s*bbbg\s*(?:va\s*)?vat\s*chua|co\s*vat\s*(?:va\s*)?bbbg\s*chua|da\s*co\s*bbbg|da\s*co\s*vat|da\s*att\s*chua)\b", 96),
+            (r"\b(?:check\s*bbbg|check\s*vat|kiem\s*tra\s*bbbg|kiem\s*tra\s*vat|tra\s*cuu\s*bbbg|tra\s*cuu\s*vat)\b", 96),
+            (r"\b(?:check\s*att\s*doc|check\s*att\s*migo|kt\s*att|kt\s*dinh\s*kem|zfir266)\b", 97),
+            (r"\b(?:doc\s*nay\s*co\s*bbbg|doc\s*nay\s*da\s*att|doc\s*co\s*att\s*chua)\b", 96),
+        ],
         "ATT_MIGO": [
             (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 95),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 95),
@@ -176,6 +183,7 @@ class SmartCommandParser:
         "POSTING_CHANGE": "CHECK_NVL_MIGO", "POSTING": "CHECK_NVL_MIGO",
         "BOM": "CHECK_BOM", "CS03": "CHECK_BOM", "QUEUE": "CHECK_QUEUE",
         "ATTACH_VAT_BBBG": "ATT_MIGO", "MIGO_ATT": "ATT_MIGO", "ATTACH_MIGO": "ATT_MIGO",
+        "CHECK_ATT": "CHECK_ATT", "CHECK_ATT_DOC": "CHECK_ATT", "CHECK_DINH_KEM": "CHECK_ATT", "ZFIR266": "CHECK_ATT",
         "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO",
     }
     JSON_COMMANDS = frozenset(INTENT_SCORES) | {
@@ -259,6 +267,19 @@ class SmartCommandParser:
             if not normalized_items:
                 return invalid("ATT_MIGO cần danh sách attachmentItems; không suy đoán từ rawText.")
             docs = [item["doc"] for item in normalized_items]
+        if command in ("CHECK_ATT", "CHECK_ATT_DOC"):
+            if not isinstance(docs, list):
+                if isinstance(docs, str):
+                    docs = [d.strip() for d in re.split(r"[,;\s]+", docs) if d.strip()]
+                else:
+                    docs = []
+            if not docs and items:
+                docs = [item["doc"] if isinstance(item, dict) else str(item) for item in items]
+            if not docs and mats:
+                docs = [m for m in mats if m.isdigit() and len(m) >= 8]
+            if not docs:
+                return invalid("CHECK_ATT cần danh sách số chứng từ attachmentDocs hoặc docs.")
+
         bin_value = str(obj.get("bin", "") or "").strip()
         if command in {"VITRI", "BIN", "POST", "SCWM", "/SCWM/POST", "TON", "TON_KHO", "MB52", "LICHSU", "MB51", "IB_TREO", "IB", "INBOUND", "VL06I", "STO", "ME2N", "MB5T", "DIEUCHUYEN", "CHECK_BOM", "CHECK_FG_OB", "CHECK_NVL_MIGO", "RA_DON_NVL"} and not mats and not (command in {"VITRI", "BIN"} and bin_value) and not dry_run:
             return invalid("Không tìm thấy danh sách mã vật tư (materials) hợp lệ trong yêu cầu.")
@@ -485,8 +506,8 @@ class SmartCommandParser:
         att_docs = [item["doc"] for item in att_items] if att_items else re.findall(r"\b(?:49\d{8}|500\d{7}|\d{10})\b", command_text)
 
         # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
-        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att|attach|dinh\s*kem)\b", norm_text))
-        if (has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
+        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
+        if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC") and (has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
             best_intent = "ATT_MIGO"
             best_score = max(best_score, 35)
             matched_keywords.append("ATT_MIGO: Tự động nhận diện lệnh điền số phiếu HeadText / đính kèm MIGO")
@@ -605,9 +626,19 @@ class SmartCommandParser:
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
+                or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
                 or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN"))
             )
         ) or (best_score == 0 and bool(bin_val))
+
+        if best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and not (att_docs or raw_mats):
+            meta.update({
+                "valid": False,
+                "needHelpReply": bool(meta["messageId"]),
+                "detectedIntent": best_intent,
+                "reason": "Vui lòng nhập ít nhất một số chứng từ DOC (10 chữ số) để kiểm tra đính kèm."
+            })
+            return meta
 
         if (best_intent == "HELP" or not materials) and not is_no_mat_allowed:
             if not meta["messageId"] and best_intent != "HELP":
@@ -627,7 +658,7 @@ class SmartCommandParser:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")
 
-        if best_intent in ("ATT_MIGO", "WHO_IS_TAI"):
+        if best_intent in ("ATT_MIGO", "WHO_IS_TAI", "CHECK_ATT", "CHECK_ATT_DOC"):
             materials = []
 
         meta.update({
@@ -662,8 +693,9 @@ class SmartCommandParser:
                     if re.search(r"\b(?:uom|don\s*vi)\s*[:=]?\s*([a-z0-9]+)", norm_text) else ""),
             "year": (re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text).group(1)
                      if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text) else ""),
+            "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|preview|chay\s*thu|test)\b", norm_text)),
             "explicitWriteIntent": best_intent == "ATT_MIGO",
-            "executionMode": "WRITE_PREVIEW" if best_intent == "ATT_MIGO" else "READ_ONLY"
+            "executionMode": "WRITE_PREVIEW" if (best_intent == "ATT_MIGO" and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|preview|chay\s*thu|test)\b", norm_text))) else ("WRITE_LIVE" if best_intent == "ATT_MIGO" else "READ_ONLY")
         })
         return meta
 
@@ -690,6 +722,9 @@ def classify_sap_query(raw_text: str) -> dict:
         return {"intent": "UNKNOWN", "tcode": "/n", "days": 7}
     tcode_map = {
         "WHO_IS_TAI": "NONE (Easter Egg)",
+        "CHECK_ATT": "/nZFIR266 (Fallback /nMIGO)",
+        "CHECK_ATT_DOC": "/nZFIR266 (Fallback /nMIGO)",
+        "ATT_MIGO": "/nMIGO (A12 Change / GOS)",
         "CHECK_BOM": "/nCS03",
         "CHECK_QUEUE": "/n/SCWM/MON",
         "CHECK_OB": "/nVL06O",

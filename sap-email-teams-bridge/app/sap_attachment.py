@@ -496,7 +496,7 @@ def normalize_text(text: str) -> str:
 
 # Regex phát hiện loại file chứng từ
 BBBG_REGEX = re.compile(r"(?:^|[^a-z0-9])(bbbg|bbgh|bbg|bb|bien[ _-]*ban)(?:$|[^a-z0-9])", re.I)
-VAT_REGEX = re.compile(r"(?:^|[^a-z0-9])(vat|invoice|inv|hoa[ _-]*don|hd|hddt|gtgt|tax|ct|chung[ _-]*tu)(?:$|[^a-z0-9])", re.I)
+VAT_REGEX = re.compile(r"(?:^|[^a-z0-9])(vat|invoice|inv|hoa[ _-]*don|hdgtgt|hd[ _-]*gtgt|hd|hddt|gtgt|tax|ct|chung[ _-]*tu)(?:$|[^a-z0-9])", re.I)
 MAIL_REGEX = re.compile(r"(?:^|[^a-z0-9])(mail|email|thu|xac[ _-]*nhan|trao[ _-]*doi|order)(?:$|[^a-z0-9])", re.I)
 
 
@@ -582,6 +582,87 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
         items.append({"doc": doc, "ticket_no": clean_ticket})
 
     return items
+
+
+def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str, Any]:
+    """Kiểm tra và phân loại trạng thái file đính kèm BBBG / VAT trên SAP cho một chứng từ DOC."""
+    if not titles:
+        return {
+            "total_files": 0,
+            "files": [],
+            "bbbg_file": None,
+            "vat_file": None,
+            "other_files": None,
+            "has_bbbg": False,
+            "has_vat": False,
+            "status_code": "NO_ATT",
+            "overall_status": "Chưa có cả BBBG lẫn VAT",
+            "badge_color": "red"
+        }
+
+    bbbg_list = []
+    vat_list = []
+    other_list = []
+
+    search_nums, search_compact = extract_search_tokens(ticket_no) if ticket_no else ([], "")
+
+    for title in titles:
+        norm = normalize_text(title)
+        title_nums, title_compact = extract_search_tokens(title)
+
+        is_ticket_match = True
+        if ticket_no:
+            is_ticket_match = False
+            if search_nums and title_nums:
+                if set(search_nums).intersection(set(title_nums)):
+                    is_ticket_match = True
+            elif search_compact and (search_compact in title_compact or title_compact in search_compact):
+                is_ticket_match = True
+            elif not search_nums:
+                is_ticket_match = True
+
+        is_bb = bool(BBBG_REGEX.search(norm))
+        is_vat = bool(VAT_REGEX.search(norm))
+
+        if is_bb and (is_ticket_match or not bbbg_list):
+            bbbg_list.append(title)
+        if is_vat and (is_ticket_match or not vat_list):
+            vat_list.append(title)
+        if not is_bb and not is_vat:
+            other_list.append(title)
+
+    has_bb = len(bbbg_list) > 0
+    has_vat = len(vat_list) > 0
+
+    if has_bb and has_vat:
+        code = "FULL_ATT"
+        status_text = "Đã có cả BBBG và VAT"
+        color = "green"
+    elif has_bb and not has_vat:
+        code = "MISSING_VAT"
+        status_text = "Đã có BBBG, thiếu VAT"
+        color = "gold"
+    elif has_vat and not has_bb:
+        code = "MISSING_BBBG"
+        status_text = "Đã có VAT, thiếu BBBG"
+        color = "gold"
+    else:
+        code = "REVIEW"
+        status_text = f"Có {len(titles)} file nhưng chưa rõ loại (Cần kiểm tra)"
+        color = "blue"
+
+    return {
+        "total_files": len(titles),
+        "files": titles,
+        "bbbg_file": ", ".join(bbbg_list) if bbbg_list else None,
+        "vat_file": ", ".join(vat_list) if vat_list else None,
+        "other_files": ", ".join(other_list) if other_list else None,
+        "has_bbbg": has_bb,
+        "has_vat": has_vat,
+        "status_code": code,
+        "overall_status": status_text,
+        "badge_color": color
+    }
 
 
 class MigoAttachmentRunner:
@@ -900,6 +981,11 @@ class MigoAttachmentRunner:
 
         return bbbg_found, vat_found
 
+    @staticmethod
+    def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str, Any]:
+        """Phân loại trạng thái file đính kèm BBBG / VAT trên SAP cho một chứng từ DOC."""
+        return classify_sap_attachments(titles, ticket_no=ticket_no)
+
     def read_sap_attachment_titles(self, session) -> List[str]:
         """Kiểm tra và đọc danh sách tiêu đề các file đính kèm đã có sẵn trên SAP MIGO qua nút OK_REF_ATTA / Attachment list."""
         titles: List[str] = []
@@ -1130,6 +1216,9 @@ class MigoAttachmentRunner:
         identity_ok, reason = self.verify_session_identity(session)
         if not identity_ok:
             return False, reason
+        if not year:
+            from datetime import datetime
+            year = str(datetime.now().year)
         if not re.fullmatch(r"\d{10}", str(doc)) or not re.fullmatch(r"(?:19|20|21)\d{2}", str(year)):
             return False, "DOCUMENT_AND_YEAR_REQUIRED"
         try:
@@ -1240,6 +1329,9 @@ class MigoAttachmentRunner:
         doc = str(item.get("doc", "")).strip()
         ticket_no = str(item.get("ticket_no", "")).strip()
         year = str(item.get("year") or year or "").strip()
+        if not year:
+            from datetime import datetime
+            year = str(datetime.now().year)
         if not re.fullmatch(r"\d{10}", doc):
             return self._failed_item(doc, ticket_no, "INVALID_DOCUMENT", "Số chứng từ phải có 10 chữ số")
         if item.get("multi_ticket_conflict"):

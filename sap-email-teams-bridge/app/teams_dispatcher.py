@@ -89,7 +89,34 @@ class TeamsDispatcher:
         )
 
         try:
-            if any(k in cmd_upper for k in ["CHECK_FG_OB", "DIEN_OB"]):
+            if any(k in cmd_upper for k in ["CHECK_ATT", "ZFIR266"]):
+                total_cnt = len(records)
+                full_cnt = sum(1 for r in records if r.get("status_code") == "FULL_ATT" or "Đã có cả" in str(r.get("overall_status", "")))
+                missing_vat = sum(1 for r in records if r.get("status_code") == "MISSING_VAT" or "thiếu VAT" in str(r.get("overall_status", "")))
+                missing_bb = sum(1 for r in records if r.get("status_code") == "MISSING_BBBG" or "thiếu BBBG" in str(r.get("overall_status", "")))
+                no_att = sum(1 for r in records if r.get("status_code") == "NO_ATT" or "Chưa có cả" in str(r.get("overall_status", "")))
+
+                badges.append(
+                    f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
+                    f"✅ Đủ cả 2 file: {full_cnt}/{total_cnt} DOC</span>"
+                )
+                if missing_vat > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Thiếu VAT: {missing_vat}</span>"
+                    )
+                if missing_bb > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"⚠️ Thiếu BBBG: {missing_bb}</span>"
+                    )
+                if no_att > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"❌ Chưa có file nào: {no_att}</span>"
+                    )
+
+            elif any(k in cmd_upper for k in ["CHECK_FG_OB", "DIEN_OB"]):
                 tot_fg = sum(parse_sap_float(r.get("fgStock", 0.0)) for r in records if r.get("fgStock") != "N/A")
                 tot_ob = sum(parse_sap_float(r.get("openObQty", 0.0)) for r in records if r.get("openObQty") != "N/A")
                 tot_avail = sum(parse_sap_float(r.get("availableQty", 0.0)) for r in records if r.get("availableQty") != "N/A")
@@ -618,6 +645,8 @@ class TeamsDispatcher:
             f"<code>@Bot điền ob 32013765</code> hoặc <code>@Bot check ob fg 32013765</code></li>"
             f"<li>🏭 <strong>Kiểm tra Posting Change NVL Kho 1005 (Plant 3093) & Ra đơn MIGO 311:</strong><br>"
             f"<code>@Bot check nvl 32013765</code> hoặc <code>@Bot check postingchange 32013765</code></li>"
+            f"<li>📎 <strong>Kiểm tra File đính kèm BBBG & VAT theo DOC (ZFIR266 / MIGO GOS):</strong><br>"
+            f"<code>@Bot check att 5007145690</code> hoặc <code>@Bot kiểm tra đính kèm 5007145690 5007145691</code></li>"
             f"</ul>"
             f"<div style='font-size:11px;color:#57606a;'>"
             f"💡 <em>Mẹo: Bạn có thể gõ mã 8 số rút gọn (như <code>32013765</code>), hệ thống sẽ tự động "

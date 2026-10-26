@@ -3910,3 +3910,154 @@ class SapEngine:
             return results
         except Exception as e:
             raise SapExecutionError(f"Lỗi đọc Queue EWM: {e}") from e
+
+    def check_attachment_status(
+        self,
+        docs: List[str],
+        year: str = "",
+        company_code: str = "2301",
+        ticket_no: str = ""
+    ) -> List[Dict[str, Any]]:
+        """
+        Kiểm tra trạng thái file đính kèm BBBG và VAT trên SAP cho danh sách DOC (10 chữ số).
+        TUYỆT ĐỐI CHỈ ĐỌC (READ-ONLY).
+        Ưu tiên tra cứu qua giao dịch ZFIR266. Nếu ZFIR266 không khả dụng,
+        tự động chuyển sang chế độ đọc GOS qua MIGO A04 Display.
+        """
+        from app.sap_attachment import classify_sap_attachments, MigoAttachmentRunner
+
+        clean_docs = []
+        for d in docs:
+            cleaned = re.sub(r"\D", "", str(d)).strip()
+            if cleaned and len(cleaned) >= 8 and cleaned not in clean_docs:
+                clean_docs.append(cleaned)
+
+        if not clean_docs:
+            return []
+
+        if not year or not re.fullmatch(r"(?:19|20|21)\d{2}", str(year)):
+            from datetime import datetime
+            year = str(datetime.now().year)
+
+        session = self.ensure_session()
+        if session is None:
+            return [
+                {
+                    "doc": d,
+                    "company_code": company_code,
+                    "year": year,
+                    "bbbg_status": "N/A",
+                    "vat_status": "N/A",
+                    "overall_status": "Chưa kết nối SAP (NO_SESSION)",
+                    "status_code": "NO_SESSION",
+                    "files_found": "N/A",
+                    "bbbg_file": None,
+                    "vat_file": None,
+                    "ticket_no": ticket_no
+                }
+                for d in clean_docs
+            ]
+
+        zfir_supported = True
+        zfir_results = {}
+        try:
+            self._open_transaction("ZFIR266")
+            self._wait_idle(3.0)
+
+            w0 = self._find_by_id_safe("wnd[0]")
+            sbar = self._find_by_id_safe("wnd[0]/sbar")
+            sbar_text = str(getattr(sbar, "Text", "")).strip().lower() if sbar else ""
+            trans_name = str(getattr(session.Info, "Transaction", "")).upper()
+
+            if trans_name != "ZFIR266" or "does not exist" in sbar_text or "không tồn tại" in sbar_text or "not authorized" in sbar_text:
+                zfir_supported = False
+                print(f"[ZFIR266 WARN] ZFIR266 không khả dụng ({sbar_text or trans_name}). Chuyển sang MIGO Display...")
+            else:
+                bukrs_field = self._find_by_id_safe("wnd[0]/usr/ctxtP_BUKRS") or self._find_by_id_safe("wnd[0]/usr/txtP_BUKRS")
+                if bukrs_field is None:
+                    zfir_supported = False
+                else:
+                    for doc in clean_docs:
+                        titles_found = []
+                        try:
+                            # 1. Điền Selection Screen
+                            if bukrs_field:
+                                bukrs_field.text = str(company_code)
+                            gjahr_f = self._find_by_id_safe("wnd[0]/usr/txtP_GJAHR") or self._find_by_id_safe("wnd[0]/usr/ctxtP_GJAHR")
+                            if gjahr_f:
+                                gjahr_f.text = str(year)
+                            doc_f = self._find_by_id_safe("wnd[0]/usr/ctxtS_MBELN-LOW") or self._find_by_id_safe("wnd[0]/usr/txtS_MBELN-LOW")
+                            if doc_f:
+                                doc_f.text = str(doc)
+                            max_f = self._find_by_id_safe("wnd[0]/usr/txtP_MAX")
+                            if max_f:
+                                max_f.text = "500"
+
+                            # 2. Chạy báo cáo F8 (sendVKey 8)
+                            if w0:
+                                w0.sendVKey(8)
+                            self._wait_idle(3.0)
+                            self._dismiss_popups()
+
+                            # 3. Trích xuất ALV Grid
+                            grid = self._find_by_id_safe("wnd[0]/usr/cntlGRID1/shellcont/shell") or self._find_by_id_safe("wnd[0]/usr/shell")
+                            if grid is not None and hasattr(grid, "RowCount") and grid.RowCount > 0:
+                                for r in range(grid.RowCount):
+                                    fname = ""
+                                    for col_cand in ["FILE_NAME", "FILENAME", "FILE", "TITLE", "DESCRIPT", "DESCR", "NAME"]:
+                                        try:
+                                            v = grid.GetCellValue(r, col_cand)
+                                            if v:
+                                                fname = str(v).strip()
+                                                break
+                                        except Exception:
+                                            pass
+                                    if fname and fname not in titles_found:
+                                        titles_found.append(fname)
+
+                            # 4. Quay lại màn hình Selection bằng F3 (sendVKey 3)
+                            if w0:
+                                w0.sendVKey(3)
+                            self._wait_idle(1.0)
+                            self._dismiss_popups()
+                        except Exception as e:
+                            print(f"[ZFIR266 DOC WARN] Lỗi đọc DOC {doc}: {e}")
+                        zfir_results[doc] = titles_found
+        except Exception as zfir_err:
+            print(f"[ZFIR266 EXCEPTION] {zfir_err}")
+            zfir_supported = False
+
+        migo_results = {}
+        if not zfir_supported:
+            runner = MigoAttachmentRunner(sap_engine=self, expected_session_identity=self.session_identity)
+            for doc in clean_docs:
+                titles = []
+                try:
+                    loaded_ok, nav_msg = runner.open_migo_document(session, doc, year=year, mode="DISPLAY", force_reload=True)
+                    if loaded_ok:
+                        titles = runner.read_sap_attachment_titles(session)
+                except Exception as migo_err:
+                    print(f"[MIGO DISPLAY WARN] Lỗi đọc DOC {doc}: {migo_err}")
+                migo_results[doc] = titles
+
+        self._return_to_main_menu()
+
+        records = []
+        for doc in clean_docs:
+            titles = zfir_results.get(doc) if zfir_supported else migo_results.get(doc, [])
+            info = classify_sap_attachments(titles, ticket_no=ticket_no)
+            records.append({
+                "doc": doc,
+                "company_code": company_code,
+                "year": year,
+                "bbbg_status": "CÓ" if info["has_bbbg"] else "CHƯA",
+                "vat_status": "CÓ" if info["has_vat"] else "CHƯA",
+                "overall_status": info["overall_status"],
+                "status_code": info["status_code"],
+                "files_found": ", ".join(titles) if titles else "Không có file",
+                "bbbg_file": info["bbbg_file"],
+                "vat_file": info["vat_file"],
+                "ticket_no": ticket_no
+            })
+
+        return records

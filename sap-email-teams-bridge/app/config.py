@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG = {
     "data_dir": "data",
-    "allow_sap_writes": False,
+    "allow_sap_writes": True,
     "sap_system": "",
     "sap_client": "",
     "sap_user": "",

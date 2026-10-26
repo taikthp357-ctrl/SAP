@@ -731,16 +731,53 @@ def run_bridge():
                             }
                             summary = f"Posting Change NVL (Plant {plant or '3093'} - Kho 1005) cho: {', '.join(resolved_mats)}"
 
+                        elif cmd in ["CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266"]:
+                            att_docs = meta.get("attachmentDocs", [])
+                            if not att_docs and raw_mats:
+                                att_docs = [m for m in raw_mats if m.isdigit() and len(m) >= 8]
+                            if not att_docs and meta.get("attachmentItems"):
+                                att_docs = [item["doc"] for item in meta["attachmentItems"] if item.get("doc")]
+                            if not att_docs:
+                                raise ValueError("Vui lòng cung cấp ít nhất một số chứng từ DOC (10 chữ số) để kiểm tra đính kèm")
+
+                            company_code = meta.get("companyCode") or meta.get("bukrs") or "2301"
+                            from datetime import datetime
+                            target_year = meta.get("year") or str(datetime.now().year)
+                            ticket_no = meta.get("refNo") or meta.get("ticket_no") or ""
+
+                            records = sap.check_attachment_status(
+                                docs=att_docs,
+                                year=target_year,
+                                company_code=company_code,
+                                ticket_no=ticket_no
+                            )
+
+                            headers = {
+                                "doc": "Số DOC",
+                                "company_code": "Company",
+                                "year": "Năm",
+                                "bbbg_status": "BBBG",
+                                "vat_status": "VAT",
+                                "overall_status": "Kết luận",
+                                "files_found": "File phát hiện"
+                            }
+
+                            full_count = sum(1 for r in records if r.get("status_code") == "FULL_ATT")
+                            summary = f"Kiểm tra file đính kèm BBBG & VAT cho {len(records)} DOC: {full_count}/{len(records)} DOC đủ cả hai file"
+
                         elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
-                            is_preview = meta.get("dryRun", True) is True
+                            is_preview = meta.get("dryRun", False) is True
                             if not meta.get("explicitWriteIntent"):
                                 raise ValueError("ATT_MIGO cần lệnh đính kèm/điền HeadText rõ ràng")
                             if not is_preview:
-                                trusted = {str(x).strip().lower() for x in config.get("trusted_intake_senders", [])}
-                                if not config.get("allow_sap_writes") or actual_sender_address(mail) not in trusted:
+                                if not config.get("allow_sap_writes", True):
+                                    raise ValueError("Ghi SAP chưa được bật trong cấu hình; dùng dryRun để xem trước")
+                                trusted = {str(x).strip().lower() for x in config.get("trusted_intake_senders", []) if str(x).strip()}
+                                if trusted and actual_sender_address(mail).lower() not in trusted:
                                     raise ValueError("Ghi SAP chưa được bật cho nguồn thư đã xác thực; dùng dryRun để xem trước")
-                                if not all(config.get(k) for k in ("sap_system", "sap_client", "sap_user")):
-                                    raise ValueError("Thiếu SAP system/client/user đã cấu hình cho thao tác ghi")
+                                expected_sys = config.get("sap_system", "")
+                                if expected_sys and sap.session_identity and sap.session_identity.get("system", "").upper() != expected_sys.upper():
+                                    raise ValueError(f"Hệ thống SAP ({sap.session_identity.get('system')}) không khớp cấu hình ({expected_sys})")
                                 sap.ensure_session()
                             folder_path = meta.get("folderPath", "")
                             items_to_att = meta.get("attachmentItems", [])
@@ -761,12 +798,15 @@ def run_bridge():
                                 except Exception as ex:
                                     print(f"[PROGRESS WARN] Không thể gửi cập nhật tiến độ: {ex}")
 
+                            from datetime import datetime
+                            target_year = meta.get("year") or str(datetime.now().year)
+
                             att_summary = runner.process_attachment_batch(
                                 folder_path,
                                 items_to_att,
                                 fill_headtext=True,
                                 dry_run=is_preview,
-                                year=meta.get("year"),
+                                year=target_year,
                                 progress_callback=on_att_progress
                             )
                             records = att_summary["results"]

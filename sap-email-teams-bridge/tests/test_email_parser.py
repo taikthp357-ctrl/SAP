@@ -716,3 +716,53 @@ def test_classify_sap_query_all_intents():
     c5 = classify_sap_query("BIW70007551HA")
     assert c5["intent"] == "VITRI"
     assert c5["tcode"] == "/n/SCWM/POST"
+
+
+def test_parse_check_att_natural_and_json():
+    from app.email_parser import EmailCommandParser, classify_sap_query
+
+    # 1. Câu hỏi tự nhiên có dấu / không dấu
+    res1 = EmailCommandParser.parse("Check att 5007145690")
+    assert res1 is not None and res1["valid"] is True
+    assert res1["command"] == "CHECK_ATT"
+    assert res1["attachmentDocs"] == ["5007145690"]
+    assert res1["executionMode"] == "READ_ONLY"
+
+    res2 = EmailCommandParser.parse("kiểm tra đính kèm doc 5007145690 5007145691")
+    assert res2 is not None and res2["valid"] is True
+    assert res2["command"] == "CHECK_ATT"
+    assert "5007145690" in res2["attachmentDocs"]
+    assert "5007145691" in res2["attachmentDocs"]
+
+    res3 = EmailCommandParser.parse("doc này có bbbg và vat chưa 5007145690")
+    assert res3 is not None and res3["valid"] is True
+    assert res3["command"] == "CHECK_ATT"
+
+    # 2. JSON Payload
+    res_json = EmailCommandParser.parse({"command": "CHECK_ATT", "attachmentDocs": ["5007145690"]})
+    assert res_json is not None and res_json["valid"] is True
+    assert res_json["command"] == "CHECK_ATT"
+    assert res_json["attachmentDocs"] == ["5007145690"]
+
+    # 3. classify_sap_query mapping
+    c = classify_sap_query("Check att 5007145690")
+    assert c["intent"] == "CHECK_ATT"
+    assert "ZFIR266" in c["tcode"]
+
+
+def test_parse_att_migo_live_vs_preview():
+    from app.email_parser import EmailCommandParser
+
+    # Lệnh att mail chạy thật: dryRun=False, executionMode=WRITE_LIVE
+    live_res = EmailCommandParser.parse("SAP att mail 5007145690 phiếu 1234")
+    assert live_res is not None and live_res["valid"] is True
+    assert live_res["command"] == "ATT_MIGO"
+    assert live_res["dryRun"] is False
+    assert live_res["executionMode"] == "WRITE_LIVE"
+
+    # Lệnh xem trước / dry run: dryRun=True, executionMode=WRITE_PREVIEW
+    prev_res = EmailCommandParser.parse("Xem trước att migo 5007145690 phiếu 1234")
+    assert prev_res is not None and prev_res["valid"] is True
+    assert prev_res["command"] == "ATT_MIGO"
+    assert prev_res["dryRun"] is True
+    assert prev_res["executionMode"] == "WRITE_PREVIEW"

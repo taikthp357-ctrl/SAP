@@ -37,5 +37,7 @@
   },
   "auto_create_session": true,
   "prefer_dedicated_session": false,
-  "sap_session_index": 0
+  "sap_session_index": 0,
+  "allow_sap_writes": true,
+  "trusted_intake_senders": []
 }

@@ -712,3 +712,60 @@ def test_process_attachment_batch_multi_ticket_conflict_detection():
     # DOC 5006995954 phải được gắn cờ conflict
     conflict_items = [r for r in summary["results"] if r.get("doc") == "5006995954"]
     assert len(conflict_items) == 2
+
+
+def test_classify_sap_attachments_full_logic():
+    """Kiểm tra phân loại file đính kèm BBBG / VAT cho các trạng thái: FULL_ATT, MISSING_VAT, MISSING_BBBG, NO_ATT, REVIEW."""
+    from app.sap_attachment import classify_sap_attachments
+
+    # 1. Chưa có file nào
+    r_empty = classify_sap_attachments([])
+    assert r_empty["status_code"] == "NO_ATT"
+    assert "Chưa có cả BBBG lẫn VAT" in r_empty["overall_status"]
+    assert r_empty["has_bbbg"] is False and r_empty["has_vat"] is False
+
+    # 2. Đã có cả BBBG và VAT
+    r_full = classify_sap_attachments(["5007145690_BBBG.pdf", "HDGTGT_3874.xlsx"])
+    assert r_full["status_code"] == "FULL_ATT"
+    assert "Đã có cả BBBG và VAT" in r_full["overall_status"]
+    assert r_full["has_bbbg"] is True and r_full["has_vat"] is True
+
+    # 3. Có BBBG, thiếu VAT
+    r_miss_vat = classify_sap_attachments(["5007145690_BBBG.pdf"])
+    assert r_miss_vat["status_code"] == "MISSING_VAT"
+    assert "thiếu VAT" in r_miss_vat["overall_status"]
+    assert r_miss_vat["has_bbbg"] is True and r_miss_vat["has_vat"] is False
+
+    # 4. Có VAT, thiếu BBBG
+    r_miss_bb = classify_sap_attachments(["HD_VAT_5007145690.xlsx"])
+    assert r_miss_bb["status_code"] == "MISSING_BBBG"
+    assert "thiếu BBBG" in r_miss_bb["overall_status"]
+    assert r_miss_bb["has_bbbg"] is False and r_miss_bb["has_vat"] is True
+
+    # 5. Có file nhưng không nhận diện được loại
+    r_rev = classify_sap_attachments(["tailieu_xacnhan.docx"])
+    assert r_rev["status_code"] == "REVIEW"
+    assert "chưa rõ loại" in r_rev["overall_status"]
+
+
+def test_open_migo_document_default_year():
+    """Kiểm tra open_migo_document tự động lấy năm hiện tại nếu không truyền year."""
+    from unittest.mock import MagicMock, patch
+    mock_session = MagicMock()
+    runner = owned_runner(mock_session)
+    active = MagicMock(Changeable=True, Text="")
+    year_field = MagicMock(Text="")
+    window = MagicMock()
+    statusbar = MagicMock(MessageType="S", Text="Document loaded")
+    mock_session.findById.side_effect = lambda cid, *a: statusbar if "sbar" in cid else window
+
+    def enter(key):
+        if key == 0:
+            active.Changeable = False
+    window.SendVKey.side_effect = enter
+
+    with patch("app.sap_attachment.smart_find", side_effect=[active, year_field, active, year_field]):
+        ok, msg = runner.open_migo_document(mock_session, "5007145690")
+    assert ok is True
+    from datetime import datetime
+    assert runner._active_document == ("5007145690", str(datetime.now().year))

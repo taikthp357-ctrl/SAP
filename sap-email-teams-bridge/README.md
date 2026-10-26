@@ -1,4 +1,4 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.50
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.51
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
@@ -13,55 +13,34 @@ Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI S
    - Tự động làm mới phiên SAP mỗi 15 phút không thao tác, chống bị văng timeout do cài đặt của SAP NetWeaver.
    - Tự động kết nối lại nếu phiên bị rớt mạng hoặc người dùng vô tình đóng SAP.
 
-3. **Ổn định tương tác Live SAP GUI & Ma trận Ý định (v1.0.50 Live Stabilization):**
-   - **VL06O (Check Outbound):** Điền thẳng mã vật tư vào `ctxtIT_MATNR-LOW` ngay tại Selection Screen trước khi F8; không ép cứng Shipping Point (`IF_VSTEL-LOW = '3093'`); xóa sạch giới hạn ngày giao hàng; bổ sung cơ chế fallback bấm nút Filter `wnd[0]/tbar[1]/btn[29]` trên Classic ALV Fullscreen Container.
-   - **ME2N (Check STO/PO):** Cấu hình `LISTU = "ALV"`, tham số chọn `SELPA = "WE101"` (Open Goods Receipt); phân định chuẩn xác Nhà máy nhận hàng `S_WERKS-LOW` (Plant 3093) thay vì nhầm sang Supplying Plant.
-   - **VL06I (Check Inbound):** Bổ sung phím tắt Shift+F2 (`sendVKey(14)`) tại ô `IT_LFDAT-LOW` để xóa sạch ngày mặc định; điền mã vật tư và chuyển sang Item View (`btn[18]`) trước khi trích xuất.
-   - **Chuẩn hóa nhãn SLoc MB52:** Đổi nhãn tóm tắt từ `📦 Kho {sloc}` thành `📦 SLoc {sloc}` để phản ánh đúng thuật ngữ Storage Location trong SAP ERP.
-   - **Bảng Ma trận Ý định theo Trọng số (Weighted Intent Matrix - 12 mức ưu tiên):** Tự động phân loại ngôn ngữ tự nhiên (viết tắt, tiếng lóng kho vận) với độ chính xác tuyệt đối:
-     1. `WHO_IS_TAI`: Easter Egg card tôn vinh tác giả Phạm Tiến Tài (FVN-KSX-NMVFHP).
-     2. `ATT_MIGO`: Đính kèm file GOS & điền số phiếu HeadText MIGO.
-     3. `CHECK_BOM`: Định mức linh kiện con (CS03).
-     4. `CHECK_QUEUE`: Lỗi kẹt Queue EWM (/SCWM/MON).
-     5. `CHECK_OB`: Danh sách đơn xuất Outbound (VL06O).
-     6. `CHECK_IB`: Danh sách đơn nhập Inbound (VL06I/ZMME240).
-     7. `STO`: Đơn điều chuyển kho & PO mở (ME2N).
-     8. `LICHSU`: Lịch sử xuất nhập 7–N ngày (MB51).
-     9. `CHECK_RES`: Phiếu lĩnh / Reservation (MB23/MB25).
-     10. `TON`: Tồn kho theo SLoc (MB52).
-     11. `VITRI`: Vị trí Bin, Batch, Ngày/Giờ GR (/SCWM/POST).
-     12. Mặc định thông minh: Tự động chạy `VITRI` khi chỉ gửi mã hàng.
-   - **Kiểm tra kép Combo (VITRI $\rightarrow$ MB52 Fallback):** Khi tra cứu vị trí `/SCWM/POST` trả về 0 dòng, hệ thống tự động kiểm tra MB52 để phát hiện ngay hàng đang nằm ở các SLoc ngoài EWM (như 3000, 9999).
+3. **Kích hoạt Chạy Thật ATT_MIGO & Nghiệp vụ CHECK_ATT (v1.0.51):**
+   - **Chạy Thật MIGO (Live Execution Mode):** Triệt tiêu hoàn toàn lỗi chạy giả lập/mô phỏng (`SIMULATED`) trên các lệnh ATT MIGO thật; phân định rõ cờ `dryRun=False` (`WRITE_LIVE`) và `dryRun=True` (`WRITE_PREVIEW`); tự động nạp năm hiện tại (2026) khi người dùng không truyền năm, giải quyết dứt điểm lỗi `YEAR_REQUIRED`.
+   - **Tra cứu Đính kèm theo DOC (CHECK_ATT / CHECK_ATT_DOC):** Dựa trên `PLAN BỔ SUNG CHECK ATT THEO DOC — BBBG VÀ VAT` (26/10/2026).
+     - Ưu tiên gọi Transaction chuyên dụng `ZFIR266` (Company Code `P_BUKRS=2301`, Năm `P_GJAHR`, DOC `S_MBELN-LOW`, Max `P_MAX=500`).
+     - Tự động Fallback sang MIGO A04 Display mode (`OK_REF_ATTA` / GOS Attachment list) nếu hệ thống chưa cài ZFIR266.
+     - Phân loại rõ ràng 5 trạng thái đính kèm kèm huy hiệu trực quan:
+       + Đã có cả BBBG và VAT (`FULL_ATT` - Huy hiệu Xanh lá)
+       + Đã có BBBG, thiếu VAT (`MISSING_VAT` - Huy hiệu Vàng)
+       + Đã có VAT, thiếu BBBG (`MISSING_BBBG` - Huy hiệu Vàng)
+       + Chưa có cả BBBG lẫn VAT (`NO_ATT` - Huy hiệu Đỏ)
+       + Có file nhưng chưa rõ loại (`REVIEW` - Huy hiệu Xanh dương)
+   - **Ổn định tương tác Live SAP GUI (v1.0.50):** Prefill Selection Screen `VL06O`, `ME2N` (ALV + WE101 + Plant 3093), `VL06I` (Shift+F2 xóa ngày + Item View), chuẩn hóa nhãn `📦 SLoc {sloc}`, cơ chế Combo Check (VITRI $\rightarrow$ MB52 Fallback) và Easter Egg tác giả Phạm Tiến Tài (`WHO_IS_TAI`).
 
-4. **An toàn nghiệp vụ & Kiểm soát ranh giới Đọc / Ghi (P1 Safety Hardening):**
-   - **F01 (Phân tách truy vấn JSON & Đính kèm MIGO):** JSON tra cứu được định tuyến độc lập, không rơi vào nhánh ghi `ATT_MIGO`.
-   - **F02 (Kiểm soát phiên đính kèm MIGO):** Chế độ dry-run và kiểm tra session an toàn; không tự tạo báo cáo giả mạo trạng thái `DONE`/`HEADTEXT_DONE`.
-   - **F03 (Minh bạch mô phỏng Điều phối OB & MIGO 311):** Gắn nhãn rõ ràng `SIMULATED`/`PREVIEW`, không sinh số chứng từ giả mạo.
-   - **F04 (Đối soát BBBG nghiêm ngặt):** Khóa đối soát chặt chẽ `(material, batch, doc_no, unit)`. Khấu trừ chuẩn xác chứng từ hủy theo dấu số lượng.
-   - **F05 (Xuất xứ dữ liệu ASN rõ ràng):** Dữ liệu thiếu tờ khai thể hiện minh bạch `UNKNOWN`.
-   - **F06 (Phân bổ NVL & OB chính xác):** Loại trừ tồn kho QC/Blocked; phân biệt rõ tồn bằng 0 và không có dữ liệu.
-   - **F07 (Idempotency đặt trước & Tính linh hoạt đường dẫn CSDL):** Hỗ trợ đường dẫn tương đối, chống nhân bản đặt trước trùng lặp.
-   - **F08 (Chuẩn hóa số lượng đa định dạng US/EU):** Phân tích chính xác số thập phân và phân cách hàng nghìn; badge KPI hiển thị nhất quán.
-
-## Cấu trúc thư mục
+## Cấu trúc thư mục mã nguồn
 ```text
 sap-email-teams-bridge/
-├── config.json                     # File cấu hình URL Webhook & tham số vận hành
-├── main.py                         # Điểm chạy chính của Worker
-├── START_BRIDGE.cmd                # File khởi động 1-Click trên Windows
-├── package_release.py              # Script đóng gói file ZIP phát hành (Patch, Standard, Portable)
 ├── app/
-│   ├── bbbg_service.py             # Nghiệp vụ đối soát Biên bản bàn giao & MIGO
-│   ├── config.py                   # Quản lý đọc cấu hình & auto-fix JSON
-│   ├── email_parser.py             # Bộ bóc tách lệnh email, Weighted Intent Matrix V2.0
-│   ├── extended_query_service.py   # Dịch vụ tra cứu mở rộng (ASN, STO, EWM Mon...)
-│   ├── material_resolver.py        # Quy đổi mã nội bộ / mã khách hàng qua Excel
-│   ├── number_utils.py             # Chuẩn hóa số lượng SAP đa định dạng (US/EU/AUTO)
+│   ├── adaptive_cache.py           # Bộ nhớ đệm UI thích nghi tự động
+│   ├── bbbg_service.py             # Đối soát & tạo biên bản giao nhận FG
+│   ├── config.py                   # Bộ tải cấu hình & tự sửa JSON
+│   ├── email_parser.py             # Parser thông minh & Weighted Intent Matrix (13 intents)
+│   ├── extended_queries.py         # Truy vấn mở rộng BOM, Queue EWM, ASN
+│   ├── material_resolver.py        # Phân giải mã 8 số sang mã SAP chuẩn
 │   ├── nvl_service.py              # Nghiệp vụ cấp phát NVL & mô phỏng MIGO 311
 │   ├── ob_service.py               # Nghiệp vụ điều phối Outbound & phân bổ tồn kho
 │   ├── runtime_control.py          # Kiểm soát an toàn phiên & ranh giới chạy
 │   ├── sap_attachment.py           # Quản lý tải và đính kèm GOS / MIGO header text
-│   ├── sap_engine.py               # Điều khiển SAP GUI COM, Live SAP GUI Stabilization
+│   ├── sap_engine.py               # Điều khiển SAP GUI COM, ZFIR266 & Live SAP GUI
 │   ├── state_manager.py            # Quản lý hàng đợi Outbox & chống trùng bằng SQLite
 │   └── teams_dispatcher.py         # Gửi kết quả Webhook kèm bảng HTML & KPI
 ├── data/
@@ -72,7 +51,7 @@ sap-email-teams-bridge/
 ├── docs/
 │   ├── HUONG_DAN_SU_DUNG.md        # Hướng dẫn cài đặt & vận hành chi tiết
 │   └── DANH_GIA_v1.0.48_20261025.md # Báo cáo đánh giá và khắc phục lỗi vận hành
-└── tests/                          # Bộ unit tests hồi quy tự động (224 tests pass 100%)
+└── tests/                          # Bộ unit tests hồi quy tự động (230 tests pass 100%)
 ```
 
 ## Chạy thử nghiệm
@@ -81,4 +60,6 @@ sap-email-teams-bridge/
 3. Gửi email mẫu:
    ```text
    LENH: VITRI | MA: <Mã_hàng> | BATCH: <Lô>
+   hoặc: Check att 5007145690 5007145691
+   hoặc: SAP att mail 5007145690
    ```
