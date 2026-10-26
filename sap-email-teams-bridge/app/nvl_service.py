@@ -46,10 +46,12 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     """Return an eligible, typed lot; reject missing evidence and zero availability."""
     material = _text(_first(row, "product", "material"))
     batch, bin_no = _text(row.get("batch")), _text(row.get("bin"))
-    unit = _text(_first(row, "unit", "uom"))
-    plant = _text(_first(row, "plant", "source_plant"))
-    sloc = _text(_first(row, "sloc", "source_sloc"))
-    cat = _text(_first(row, "cat", "stock_type"))
+    # Nếu layout /SCWM/POST ẩn cột AUn (unit), mặc định lấy PC
+    unit = _text(_first(row, "unit", "uom") or "PC")
+    # /SCWM/POST đã lọc theo Owner=source_plant nên kế thừa source_plant & source_sloc nếu dòng không có cột plant/sloc
+    plant = _text(_first(row, "plant", "source_plant") or source_plant)
+    sloc = _text(_first(row, "sloc", "source_sloc") or source_sloc)
+    cat = _text(_first(row, "cat", "stock_type") or "FT")
     if not require_fifo:
         if not bin_no:
             bin_no = "N/A"
@@ -189,7 +191,7 @@ class NvlService:
         for index, order in enumerate(orders):
             try:
                 mat = _text(_first(order, "material", "product"))
-                unit = _text(_first(order, "unit", "uom"))
+                unit = _text(_first(order, "unit", "uom") or "PC")
                 qty = parse_sap_decimal(_first(order, "qty", "orderQty"), fmt=order.get("number_format"))
                 station = str(_first(order, "station", "tram") or "").strip()
                 if not mat or not unit or qty <= ZERO or not station:
@@ -220,7 +222,9 @@ class NvlService:
             for index, order, material, unit, qty, station in validated_orders:
                 remaining = qty
                 for lot in sorted_lots:
-                    if lot["material"] != material or lot["unit"] != unit:
+                    if lot["material"] != material:
+                        continue
+                    if lot["unit"] != unit and not ({lot["unit"], unit} <= {"PC", "EA"}):
                         continue
                     requested_batch = _text(order.get("batch"))
                     if requested_batch and lot["batch"] != requested_batch:
@@ -232,7 +236,7 @@ class NvlService:
                     remaining -= take
                     total_allocated += take
                     item = {key: lot[key] for key in ("material", "batch", "bin", "zone", "area", "box", "hsd", "gr_date", "stock_key", "stock_id")}
-                    item.update(item_no=len(items) + 1, order_index=index, station=station, unit=unit,
+                    item.update(item_no=len(items) + 1, order_index=index, station=station, unit=lot["unit"],
                                 allocated_qty=float(take), snapshot_qty=float(lot["raw_qty"]),
                                 source_plant=lot["plant"], source_sloc=lot["sloc"],
                                 dest_plant=_text(order.get("dest_plant") or default_dest_plant),

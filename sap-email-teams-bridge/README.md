@@ -1,9 +1,15 @@
-# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.63
+# SAP - Outlook - Teams Bridge (0 Open Port / 0 PowerShell) - v1.0.64
 
 Công cụ cầu nối tự động giữa **Outlook** $\rightarrow$ **SAP GUI Scripting** $\rightarrow$ **Microsoft Teams (Power Automate)**.
 
 ## Điểm nổi bật
-1. **Tối Ưu Hiển Thị Bảng Teams & Xử Lý Đính Kèm MIGO Đa Tab Toàn Diện (v1.0.63):**
+1. **Khắc Phục Lệch Dữ Liệu Tồn Kho /SCWM/POST & Tương Thích Đơn Vị Tính EA/PC Ra Đơn NVL (v1.0.64):**
+   - **Kế thừa Plant & SLoc nguồn (`source_plant=3093`, `source_sloc=1005`):** Khắc phục lỗi màn hình ALV `/SCWM/POST` không hiển thị cột Plant/SLoc khiến `validated_stock_lot` loại bỏ toàn bộ dòng tồn. Cho phép dòng tồn tự động kế thừa Plant và Kho nguồn đã lọc theo `Owner`.
+   - **Tương thích hai chiều giữa ĐVT EA và PC:** Đơn yêu cầu dán từ Teams không ghi ĐVT (mặc định `PC`) tự động khớp và phân bổ với các lô hàng mang đơn vị `EA` trên SAP. Giữ nguyên ĐVT gốc `EA` của lô khi tạo dòng kế hoạch.
+   - **Bắt chuẩn cột loại tồn nguồn (`TST`):** Ưu tiên cột nguồn `TST` (Source Stock Type = `FT`) thay vì bị nhầm sang cột đích `TO_CAT`, đồng thời dự phòng `cat="FT"` khi layout ẩn cột.
+   - **Giải phóng nghẽn phân bổ:** Các dòng tồn trích xuất từ `/SCWM/POST` (ví dụ 170 cái tại Bin `APFL-P23-01-12` và 297 cái tại Bin `APFL-P23-01-14`) được nạp và trừ lùi FIFO chính xác 100%, không còn hiện tượng báo sai "Thiếu tồn (0/100)".
+
+2. **Tối Ưu Hiển Thị Bảng Teams & Xử Lý Đính Kèm MIGO Đa Tab Toàn Diện (v1.0.63):**
    - **Bảo toàn 100% dòng hiển thị không bị cắt ngắn (Full 42+ Rows):** Tối ưu hóa dung lượng Inline CSS của từng ô `<td>` và ưu tiên loại bỏ mảng JSON thô trước khi cắt giảm dòng. Đảm bảo toàn bộ 42-100 chứng từ hiển thị trọn vẹn trên Teams mà không bao giờ vượt trần 26 KB.
    - **Nhận diện số phiếu linh hoạt trong HeadText MIGO (`HEADTEXT_OK`):** So khớp thông minh dạng tập con/chuỗi con. Khi SAP đã có sẵn `Thành Công IN-6058` và người dùng gửi số phiếu `6058`, hệ thống tự động nhận diện chính xác là `HEADTEXT_OK` thay vì đánh nhãn `HEADTEXT_REVIEW`.
    - **Cách ly luồng tuyệt đối (`threading.local()`):** Khắc phục triệt để hiện tượng xung đột đa luồng khi chạy song song Multi-Tab (Tab 2 reset chứng từ làm mất trạng thái của Tab 1 dẫn đến `HEADTEXT_BLOCKED` / `DOCUMENT_NOT_VERIFIED`).

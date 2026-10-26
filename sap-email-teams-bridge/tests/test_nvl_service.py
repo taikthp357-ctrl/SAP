@@ -131,3 +131,47 @@ def test_group_into_ob_groups_consolidation_and_shortages():
     assert grouped[2]["delivery_no"] == "---"
     assert "Thiếu 100" in str(grouped[2]["allocated_qty"])
     assert "Thiếu tồn" in grouped[2]["status"]
+
+
+def test_nvl_allocation_scwm_post_fallback_and_unit_coercion(tmp_db):
+    """Kiểm tra: /SCWM/POST không có cột plant/sloc và đơn vị EA vẫn khớp với đơn hàng mặc định PC."""
+    from app.nvl_service import validated_stock_lot
+
+    # 1. Kiểm tra trực tiếp validated_stock_lot
+    raw_scwm_row = {
+        "product": "BIW75111244AA",
+        "batch": "LOT_P23",
+        "bin": "APFL-P23-01-12",
+        "availQty": "170",
+        "grDate": "20.10.2026",
+        "grTime": "08:00:00"
+        # Hoàn toàn không có plant, sloc, unit, cat
+    }
+    lot = validated_stock_lot(raw_scwm_row, source_plant="3093", source_sloc="1005")
+    assert lot["plant"] == "3093"
+    assert lot["sloc"] == "1005"
+    assert lot["unit"] == "PC"
+    assert lot["raw_qty"] == 170
+
+    # 2. Kiểm tra phân bổ với 2 dòng tồn thực tế (170 + 297, ĐVT EA) và đơn hàng yêu cầu 100 PC
+    orders = [
+        {"material": "BIW75111244AA", "qty": 100, "station": "KV08-Thức/Vũ"} # Mặc định PC
+    ]
+    stock_records = [
+        {"product": "BIW75111244AA", "batch": "LOT_P23_1", "bin": "APFL-P23-01-12", "availQty": 170, "unit": "EA", "grDate": "20.10.2026", "grTime": "08:00:00"},
+        {"product": "BIW75111244AA", "batch": "LOT_P23_2", "bin": "APFL-P23-01-14", "availQty": 297, "unit": "EA", "grDate": "21.10.2026", "grTime": "09:00:00"},
+    ]
+
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
+    assert plan["is_full_allocation"] is True
+    assert plan["total_ordered"] == 100
+    assert plan["total_allocated"] == 100
+    assert len(plan["allocated_items"]) == 1
+
+    item0 = plan["allocated_items"][0]
+    assert item0["batch"] == "LOT_P23_1"
+    assert item0["bin"] == "APFL-P23-01-12"
+    assert item0["allocated_qty"] == 100
+    assert item0["unit"] == "EA"  # Lấy theo ĐVT thực tế của lô trên SAP
+    assert len(plan["shortages"]) == 0
+    assert len(plan["excluded_stock"]) == 0

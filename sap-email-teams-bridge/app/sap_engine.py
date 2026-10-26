@@ -1328,8 +1328,8 @@ class SapEngine:
                 "totalQty": ["TOTAL STK", "TOTAL STOCK", "GESME", "TOTAL_STK"],
                 "availQty": ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY"],
                 "qty":      ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "TOTAL STK", "TOTAL STOCK", "GESME", "QUAN"],
-                "unit":     ["MEINS", "ALTME", "UNIT", "UOM"],
-                "cat":      ["CAT", "TST", "STOCK TYPE", "ST", "TO_CAT"],
+                "unit":     ["MEINS", "ALTME", "UNIT", "UOM", "AUN"],
+                "cat":      ["TST", "CAT", "STOCK TYPE", "SOURCE STOCK TYPE", "ST", "TO_CAT"],
                 "grDate":   ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
                 "grTime":   ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"]
             }
@@ -1353,6 +1353,14 @@ class SapEngine:
                 r["availQty"] = format_qty_display(a_val)
                 r["heldQty"] = format_qty_display(held_val)
                 r["qty"] = r["availQty"]
+                if not r.get("plant"):
+                    r["plant"] = str(plant or "3093")
+                if not r.get("sloc"):
+                    r["sloc"] = "1005"
+                if not r.get("unit"):
+                    r["unit"] = "PC"
+                if not r.get("cat"):
+                    r["cat"] = "FT"
 
             # 10. SẮP XẾP ƯU TIÊN DỮ LIỆU GẦN NHẤT (Ngày GR & Giờ GR mới nhất lên đầu)
             def _gr_sort_key(item):
