@@ -47,5 +47,6 @@
   "allow_sap_writes": true,
   "trusted_intake_senders": [],
   "enable_multi_tab": true,
-  "max_batch_tabs": 2
+  "max_batch_tabs": 2,
+  "tracking_files_dir": "G:\\\\SAP"
 }

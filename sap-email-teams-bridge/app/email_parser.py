@@ -118,6 +118,17 @@ class SmartCommandParser:
         "TRA_CUU_ASN": [
             (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 88),
         ],
+        "TINH_TRANG_NVL": [
+            (r"\b(?:tinh\s*trang\s*cap\s*(?:hang\s*)?nvl|tinh\s*trang\s*nvl|tinh\s*trang\s*cap\s*hang|tien\s*do\s*cap\s*nvl|tien\s*do\s*nvl)\b", 94),
+            (r"\b(?:bao\s*cao\s*cap\s*(?:hang\s*)?nvl|bao\s*cao\s*nvl|bao\s*cao\s*cap\s*hang|ket\s*qua\s*cap\s*nvl)\b", 93),
+            (r"\b(?:tinh\s*trang\s*(?:don\s*)?nvl\s*(?:ca|model)|tien\s*do\s*don\s*nvl)\b", 92),
+            (r"\b(?:tinh\s*trang\s*cap\s*don|kiem\s*tra\s*cap\s*nvl|check\s*cap\s*nvl)\b", 91),
+        ],
+        "IN_WHT": [
+            (r"\b(?:in\s*wht|in\s*phieu\s*wht|in\s*lenh\s*wht|print\s*wht)\b", 96),
+            (r"\b(?:tcode\s*in\s*wht|huong\s*dan\s*in\s*wht|cach\s*in\s*wht|in\s*warehouse\s*task)\b", 95),
+            (r"\b(?:in\s*to|in\s*phieu\s*xuat|mb90|lt31|in\s*phieu\s*cap)\b", 90),
+        ],
         "HELP": [
             (r"\b(?:huong\s*dan|tro\s*giup|help|cu\s*phap|cach\s*dung|menu)\b", 15),
         ]
@@ -629,6 +640,19 @@ class SmartCommandParser:
         if doc_m:
             mat_doc = doc_m.group(1).strip()
 
+        date_val = ""
+        date_m = re.search(r"\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?)\b", command_text)
+        if date_m:
+            date_val = date_m.group(1).strip()
+        elif re.search(r"\b(?:hom\s*nay|nay|today)\b", norm_text):
+            import datetime
+            date_val = datetime.date.today().strftime("%Y-%m-%d")
+
+        if best_intent == "IN_WHT" and not ob_no and not mat_doc:
+            wht_doc_m = re.search(r"\b(10\d{8}|50\d{8})\b", command_text)
+            if wht_doc_m:
+                ob_no = wht_doc_m.group(1).strip()
+
         # Bóc tách đường dẫn thư mục và danh sách chứng từ đính kèm (nếu có lệnh ATT_MIGO)
         from app.sap_attachment import clean_folder_path, extract_folder_path_multiline, DEFAULT_MIGO_ATT_FOLDER
         raw_folder = extract_folder_path_multiline(command_text)
@@ -793,7 +817,7 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
-                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN"))
+                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT"))
                 or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))
             )
         ) or (best_score == 0 and bool(bin_val))
@@ -839,6 +863,8 @@ class SmartCommandParser:
             "model": model_name or ("LIMO" if best_intent == "TON_THAP" else ""),
             "shop": shop_name,
             "shift": shift_val,
+            "date": date_val,
+            "targetDate": date_val,
             "plants": plants_list,
             "limit": limit_val,
             "obNo": ob_no,

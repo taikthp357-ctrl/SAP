@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG = {
     "data_dir": "data",
+    "tracking_files_dir": r"G:\SAP",
     "allow_sap_writes": False,
     "enable_multi_tab": True,
     "max_batch_tabs": 2,

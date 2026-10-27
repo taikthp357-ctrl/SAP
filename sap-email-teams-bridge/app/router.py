@@ -48,7 +48,9 @@ class CommandRouter:
         nvl_commands = [
             "RA_DON_NVL", "KE_HOACH_NVL",
             "CHECK_NVL_MIGO", "RA_DON_MIGO", "MIGO_311", "CHECK_NVL",
-            "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING"
+            "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
+            "TINH_TRANG_NVL", "BAO_CAO_NVL", "TIEN_DO_NVL", "TINH_TRANG_CAP_NVL", "BAO_CAO_CAP_NVL",
+            "IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT"
         ]
         for cmd in nvl_commands:
             self.register(cmd, self.nvl_handler)
