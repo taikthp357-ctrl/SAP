@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Handler chuyên trách nghiệp vụ ra đơn NVL MIGO 311 và đối soát Posting Change Kho 1005."""
+from decimal import Decimal
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
 from app.core.security import assert_write_permission, WritePermissionError
@@ -188,9 +189,31 @@ class NvlHandler(BaseHandler):
                 except Exception as res_err:
                     print(f"[RESERVATION WARN] Không thể lưu giữ chỗ snapshot: {res_err}")
 
-            print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(allocated_lines)} dòng NVL (Plant {ctx.plant}, 1005 -> 3001)...")
+            # Gom các dòng cùng vật tư, lô, trạm để điền MIGO 311 (chuẩn RESULT của Excel V31)
+            # MIGO 311 không quản lý Bin; gom dòng giúp bảng MIGO chuẩn xác và tránh trùng lặp dòng nhập
+            migo_items = []
+            migo_consolidated = {}
+            for line in allocated_lines:
+                m_key = (
+                    str(line.get("material") or "").strip().upper(),
+                    str(line.get("batch") or "").strip().upper(),
+                    str(line.get("station") or "").strip(),
+                    str(line.get("source_plant") or ctx.plant).strip(),
+                    str(line.get("source_sloc") or "1005").strip(),
+                    str(line.get("dest_sloc") or "3001").strip()
+                )
+                if m_key not in migo_consolidated:
+                    row_c = dict(line)
+                    migo_consolidated[m_key] = row_c
+                    migo_items.append(row_c)
+                else:
+                    migo_consolidated[m_key]["allocated_qty"] = float(
+                        Decimal(str(migo_consolidated[m_key]["allocated_qty"])) + Decimal(str(line.get("allocated_qty", 0)))
+                    )
+
+            print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(migo_items)} dòng MIGO (từ {len(allocated_lines)} vị trí bin, Plant {ctx.plant}, 1005 -> 3001)...")
             ok_post, doc_num, post_msg = ctx.sap.post_migo_311_ob_group(
-                allocated_lines,
+                migo_items,
                 plant=ctx.plant,
                 source_sloc="1005",
                 dest_sloc="3001",

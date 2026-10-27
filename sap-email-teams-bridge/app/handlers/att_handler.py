@@ -85,6 +85,12 @@ class AttHandler(BaseHandler):
                     att_docs = [m for m in ctx.raw_materials if m.isdigit() and len(m) >= 8]
                 items_to_att = [{"doc": d, "ticket_no": ""} for d in att_docs]
 
+            if not items_to_att and not folder_path:
+                raise ValueError(
+                    "Không tìm thấy số chứng từ DOC hoặc số phiếu trong yêu cầu. "
+                    "Vui lòng cung cấp ít nhất một số chứng từ DOC (10 chữ số) và số phiếu trong nội dung thư (hoặc dán bảng DOC - Phiếu)."
+                )
+
             runner = MigoAttachmentRunner(sap_engine=ctx.sap, expected_session_identity=ctx.sap.session_identity if not is_preview else None)
 
             def on_att_progress(done_count, total_count, cur_doc, cur_success):
@@ -100,7 +106,7 @@ class AttHandler(BaseHandler):
 
             target_year = (ctx.meta.get("year") or "").strip()
             if not target_year:
-                raise ValueError("Yêu cầu đính kèm thiếu năm chứng từ tài chính (MISSING_DOC_YEAR); vui lòng cung cấp năm chứng từ (ví dụ: 2026)")
+                target_year = str(datetime.now().year)
 
             att_summary = runner.process_attachment_batch(
                 folder_path,

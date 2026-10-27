@@ -555,8 +555,10 @@ def run_bridge():
 
                     except Exception as sap_err:
                         print(f"[SAP ERROR] {req_id} | {sap_err}")
-                        err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ Lỗi khi truy xuất SAP GUI: {html.escape(str(sap_err))}</p>"
-                        fail_summary = f"Lỗi tra cứu SAP: {sap_err}"
+                        is_att_cmd = (cmd or "").upper() in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]
+                        err_title = "Lỗi khi đính kèm / điền HeadText" if is_att_cmd else "Lỗi khi truy xuất SAP GUI"
+                        err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ {err_title}: {html.escape(str(sap_err))}</p>"
+                        fail_summary = f"{err_title}: {sap_err}"
                         fail_payload, fail_data = TeamsDispatcher.prepare_safe_payload(
                             req_id, meta, "FAILED", fail_summary, [], {}, custom_html=err_html
                         )

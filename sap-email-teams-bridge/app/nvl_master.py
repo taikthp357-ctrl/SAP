@@ -9,6 +9,7 @@ Bao gồm 3 khu vực chính:
 
 import fnmatch
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -253,3 +254,46 @@ class NvlMasterService:
             "v31_max_boxes": max_boxes,
             "v31_capped_qty": v31_capped_qty
         }
+
+    @classmethod
+    def extract_zone_from_station(cls, station_text: str) -> str:
+        """Trích xuất Zone từ chuỗi Trạm theo chuẩn ModuleLineZone.ZoneOf (Excel V31).
+        Ưu tiên:
+        1. ZONE <number> (vd: 'Zone 21', 'ZONE-12', 'Zone 3.1')
+        2. KV-<number> (vd: 'KV-12', 'KV21')
+        """
+        text = str(station_text or "").strip()
+        if not text:
+            return ""
+        m_zone = re.search(r"\bZONE[ -]*([0-9]+(?:\.[0-9]+)*)\b", text, re.IGNORECASE)
+        if m_zone:
+            return m_zone.group(1).strip()
+        m_kv = re.search(r"\bKV[ -]*([0-9]+)\b", text, re.IGNORECASE)
+        if m_kv:
+            return m_kv.group(1).strip()
+        return ""
+
+    @classmethod
+    def extract_tl_from_station(cls, station_text: str) -> str:
+        """Trích xuất Tên Team Leader (TL) từ chuỗi Trạm theo chuẩn ModuleLineZone.TLOf (Excel V31)."""
+        text = str(station_text or "").strip()
+        if not text:
+            return ""
+        t = re.sub(r"^KV[ ]*-?[ ]*[0-9]+(?:[/,-][0-9]+)*(?:SV)?[ ]*[/\\-_:]*[ ]*", "", text, flags=re.IGNORECASE).strip()
+        t = re.sub(r"\bZONE[ -]*([0-9]+(?:\.[0-9]+)*)\b", "", t, flags=re.IGNORECASE).strip()
+        t = t.strip("-/:_ ")
+        return re.sub(r"\s+", " ", t).upper() if t else text.upper()
+
+    @classmethod
+    def get_bin_area(cls, bin_name: str) -> str:
+        """Phân loại khu vực Bin theo chuẩn ModuleHelper.GetBinArea (Excel V31):
+        - 'P' nếu bắt đầu bằng APFL-P*
+        - 'ZF' nếu bắt đầu bằng APFL-ZF*
+        - 'SPECIAL' cho các trường hợp còn lại
+        """
+        b_clean = str(bin_name or "").strip().upper()
+        if b_clean.startswith("APFL-P"):
+            return "P"
+        elif b_clean.startswith("APFL-ZF"):
+            return "ZF"
+        return "SPECIAL"

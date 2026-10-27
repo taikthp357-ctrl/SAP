@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.nvl_service import NvlService
+from app.nvl_master import NvlMasterService
 
 
 @pytest.fixture
@@ -254,3 +255,77 @@ def test_nvl_master_v31_zone_and_box_enrichment(tmp_db):
     assert split["loose_qty"] == 4.0
     assert split["v31_max_boxes"] == 3
     assert split["v31_capped_qty"] == 72.0
+
+def test_station_zone_extraction_and_bin_area():
+    """Kiểm tra trích xuất Zone & Team Leader từ chuỗi Trạm và phân loại Bin Area chuẩn Excel V31."""
+    assert NvlMasterService.extract_zone_from_station("KV-1/Duy/Bằng ZONE 21") == "21"
+    assert NvlMasterService.extract_zone_from_station("KV-12-Thức/Vũ") == "12"
+    assert NvlMasterService.extract_zone_from_station("Line Zone 3.1 Chuyền A") == "3.1"
+    assert NvlMasterService.extract_zone_from_station("KV 04") == "04"
+    assert NvlMasterService.extract_zone_from_station("Chuyền ráp không có số") == ""
+
+    assert NvlMasterService.extract_tl_from_station("KV-1/Duy/Bằng ZONE 21") == "DUY/BẰNG"
+    assert NvlMasterService.extract_tl_from_station("KV-12-Thức/Vũ") == "THỨC/VŨ"
+
+    assert NvlMasterService.get_bin_area("APFL-ZF30-01-08") == "ZF"
+    assert NvlMasterService.get_bin_area("APFL-P21-01-01") == "P"
+    assert NvlMasterService.get_bin_area("SPECIAL-RACK") == "SPECIAL"
+
+
+def test_broken_box_and_zone_affinity_allocation(tmp_db):
+    """Kiểm tra quy tắc vét hàng lẻ (Broken Box First) và ưu tiên Zone matching khớp chuẩn SAP EWM & Excel V31.
+    Tái hiện đúng ca thực tế:
+    - Nhu cầu: 128 EA mã BIW32025210AA (packing = 128) cho trạm KV-1/Duy/Bằng ZONE 21
+    - Tồn kho:
+      + Bin 1: APFL-ZF30-01-08: 10 EA (thùng lẻ dở dang)
+      + Bin 2: APFL-ZF30-02-01: 150 EA (nguyên thùng cùng khu vực)
+      + Bin 3: APFL-ZF06-01-06: 200 EA (nguyên thùng khu vực ZF06 khác)
+    - Kết quả mong đợi:
+      + Dòng 1: Bin APFL-ZF30-01-08 lấy trọn 10 EA (vét lẻ trước)
+      + Dòng 2: Bin APFL-ZF30-02-01 lấy tiếp 118 EA (cùng khu vực)
+      + Tổng 10 + 118 = 128 EA; Bin ZF06-01-06 không bị bốc nhầm.
+    """
+    orders = [
+        {"material": "BIW32025210AA", "qty": 128, "station": "KV-1/Duy/Bằng ZONE 21", "unit": "EA"}
+    ]
+
+    stock_records = [
+        # Dòng 1 trong /SCWM/POST: Bin ZF30-01-08 có 10 EA (thùng dở)
+        {"product": "BIW32025210AA", "batch": "260926-10", "bin": "APFL-ZF30-01-08",
+         "plant": "3093", "sloc": "1005", "unit": "EA", "cat": "FT",
+         "availQty": 10, "grDate": "01/10/2026", "grTime": "08:00:00"},
+        # Dòng 2 trong /SCWM/POST: Bin ZF30-02-01 có 150 EA (thùng nguyên)
+        {"product": "BIW32025210AA", "batch": "260926-10", "bin": "APFL-ZF30-02-01",
+         "plant": "3093", "sloc": "1005", "unit": "EA", "cat": "FT",
+         "availQty": 150, "grDate": "01/10/2026", "grTime": "08:00:00"},
+        # Dòng 3 trong /SCWM/POST: Bin ZF06-01-06 có 200 EA (ở khu vực xa hơn ZF06)
+        {"product": "BIW32025210AA", "batch": "260926-10", "bin": "APFL-ZF06-01-06",
+         "plant": "3093", "sloc": "1005", "unit": "EA", "cat": "FT",
+         "availQty": 200, "grDate": "01/10/2026", "grTime": "08:00:00"},
+    ]
+
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
+
+    assert plan["total_ordered"] == 128
+    assert plan["total_allocated"] == 128
+    assert plan["is_full_allocation"] is True
+    assert len(plan["allocated_items"]) == 2
+
+    # Dòng 1 phải là bin lẻ ZF30-01-08 với 10 EA
+    item1 = plan["allocated_items"][0]
+    assert item1["bin"] == "APFL-ZF30-01-08"
+    assert item1["allocated_qty"] == 10
+
+    # Dòng 2 phải là bin ZF30-02-01 với 118 EA
+    item2 = plan["allocated_items"][1]
+    assert item2["bin"] == "APFL-ZF30-02-01"
+    assert item2["allocated_qty"] == 118
+
+    # Xác nhận khi gom OB: tạo đúng 2 dòng với số lượng tương ứng
+    records = NvlService.group_into_ob_groups(plan["allocated_items"], delivery_no="1012948236")
+    assert len(records) == 2
+    assert records[0]["bin"] == "APFL-ZF30-01-08"
+    assert records[0]["allocated_qty"] == 10
+    assert records[1]["bin"] == "APFL-ZF30-02-01"
+    assert records[1]["allocated_qty"] == 118
+

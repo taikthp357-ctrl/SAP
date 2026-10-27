@@ -213,3 +213,41 @@ def test_att_handler_check_att_no_docs():
     )
     with pytest.raises(ValueError, match="Vui lòng cung cấp ít nhất một số chứng từ DOC"):
         router.dispatch(ctx)
+
+def test_att_handler_att_migo_no_items():
+    """Kiểm tra AttHandler báo lỗi rõ ràng khi không có số chứng từ hoặc số phiếu trong lệnh ATT_MIGO."""
+    mock_sap = create_autospec(SapEngine, instance=True)
+    ctx = RequestContext(
+        request_id="REQ-ATT-EMPTY",
+        command="ATT_MIGO",
+        sap=mock_sap,
+        meta={"explicitWriteIntent": True, "dryRun": True}
+    )
+    with pytest.raises(ValueError, match="Không tìm thấy số chứng từ DOC hoặc số phiếu trong yêu cầu"):
+        router.dispatch(ctx)
+
+
+def test_att_handler_att_migo_default_year():
+    """Kiểm tra AttHandler tự động lấy năm hiện tại khi người dùng không cung cấp năm chứng từ (không ném MISSING_DOC_YEAR)."""
+    from datetime import datetime
+    from unittest.mock import patch
+    mock_sap = create_autospec(SapEngine, instance=True)
+    ctx = RequestContext(
+        request_id="REQ-ATT-YEAR",
+        command="ATT_MIGO",
+        sap=mock_sap,
+        meta={
+            "explicitWriteIntent": True,
+            "dryRun": True,
+            "attachmentItems": [{"doc": "5001234567", "ticket_no": "PHIEU-01"}]
+        }
+    )
+    with patch("app.handlers.att_handler.MigoAttachmentRunner.process_attachment_batch") as mock_proc:
+        mock_proc.return_value = {"results": [{"doc": "5001234567", "overall_status": "DONE"}], "total_success": 1, "total_items": 1}
+        res = router.dispatch(ctx)
+        assert res.status == "SIMULATED"
+        # Xác nhận process_attachment_batch được gọi với năm hiện tại
+        mock_proc.assert_called_once()
+        _, kwargs = mock_proc.call_args
+        assert kwargs.get("year") == str(datetime.now().year)
+

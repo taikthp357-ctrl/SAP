@@ -85,23 +85,32 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
     if NvlMasterService.is_bin_blocked(bin_no):
         raise ValueError(f"BIN BLOCK HE THONG - BO QUA FIFO/OB (Bin {bin_no})")
 
-    # Tự động gán Zone và Box từ Master Data nếu chưa có
+    # Tự động gán Zone, Box và Area từ Master Data nếu chưa có
     zone_val = str(row.get("zone") or "").strip()
     if not zone_val:
         zone_val = NvlMasterService.get_bin_zone(bin_no)
 
     box_val = str(row.get("box") or "").strip()
-    if not box_val:
-        b_info = NvlMasterService.get_box_info(material)
-        if b_info:
+    packing = 0
+    b_info = NvlMasterService.get_box_info(material)
+    if b_info:
+        if not box_val:
             box_val = f"{b_info['model']}/{b_info['box_type']}/Pack {b_info['packing']}"
+        packing = int(b_info.get("packing") or 0)
+
+    area_val = str(row.get("area") or "").strip()
+    if not area_val:
+        area_val = NvlMasterService.get_bin_area(bin_no)
+
+    is_broken = bool(packing > 1 and 0 < qty < packing)
 
     lot = dict(material=material, batch=batch, bin=bin_no, unit=unit, plant=plant, sloc=sloc,
                stock_id=_text(_first(row, "stock_id", "stockId", "quant")), raw_qty=qty,
                gr_date=str(gr_date or ""), gr_time=str(gr_time or ""), gr_key=gr_key,
                hsd=str(hsd or ""), hsd_score=hsd_key, zone=zone_val, box=box_val,
                station=str(row.get("station") or "").strip(),
-               area=str(row.get("area") or "").strip())
+               area=area_val, packing=packing, is_broken=is_broken,
+               orig_index=int(row.get("orig_index", 0)))
     lot["stock_key"] = _scope_key(lot)
     return lot
 
@@ -221,15 +230,21 @@ class NvlService:
                 errors.append(f"Nhu cầu {index + 1}: {exc}")
         for index, stock in enumerate(stock_records):
             try:
-                lot = validated_stock_lot(stock, source_plant, source_sloc)
+                stock_copy = dict(stock)
+                stock_copy.setdefault("orig_index", index)
+                lot = validated_stock_lot(stock_copy, source_plant, source_sloc)
                 key = lot["stock_key"]
                 if key in lots:
                     # Nhiều HU/Pallet trong cùng 1 Bin & Batch trên /SCWM/POST (không có stock_id)
                     # Cộng dồn tồn khả dụng thay vì chặn toàn bộ kế hoạch
                     lots[key]["raw_qty"] += lot["raw_qty"]
                     lots[key]["available_qty"] = max(ZERO, lots[key]["raw_qty"] - reserved.get(key, ZERO))
+                    p = lots[key].get("packing", 0)
+                    lots[key]["is_broken"] = bool(p > 1 and 0 < lots[key]["available_qty"] < p)
                     continue
                 lot["available_qty"] = max(ZERO, lot["raw_qty"] - reserved.get(key, ZERO))
+                p = lot.get("packing", 0)
+                lot["is_broken"] = bool(p > 1 and 0 < lot["available_qty"] < p)
                 lots[key] = lot
             except ValueError as exc:
                 exclusions.append({"row": index + 1, "reason": str(exc)})
@@ -238,12 +253,32 @@ class NvlService:
         total_allocated = ZERO
         # If any intent or source validation failed, do not partially reserve another order.
         if not errors:
-            sorted_lots = sorted(lots.values(), key=lambda lot: (lot["hsd_score"], lot["gr_key"], lot["stock_key"]))
             for index, order, material, unit, qty, station in validated_orders:
                 remaining = qty
-                for lot in sorted_lots:
-                    if lot["material"] != material:
-                        continue
+                st_zone = NvlMasterService.extract_zone_from_station(station)
+
+                def _lot_sort_key(lot):
+                    # 1. FEFO (HSD earliest first)
+                    hsd = lot.get("hsd_score", "99999999")
+                    # 2. FIFO (GR Date & Time earliest first)
+                    gr = lot.get("gr_key", ("99999999", "999999"))
+                    # 3. Zone Matching: nếu trạm có Zone, ưu tiên bin có chứa số Zone hoặc khu vực tương thích
+                    bin_str = str(lot.get("bin") or "").upper()
+                    zone_str = str(lot.get("zone") or "").upper()
+                    zone_match = 0 if (st_zone and (st_zone in bin_str or st_zone in zone_str)) else 1
+                    # 4. Vét hàng lẻ (Broken Box / Partial Quantity First):
+                    # Ô bin có tồn lẻ (0 < available_qty < packing) được ưu tiên vét trước
+                    broken_priority = 0 if lot.get("is_broken") else 1
+                    # 5. Giữ nguyên thứ tự dòng gốc từ /SCWM/POST (như Excel V31 origRow)
+                    orig_idx = lot.get("orig_index", 0)
+                    # 6. Fallback cố định
+                    stock_k = lot.get("stock_key", "")
+                    return (hsd, gr, zone_match, broken_priority, orig_idx, stock_k)
+
+                candidate_lots = [lot for lot in lots.values() if lot["material"] == material]
+                candidate_lots.sort(key=_lot_sort_key)
+
+                for lot in candidate_lots:
                     if lot["unit"] != unit and not ({lot["unit"], unit} <= {"PC", "EA"}):
                         continue
                     requested_batch = _text(order.get("batch"))
@@ -253,6 +288,8 @@ class NvlService:
                     if take <= ZERO:
                         continue
                     lot["available_qty"] -= take
+                    p = lot.get("packing", 0)
+                    lot["is_broken"] = bool(p > 1 and 0 < lot["available_qty"] < p)
                     remaining -= take
                     total_allocated += take
                     item = {key: lot[key] for key in ("material", "batch", "bin", "zone", "area", "box", "hsd", "gr_date", "stock_key", "stock_id")}
