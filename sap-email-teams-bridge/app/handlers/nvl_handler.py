@@ -384,6 +384,67 @@ class NvlHandler(BaseHandler):
             )
 
         # -------------------------------------------------------------
+        # NHÁNH 5: TRUY VẤN ĐỊNH DANH CẤP PHÁT NVL ĐA MODEL (MULTI-MODEL TRACE)
+        # -------------------------------------------------------------
+        elif cmd in ["TRA_CUU_CAP_NVL", "DINH_DANH_NVL", "TRACE_NVL"]:
+            mats = ctx.resolved_materials or ctx.raw_materials or []
+            hint_model = ctx.meta.get("model")
+            hint_shift = ctx.meta.get("shift")
+            tracking_dir = ctx.config.get("tracking_files_dir")
+
+            if not mats:
+                return CommandResult(
+                    status="NEED_INPUT",
+                    summary="Vui lòng cung cấp ít nhất một mã vật tư (hoặc dán tin nhắn xưởng) để tra cứu cấp phát.",
+                    records=[],
+                    headers={},
+                    audit_target="NO_MAT",
+                    audit_message="Thiếu mã vật tư khi tra cứu cấp NVL"
+                )
+
+            trace_res = NvlTrackingService.trace_multiple_materials(
+                materials=mats,
+                hint_model=hint_model,
+                hint_shift=hint_shift,
+                directory=tracking_dir,
+                sap_engine=ctx.sap
+            )
+
+            headers = {
+                "material": "Mã NVL",
+                "model": "Model xe",
+                "shift_chay": "Ca chạy",
+                "station": "Trạm cấp",
+                "order_qty": "SL Order",
+                "total_cap": "Đã cấp",
+                "gap": "Còn thiếu (Gap)",
+                "sp_display": "Số Phiếu / OB",
+                "status_pick": "TT nhặt hàng"
+            }
+
+            custom_html = (
+                f"<div style='font-family:Segoe UI,sans-serif;background:#ffffff;border:1px solid #d0d7de;"
+                f"border-radius:6px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'>"
+                f"<div style='font-size:15px;font-weight:bold;color:#0969da;margin-bottom:10px;'>"
+                f"🔍 KẾT QUẢ ĐỐI SOÁT & ĐỊNH DANH CẤP HÀNG NVL (Theo File Theo Dõi & SAP)"
+                f"</div>"
+                f"<div style='background:#f6f8fa;border-left:4px solid #0969da;padding:12px;border-radius:4px;font-size:13px;line-height:1.6;margin-bottom:12px;'>"
+                f"{trace_res['summary']}"
+                f"</div>"
+                f"</div>"
+            )
+
+            return CommandResult(
+                status="SUCCEEDED",
+                summary=trace_res["summary"].replace("<br/>", " | ").replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")[:250] + "...",
+                records=trace_res["records"],
+                headers=headers,
+                custom_html=custom_html,
+                audit_target=", ".join(mats[:5]),
+                audit_message=f"Định danh cấp NVL đa Model ({len(trace_res['records'])} dòng khớp)"
+            )
+
+        # -------------------------------------------------------------
         # NHÁNH 4: TRA CỨU & HƯỚNG DẪN IN PHIẾU WHT / WT TRONG SAP
         # -------------------------------------------------------------
         elif cmd in ["IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT"]:

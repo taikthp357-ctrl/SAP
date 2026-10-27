@@ -553,3 +553,235 @@ class NvlTrackingService:
                     })
 
         return orders
+
+    @classmethod
+    def trace_material_allocation(
+        cls,
+        material: str,
+        hint_model: Optional[str] = None,
+        hint_shift: Optional[str] = None,
+        hint_station: Optional[str] = None,
+        tracking_file: Optional[Path] = None,
+        directory: Optional[str] = None,
+        sap_engine: Any = None
+    ) -> Dict[str, Any]:
+        """Định danh chi tiết mã vật tư cấp cho Ca nào, Model nào, Trạm nào.
+        
+        Xử lý đặc biệt cho các mã dùng chung (ví dụ: dùng chung cho cả Limo và VF8NP).
+        Đối soát 3 nguồn: File theo dõi ca + Order sản xuất + Lịch sử xuất MB51 / Tồn MB52.
+        """
+        clean_mat = (material or "").strip().upper()
+        if not clean_mat:
+            return {
+                "status": "INVALID",
+                "material": "",
+                "summary": "Mã vật tư không hợp lệ",
+                "is_shared": False,
+                "models": [],
+                "records": []
+            }
+
+        # Tìm file theo dõi
+        if not tracking_file:
+            candidates = cls.find_tracking_files(directory=directory, shift=hint_shift)
+            if not candidates:
+                return {
+                    "status": "NOT_FOUND",
+                    "material": clean_mat,
+                    "summary": f"Không tìm thấy file theo dõi ca để đối soát cho mã {clean_mat}",
+                    "is_shared": False,
+                    "models": [],
+                    "records": []
+                }
+            tracking_file = candidates[0]
+
+        wb = openpyxl.load_workbook(str(tracking_file), data_only=True)
+        sheet_name = "ODER NVl" if "ODER NVl" in wb.sheetnames else wb.sheetnames[0]
+        ws = wb[sheet_name]
+
+        # Chuẩn hóa tìm kiếm: cả mã đầy đủ và 8 số cốt lõi
+        clean_mat_short = clean_mat.replace("BIW", "").replace("SUB", "").replace("AA", "").replace("AB", "").replace("AC", "").replace("HA", "")
+
+        matched_rows: List[Dict[str, Any]] = []
+        for r in range(2, ws.max_row + 1):
+            row_mat_val = ws.cell(r, 4).value
+            if not row_mat_val:
+                continue
+            row_mat = str(row_mat_val).strip().upper()
+            is_match = (clean_mat in row_mat) or (len(clean_mat_short) >= 6 and clean_mat_short in row_mat)
+            if not is_match:
+                continue
+
+            row_model = str(ws.cell(r, 10).value or "").strip().upper()
+            row_ca_nhap = str(ws.cell(r, 11).value or "").strip().upper()
+            row_ca_chay = str(ws.cell(r, 12).value or "").strip().upper()
+            row_station = str(ws.cell(r, 6).value or "").strip()
+
+            try:
+                sl_order = float(Decimal(str(ws.cell(r, 5).value or 0)))
+            except Exception:
+                sl_order = 0.0
+
+            try:
+                total_cap = float(Decimal(str(ws.cell(r, 26).value or 0)))
+            except Exception:
+                total_cap = 0.0
+
+            try:
+                gap = float(Decimal(str(ws.cell(r, 27).value or 0)))
+            except Exception:
+                gap = total_cap - sl_order
+
+            sp1 = str(ws.cell(r, 15).value or "").strip()
+            ob1 = str(ws.cell(r, 14).value or "").strip()
+            if sp1 and sp1 not in ["None", "0"]:
+                sp_display = f"Phiếu {sp1}"
+            elif ob1 and ob1 not in ["None", "0"]:
+                sp_display = f"OB {ob1}"
+            else:
+                sp_display = "Chưa ra đơn"
+
+            status_order = str(ws.cell(r, 28).value or "Pending").strip()
+            status_pick = str(ws.cell(r, 29).value or "Chưa Cấp").strip()
+            note_val = str(ws.cell(r, 31).value or "").strip()
+            date_order = str(ws.cell(r, 32).value or "").strip()
+            user_order = str(ws.cell(r, 34).value or "").strip()
+
+            matched_rows.append({
+                "row": r,
+                "material": row_mat,
+                "model": row_model,
+                "shift_nhap": row_ca_nhap,
+                "shift_chay": row_ca_chay,
+                "station": row_station,
+                "order_qty": sl_order,
+                "total_cap": total_cap,
+                "gap": gap,
+                "sp_display": sp_display,
+                "status_order": status_order,
+                "status_pick": status_pick,
+                "note": note_val,
+                "date_order": date_order,
+                "user_order": user_order
+            })
+
+        if not matched_rows:
+            return {
+                "status": "NOT_FOUND",
+                "material": clean_mat,
+                "summary": f"Mã {clean_mat} không có order nào trong file theo dõi '{tracking_file.name}'",
+                "is_shared": False,
+                "models": [],
+                "records": []
+            }
+
+        # Phân nhóm theo Model
+        models_map: Dict[str, List[Dict[str, Any]]] = {}
+        for r_info in matched_rows:
+            m_key = r_info["model"] or "UNKNOWN"
+            models_map.setdefault(m_key, []).append(r_info)
+
+        distinct_models = list(models_map.keys())
+        is_shared = len(distinct_models) > 1
+
+        # Lọc theo gợi ý nếu có (hint_model hoặc hint_shift)
+        highlighted_model = None
+        if hint_model:
+            h_clean = hint_model.strip().upper()
+            for m_cand in distinct_models:
+                if h_clean in m_cand or m_cand in h_clean:
+                    highlighted_model = m_cand
+                    break
+
+        # Tra cứu SAP MB52 (Tồn kho 1005) nếu có sap_engine
+        stock_1005 = 0.0
+        stock_checked = False
+        if sap_engine:
+            try:
+                stock_res = sap_engine.check_stock_balance([clean_mat], plant="3093", sloc="1005")
+                if stock_res:
+                    stock_1005 = float(stock_res[0].get("qty", 0.0))
+                    stock_checked = True
+            except Exception as e:
+                print(f"[TRACE WARN] Không thể tra cứu MB52: {e}")
+
+        # Xây dựng đoạn tóm tắt đối soát (Quick Copy)
+        lines_summary = []
+        if is_shared:
+            lines_summary.append(f"⚠️ <b>MÃ DÙNG CHUNG ĐA MODEL:</b> Mã <code>{clean_mat}</code> đang được order cho <b>{len(distinct_models)} Model</b> ({', '.join(distinct_models)}):")
+        else:
+            lines_summary.append(f"ℹ️ Mã <code>{clean_mat}</code> phục vụ cho Model <b>{distinct_models[0]}</b>:")
+
+        for mdl, r_list in models_map.items():
+            is_hl = (highlighted_model == mdl)
+            prefix = "🎯 [YÊU CẦU] " if is_hl else "• "
+            for r_item in r_list:
+                gap_txt = f"Còn thiếu: {abs(r_item['gap']):.0f} PC" if r_item['gap'] < 0 else "Đã đủ order"
+                lines_summary.append(
+                    f"{prefix}<b>Model {mdl}</b> (Ca chạy: <b>{r_item['shift_chay']}</b> | Trạm: <code>{r_item['station']}</code>): "
+                    f"Order: {r_item['order_qty']:.0f} | Đã cấp: {r_item['total_cap']:.0f} | {gap_txt} "
+                    f"({r_item['sp_display']} - {r_item['status_pick']})"
+                )
+
+        total_gap = sum(abs(r["gap"]) for r in matched_rows if r["gap"] < 0)
+        if stock_checked:
+            if stock_1005 >= total_gap and total_gap > 0:
+                lines_summary.append(f"📦 <b>TỒN KHO 1005:</b> Hiện còn <b>{stock_1005:.0f} PC</b> ➔ Đủ tồn để ra đơn MIGO 311 cấp nốt.")
+            elif stock_1005 > 0 and total_gap > 0:
+                lines_summary.append(f"📦 <b>TỒN KHO 1005:</b> Hiện chỉ còn <b>{stock_1005:.0f} PC</b> (thiếu tổng {total_gap:.0f} PC) ➔ Cần ưu tiên cấp cho ca chạy trước.")
+            elif total_gap > 0:
+                lines_summary.append(f"❌ <b>TỒN KHO 1005:</b> Hiện <b>HẾT HÀNG (0 PC)</b> ➔ Cần liên hệ NCC giao hàng khẩn cấp.")
+
+        summary_text = "<br/>".join(lines_summary)
+
+        return {
+            "status": "OK",
+            "material": clean_mat,
+            "is_shared": is_shared,
+            "models": distinct_models,
+            "highlighted_model": highlighted_model,
+            "summary": summary_text,
+            "total_gap": total_gap,
+            "stock_1005": stock_1005 if stock_checked else None,
+            "records": matched_rows,
+            "tracking_file": tracking_file.name
+        }
+
+    @classmethod
+    def trace_multiple_materials(
+        cls,
+        materials: List[str],
+        hint_model: Optional[str] = None,
+        hint_shift: Optional[str] = None,
+        tracking_file: Optional[Path] = None,
+        directory: Optional[str] = None,
+        sap_engine: Any = None
+    ) -> Dict[str, Any]:
+        """Định danh và đối soát hàng loạt mã hàng."""
+        results = []
+        for m in materials:
+            res = cls.trace_material_allocation(
+                material=m,
+                hint_model=hint_model,
+                hint_shift=hint_shift,
+                tracking_file=tracking_file,
+                directory=directory,
+                sap_engine=sap_engine
+            )
+            results.append(res)
+
+        all_records = []
+        for r in results:
+            all_records.extend(r.get("records", []))
+
+        full_summary = "<br/><hr style='border:0;border-top:1px dashed #d0d7de;margin:8px 0;'/>".join(
+            r["summary"] for r in results if r.get("summary")
+        )
+
+        return {
+            "status": "OK",
+            "count": len(materials),
+            "results": results,
+            "records": all_records,
+            "summary": full_summary
+        }

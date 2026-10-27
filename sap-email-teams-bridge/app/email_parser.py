@@ -118,6 +118,12 @@ class SmartCommandParser:
         "TRA_CUU_ASN": [
             (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 88),
         ],
+        "TRA_CUU_CAP_NVL": [
+            (r"\b(?:cap\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*chung)\b", 98),
+            (r"\b(?:cap\s*du\s*(?:chua|hay\s*thieu)|cap\s*thieu\s*(?:khsx|chay\s*not)?|ra\s*don\s*cap\s*not|cap\s*giup\s*e|cap\s*cho\s*a\s*con)\b", 96),
+            (r"\b(?:tinh\s*trang\s*cap\s*(?:ma|vat\s*tu)|tra\s*cuu\s*cap\s*nvl|check\s*cap\s*ma|ho\s*tro\s*em\s*may\s*ma)\b", 95),
+            (r"\b(?:cap\s*not|cap\s*bu|xin\s*cap)\b", 92),
+        ],
         "TINH_TRANG_NVL": [
             (r"\b(?:tinh\s*trang\s*cap\s*(?:hang\s*)?nvl|tinh\s*trang\s*nvl|tinh\s*trang\s*cap\s*hang|tien\s*do\s*cap\s*nvl|tien\s*do\s*nvl)\b", 94),
             (r"\b(?:bao\s*cao\s*cap\s*(?:hang\s*)?nvl|bao\s*cao\s*nvl|bao\s*cao\s*cap\s*hang|ket\s*qua\s*cap\s*nvl)\b", 93),
@@ -817,7 +823,7 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
-                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT"))
+                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL"))
                 or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))
             )
         ) or (best_score == 0 and bool(bin_val))

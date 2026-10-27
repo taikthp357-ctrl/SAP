@@ -204,3 +204,65 @@ def test_nvl_handler_tinh_trang_dispatch(mock_tracking_workbook):
     assert len(result.records) == 2
     assert result.custom_html is not None
     assert "BÁO CÁO TIẾN ĐỘ CẤP HÀNG NVL" in result.custom_html
+
+
+def test_trace_material_allocation_shared_model(mock_tracking_workbook):
+    """Kiểm tra định danh mã vật tư dùng chung cho nhiều Model và phân giải."""
+    # Thêm dòng order cho Model VF8NP dùng chung mã BIW70004393AB
+    wb = openpyxl.load_workbook(str(mock_tracking_workbook))
+    ws = wb["ODER NVl"]
+    ws.append([
+        "SIMWON", "KV06", 10, "BIW70004393AB", 260, "MG-188KV06", 3093, 1005, 3001, "VF8NP",
+        "S7", "S7", "", "", "", 0, "", "", 0, "", "", 0, "", "", 0,
+        0, -260, "Pending", "Chưa Cấp", "2026-10-28", "", "2026-10-28", "08:00", "TL_C", "S7", 0, ""
+    ])
+    wb.save(str(mock_tracking_workbook))
+
+    # 1. Truy vấn không chỉ định Model -> Phải báo MÃ DÙNG CHUNG và liệt kê cả VF6 lẫn VF8NP
+    res = NvlTrackingService.trace_material_allocation(
+        material="BIW70004393AB",
+        tracking_file=mock_tracking_workbook
+    )
+
+    assert res["status"] == "OK"
+    assert res["is_shared"] is True
+    assert "VF6" in res["models"]
+    assert "VF8NP" in res["models"]
+    assert "MÃ DÙNG CHUNG ĐA MODEL" in res["summary"]
+    assert "Model VF6" in res["summary"]
+    assert "Model VF8NP" in res["summary"]
+
+    # 2. Truy vấn có gợi ý Model VF8 -> Phải highlight đúng Model VF8NP
+    res_vf8 = NvlTrackingService.trace_material_allocation(
+        material="BIW70004393AB",
+        hint_model="VF8",
+        tracking_file=mock_tracking_workbook
+    )
+    assert res_vf8["highlighted_model"] == "VF8NP"
+    assert "[YÊU CẦU]" in res_vf8["summary"]
+
+
+def test_parser_and_handler_tra_cuu_cap_nvl(mock_tracking_workbook):
+    """Kiểm tra bóc tách tin nhắn xưởng và điều phối NvlHandler cho TRA_CUU_CAP_NVL."""
+    chat_text = """bên a có 2 mã Vf8 cấp thiếu. Ra đơn cấp nốt giúp a nhé để chạy nốt cho đủ khsx
+    BIW70004393AB"""
+
+    parsed = SmartCommandParser.parse(chat_text)
+    assert parsed["command"] == "TRA_CUU_CAP_NVL"
+    assert parsed["model"] == "VF8"
+    assert "BIW70004393AB" in parsed["materials"]
+
+    ctx = RequestContext(
+        request_id="REQ_TEST_CHAT_INPUT",
+        command=parsed["command"],
+        raw_materials=parsed["materials"],
+        resolved_materials=parsed["materials"],
+        meta=parsed,
+        plant="3093",
+        config={"tracking_files_dir": str(mock_tracking_workbook.parent)}
+    )
+
+    handler = NvlHandler()
+    result = handler.handle(ctx)
+    assert result.status == "SUCCEEDED"
+    assert "KẾT QUẢ ĐỐI SOÁT & ĐỊNH DANH" in result.custom_html
