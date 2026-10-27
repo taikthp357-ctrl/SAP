@@ -188,3 +188,69 @@ def test_nvl_allocation_scwm_post_fallback_and_unit_coercion(tmp_db):
     assert item0["unit"] == "EA"  # Lấy theo ĐVT thực tế của lô trên SAP
     assert len(plan["shortages"]) == 0
     assert len(plan["excluded_stock"]) == 0
+
+
+def test_nvl_duplicate_hu_same_bin_batch_aggregation(tmp_db):
+    """Lỗi 1.2: Trên /SCWM/POST nhiều Pallet/HU nằm chung Bin và Batch không bị báo lỗi khóa tồn trùng, mà được cộng dồn."""
+    orders = [
+        {"material": "BIW32025210AA", "qty": 200, "station": "KV-1/Duy/Bằng ZONE 21", "unit": "EA"}
+    ]
+    # 2 dòng tồn cùng Material, Batch, Bin nhưng không có stock_id (đặc thù /SCWM/POST)
+    stock_records = [
+        {"product": "BIW32025210AA", "batch": "LOT_SAME", "bin": "APFL-P21-01-01", "availQty": 120, "unit": "EA", "grDate": "20.10.2026", "grTime": "08:00:00"},
+        {"product": "BIW32025210AA", "batch": "LOT_SAME", "bin": "APFL-P21-01-01", "availQty": 100, "unit": "EA", "grDate": "20.10.2026", "grTime": "08:00:00"},
+    ]
+
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
+    assert plan["status"] == "DRAFT"
+    assert len(plan["errors"]) == 0
+    assert plan["total_ordered"] == 200
+    assert plan["total_allocated"] == 200
+    assert plan["is_full_allocation"] is True
+    assert len(plan["allocated_items"]) == 1
+    assert plan["allocated_items"][0]["allocated_qty"] == 200.0
+
+
+def test_nvl_bin_block_system_rejection(tmp_db):
+    """Kiểm tra Bin thuộc mẫu BIN BLOCK hệ thống (APFL-BL*) bị loại khỏi danh sách cấp hàng."""
+    orders = [
+        {"material": "BIW80004410", "qty": 40, "station": "LINE_01", "unit": "PC"}
+    ]
+    stock_records = [
+        {"product": "BIW80004410", "batch": "240130-02", "bin": "APFL-BL01-01-01", "availQty": 46, "unit": "PC", "grDate": "20.10.2026", "grTime": "08:00:00"}
+    ]
+
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
+    assert len(plan["excluded_stock"]) == 1
+    assert "BIN BLOCK" in plan["excluded_stock"][0]["reason"]
+    assert plan["total_allocated"] == 0
+    assert len(plan["shortages"]) == 1
+
+
+def test_nvl_master_v31_zone_and_box_enrichment(tmp_db):
+    """Kiểm tra tự động điền Zone và Hàng thùng từ Master Data V31."""
+    from app.nvl_master import NvlMasterService
+
+    orders = [
+        {"material": "BIW80001331", "qty": 48, "station": "LINE_VF9", "unit": "EA"}
+    ]
+    stock_records = [
+        {"product": "BIW80001331", "batch": "LOT_BOX", "bin": "APFL-P00-01-01", "availQty": 50, "unit": "EA", "grDate": "20.10.2026", "grTime": "08:00:00"}
+    ]
+
+    plan = NvlService.allocate_orders(orders, stock_records, db_path=tmp_db, source_complete=True)
+    assert plan["is_full_allocation"] is True
+    item = plan["allocated_items"][0]
+    assert item["zone"] == "Hàng Box"
+    assert "VF9" in item["box"]
+    assert "Pack 24" in item["box"]
+
+    # Kiểm tra hàm tính toán chia hàng thùng / hàng lẻ
+    split = NvlMasterService.calculate_box_split("BIW80001331", 100)
+    assert split["is_box"] is True
+    assert split["packing"] == 24
+    assert split["full_boxes"] == 4
+    assert split["box_qty"] == 96.0
+    assert split["loose_qty"] == 4.0
+    assert split["v31_max_boxes"] == 3
+    assert split["v31_capped_qty"] == 72.0

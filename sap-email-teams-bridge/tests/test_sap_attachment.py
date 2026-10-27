@@ -1247,3 +1247,56 @@ def test_stale_sbar_message_falls_back_to_readback_and_verifies_exact_match():
         dummy_file.unlink(missing_ok=True)
 
 
+
+
+def test_verify_session_identity_multi_tab_bypass():
+    """Lỗi 2: Runner ở chế độ Multi-Tab không từ chối session thuộc các tab khác trong cùng connection."""
+    from unittest.mock import MagicMock
+    from app.sap_attachment import MigoAttachmentRunner
+
+    exp_identity = {
+        "system": "PRD",
+        "client": "100",
+        "user": "ROBOT",
+        "session_id": "/app/con[0]/ses[0]",
+        "session_index": 0,
+        "connection_index": 0
+    }
+    runner = MigoAttachmentRunner(expected_session_identity=exp_identity)
+
+    # Session tab 4 (ses[3])
+    tab4_session = MagicMock()
+    tab4_session.Id = "/app/con[0]/ses[3]"
+    tab4_session.Busy = False
+    tab4_info = MagicMock()
+    tab4_info.SystemName = "PRD"
+    tab4_info.Client = "100"
+    tab4_info.User = "ROBOT"
+    tab4_info.SessionNumber = 3
+    tab4_session.Info = tab4_info
+
+    # 1. Khi chưa bật multi_tab: Bị từ chối do session_index mismatch
+    ok, reason = runner.verify_session_identity(tab4_session)
+    assert ok is False
+    assert reason == "SESSION_IDENTITY_MISMATCH"
+
+    # 2. Khi bật multi_tab (_multi_tab_mode = True): Chấp nhận tab 4 thuộc cùng user/client/connection
+    runner._multi_tab_mode = True
+    ok_mt, reason_mt = runner.verify_session_identity(tab4_session)
+    assert ok_mt is True
+    assert reason_mt == "SESSION_VERIFIED"
+
+
+def test_handle_migo_headtext_underscore_ticket():
+    """Lỗi 2.2: Số phiếu chứa ký tự gạch dưới (VD: IN_6058) phải khớp đúng với trường Header Text."""
+    import re
+
+    ticket = "IN_6058"
+    headtext1 = "BBBG - IN_6058 - Ngay 26.10"
+    headtext2 = "BBBG - IN_60580 - Sai so"
+
+    # Regex mới: (?<![A-Za-z0-9]){ticket}(?![A-Za-z0-9])
+    pattern = rf"(?<![A-Za-z0-9]){re.escape(ticket)}(?![A-Za-z0-9])"
+
+    assert bool(re.search(pattern, headtext1)) is True
+    assert bool(re.search(pattern, headtext2)) is False

@@ -1,9 +1,9 @@
 {
-  "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.0.80.zip": {
-    "version": "v1.0.80",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.0.80.zip",
-    "package_sha256": "15f7dcccf3692a711322530573ec8b09b070ce4f6f9be0f774ed48a9097b04bf",
-    "package_size_bytes": 400179,
+  "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.0.81.zip": {
+    "version": "v1.0.81",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.0.81.zip",
+    "package_sha256": "fc1263100283b70158b1ad2093e8bbda913eeb4884c91f4868f055b7f5674ad1",
+    "package_size_bytes": 408643,
     "files": {
       "main.py": {
         "sha256": "2edbb1ddecab4d69775832bcc47e5cecc91bdc0137d1182b702b227d9e058c08",
@@ -33,6 +33,10 @@
         "sha256": "7666e084dbe9c879ed44a0ad05b319cb177e58487ca3cbe0d30289ab2742e9a2",
         "size_bytes": 37343
       },
+      "data/nvl_master_v31.json": {
+        "sha256": "80f74a3ad17de45c100ebbdf11c97a244b664f399d166d594499908ea5da2e8b",
+        "size_bytes": 32516
+      },
       "app/adaptive_cache.py": {
         "sha256": "c3dbe29cda54bef478c47de742fda8761cad96ac84bbf66c6edc07df13d50ede",
         "size_bytes": 10996
@@ -46,8 +50,8 @@
         "size_bytes": 3988
       },
       "app/email_parser.py": {
-        "sha256": "4e5c73fe7985d2017eb4533dddecac064d50f658de48670424eeb02fd2e0ceb3",
-        "size_bytes": 48310
+        "sha256": "57f652984fa4920ecac5bc8e55d70c2a1c11376c538f5e182dbf6e94b60b2bfc",
+        "size_bytes": 49918
       },
       "app/extended_query_service.py": {
         "sha256": "3e20073dee0118e2cee8c38d32e93c9e8a488542315e59e4dda8f8cdbf378999",
@@ -61,9 +65,13 @@
         "sha256": "2c5cd13f4cc8d3bf5d15adc28757a6618ac7b0784b72133857441af44a314351",
         "size_bytes": 8464
       },
+      "app/nvl_master.py": {
+        "sha256": "633af7729574820bbdfc3bd67435421b22c7ed84ced9a2bfaaaec669605e4b3e",
+        "size_bytes": 10175
+      },
       "app/nvl_service.py": {
-        "sha256": "cc9f9ff2018e86966ab20a54e15791af7d1629f3f81c60f2e46a6a44d78cdd42",
-        "size_bytes": 27281
+        "sha256": "0614256724320a0abb698d7e00c3c5d3e53c016aa7823cd628e1cbc65489e203",
+        "size_bytes": 28209
       },
       "app/ob_service.py": {
         "sha256": "ed63618f9ff9fe0781f68713c40d155f1f5d7f9532895c565a9188a688f6a3d5",
@@ -78,12 +86,12 @@
         "size_bytes": 2600
       },
       "app/sap_attachment.py": {
-        "sha256": "c5b0bd7ff9e37ff5f66b488ce7a14eb82ddbb18281635476eafc2b1f51dfb05c",
-        "size_bytes": 109369
+        "sha256": "697c5d3047a1805ac7dc0393aa04c27fb74c63dfb58fda820abd21dec1ffc037",
+        "size_bytes": 109827
       },
       "app/sap_engine.py": {
-        "sha256": "aebe8b2b0d5d8b1de9b66bf62e751ea397d60dfd48f5cbf58684bfa83607c9cc",
-        "size_bytes": 253842
+        "sha256": "b81196587263200375e33446a8bd4161921c99086f3e78e6d7aee64d6a980108",
+        "size_bytes": 261479
       },
       "app/state_manager.py": {
         "sha256": "57c580e89f1798fffd464bae144f1dad5dddf04ad32d122d1e96011981921458",
@@ -126,8 +134,8 @@
         "size_bytes": 7495
       },
       "app/handlers/nvl_handler.py": {
-        "sha256": "c23ac151d3b734736ea7481f168cd5eb54de0ae6d5ce3bfb0f7ca78d59b8e3bc",
-        "size_bytes": 12536
+        "sha256": "ba359eaca9eb4a4c77dc2a5531e1b718e5fa20f804ed35dcc03b27fdf37f1b73",
+        "size_bytes": 12726
       },
       "app/handlers/production_handler.py": {
         "sha256": "3a76e58667c0adf9a198592b3e251f4e5fefd346675e427da9c5f3e0c25ecbf4",
@@ -162,8 +170,8 @@
         "size_bytes": 4611
       },
       "tests/test_email_parser.py": {
-        "sha256": "305b5d479b25ece14234b52e7a6c0ef48355ef76817decfb85a7b7bc181469f0",
-        "size_bytes": 29984
+        "sha256": "fa9317bd788c3a405e49ea70315e4811b881be41414bedf6c1d7cfd9264e071b",
+        "size_bytes": 31300
       },
       "tests/test_extended_queries.py": {
         "sha256": "edf7a3a3ec578d7299a4dc8536163d5b591bbd3d8489f2cd67e737e27b41682c",
@@ -186,8 +194,8 @@
         "size_bytes": 5911
       },
       "tests/test_nvl_service.py": {
-        "sha256": "25a7bec689e3f783ccc470bf6be2c7b51caf5dffdb894f3068425ca2c8609a63",
-        "size_bytes": 8621
+        "sha256": "3c0d6ee924213b3a67b2eaf1024b862c5e9ed1ce39c44c8fdfd493ed8a203790",
+        "size_bytes": 11987
       },
       "tests/test_ob_service.py": {
         "sha256": "2ca012b5f175b8572bb8c1f357a68afa7f391c06c1ce3a22823d66acc03bce86",
@@ -198,8 +206,8 @@
         "size_bytes": 8225
       },
       "tests/test_sap_attachment.py": {
-        "sha256": "9ba8fe57db8410c4a7357848e5126cc36f414f411007edded203401f0dfd979b",
-        "size_bytes": 51554
+        "sha256": "013a323a3e44fd9ff35f1dfecdd70517ae32149e02beae7e5643bd4cf089ec8e",
+        "size_bytes": 53529
       },
       "tests/test_sap_engine.py": {
         "sha256": "34c0277b95b71428c759a1e4cdae53910bb17aba9c9403bfdc2a7ac02c583693",
@@ -275,11 +283,11 @@
       }
     }
   },
-  "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.0.80.zip": {
-    "version": "v1.0.80",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.0.80.zip",
-    "package_sha256": "614b09cd0042236c19ad48b64d3a8d86fdfd34bb13089bcf3d25f7b022433c67",
-    "package_size_bytes": 563992,
+  "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.0.81.zip": {
+    "version": "v1.0.81",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.0.81.zip",
+    "package_sha256": "f080670561371b67b2154fcd31609fe67818f13beed6ad0fc441872578509fa9",
+    "package_size_bytes": 573664,
     "files": {
       "config.json": {
         "sha256": "95032aabb072fdb9da1231365211c757e86036d31eafe697e4f0dc2404399c65",
@@ -294,12 +302,12 @@
         "size_bytes": 30524
       },
       "package-manifest.json": {
-        "sha256": "d3bddfadbdccde18412700868e15174132b7761fd34a61c0608cf680ee2011fa",
+        "sha256": "3e76869229c6cf4f5ade798f04c2ff3241a9099dd7f016522322aa919a74b2a9",
         "size_bytes": 285120
       },
       "package_release.py": {
-        "sha256": "3a124eb839e51d3843f442736078b6438eda7372bec316e39a2df87c431a3f60",
-        "size_bytes": 9728
+        "sha256": "4b8e3675bb185a02fdf0a24ef73e27bdd90420202563b7a55a55395b6b3024dc",
+        "size_bytes": 10206
       },
       "README.md": {
         "sha256": "94ccc0d2d32abf56e8376235d769770d97061afdd62f2947a96814f2488a6ed8",
@@ -334,8 +342,8 @@
         "size_bytes": 3988
       },
       "app/email_parser.py": {
-        "sha256": "4e5c73fe7985d2017eb4533dddecac064d50f658de48670424eeb02fd2e0ceb3",
-        "size_bytes": 48310
+        "sha256": "57f652984fa4920ecac5bc8e55d70c2a1c11376c538f5e182dbf6e94b60b2bfc",
+        "size_bytes": 49918
       },
       "app/extended_query_service.py": {
         "sha256": "3e20073dee0118e2cee8c38d32e93c9e8a488542315e59e4dda8f8cdbf378999",
@@ -349,9 +357,13 @@
         "sha256": "2c5cd13f4cc8d3bf5d15adc28757a6618ac7b0784b72133857441af44a314351",
         "size_bytes": 8464
       },
+      "app/nvl_master.py": {
+        "sha256": "633af7729574820bbdfc3bd67435421b22c7ed84ced9a2bfaaaec669605e4b3e",
+        "size_bytes": 10175
+      },
       "app/nvl_service.py": {
-        "sha256": "cc9f9ff2018e86966ab20a54e15791af7d1629f3f81c60f2e46a6a44d78cdd42",
-        "size_bytes": 27281
+        "sha256": "0614256724320a0abb698d7e00c3c5d3e53c016aa7823cd628e1cbc65489e203",
+        "size_bytes": 28209
       },
       "app/ob_service.py": {
         "sha256": "ed63618f9ff9fe0781f68713c40d155f1f5d7f9532895c565a9188a688f6a3d5",
@@ -366,12 +378,12 @@
         "size_bytes": 2600
       },
       "app/sap_attachment.py": {
-        "sha256": "c5b0bd7ff9e37ff5f66b488ce7a14eb82ddbb18281635476eafc2b1f51dfb05c",
-        "size_bytes": 109369
+        "sha256": "697c5d3047a1805ac7dc0393aa04c27fb74c63dfb58fda820abd21dec1ffc037",
+        "size_bytes": 109827
       },
       "app/sap_engine.py": {
-        "sha256": "aebe8b2b0d5d8b1de9b66bf62e751ea397d60dfd48f5cbf58684bfa83607c9cc",
-        "size_bytes": 253842
+        "sha256": "b81196587263200375e33446a8bd4161921c99086f3e78e6d7aee64d6a980108",
+        "size_bytes": 261479
       },
       "app/state_manager.py": {
         "sha256": "57c580e89f1798fffd464bae144f1dad5dddf04ad32d122d1e96011981921458",
@@ -414,8 +426,8 @@
         "size_bytes": 7495
       },
       "app/handlers/nvl_handler.py": {
-        "sha256": "c23ac151d3b734736ea7481f168cd5eb54de0ae6d5ce3bfb0f7ca78d59b8e3bc",
-        "size_bytes": 12536
+        "sha256": "ba359eaca9eb4a4c77dc2a5531e1b718e5fa20f804ed35dcc03b27fdf37f1b73",
+        "size_bytes": 12726
       },
       "app/handlers/production_handler.py": {
         "sha256": "3a76e58667c0adf9a198592b3e251f4e5fefd346675e427da9c5f3e0c25ecbf4",
@@ -510,8 +522,8 @@
         "size_bytes": 4611
       },
       "tests/test_email_parser.py": {
-        "sha256": "305b5d479b25ece14234b52e7a6c0ef48355ef76817decfb85a7b7bc181469f0",
-        "size_bytes": 29984
+        "sha256": "fa9317bd788c3a405e49ea70315e4811b881be41414bedf6c1d7cfd9264e071b",
+        "size_bytes": 31300
       },
       "tests/test_extended_queries.py": {
         "sha256": "edf7a3a3ec578d7299a4dc8536163d5b591bbd3d8489f2cd67e737e27b41682c",
@@ -534,8 +546,8 @@
         "size_bytes": 5911
       },
       "tests/test_nvl_service.py": {
-        "sha256": "25a7bec689e3f783ccc470bf6be2c7b51caf5dffdb894f3068425ca2c8609a63",
-        "size_bytes": 8621
+        "sha256": "3c0d6ee924213b3a67b2eaf1024b862c5e9ed1ce39c44c8fdfd493ed8a203790",
+        "size_bytes": 11987
       },
       "tests/test_ob_service.py": {
         "sha256": "2ca012b5f175b8572bb8c1f357a68afa7f391c06c1ce3a22823d66acc03bce86",
@@ -546,8 +558,8 @@
         "size_bytes": 8225
       },
       "tests/test_sap_attachment.py": {
-        "sha256": "9ba8fe57db8410c4a7357848e5126cc36f414f411007edded203401f0dfd979b",
-        "size_bytes": 51554
+        "sha256": "013a323a3e44fd9ff35f1dfecdd70517ae32149e02beae7e5643bd4cf089ec8e",
+        "size_bytes": 53529
       },
       "tests/test_sap_engine.py": {
         "sha256": "34c0277b95b71428c759a1e4cdae53910bb17aba9c9403bfdc2a7ac02c583693",
@@ -577,6 +589,10 @@
         "sha256": "eb97986496681285c88b86e97bf0b730e94af6aed486be854c6a6427a2d28324",
         "size_bytes": 1081
       },
+      "tools/add_att_tests.py": {
+        "sha256": "0c7ddd21c497858b04abc2bdc03c7f2fdf8e2310e1cbe58be02f50f19e711f8d",
+        "size_bytes": 2282
+      },
       "tools/resend_stuck_outbox.py": {
         "sha256": "ad1e8ba08fa5d0e1d7f3b220d6c00d1859eca6162d93372f789e858adf205ffb",
         "size_bytes": 3126
@@ -584,14 +600,18 @@
       "data/DATA_MASTER.xlsx": {
         "sha256": "7666e084dbe9c879ed44a0ad05b319cb177e58487ca3cbe0d30289ab2742e9a2",
         "size_bytes": 37343
+      },
+      "data/nvl_master_v31.json": {
+        "sha256": "80f74a3ad17de45c100ebbdf11c97a244b664f399d166d594499908ea5da2e8b",
+        "size_bytes": 32516
       }
     }
   },
-  "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.80.zip": {
-    "version": "v1.0.80",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.80.zip",
-    "package_sha256": "345de6798fd4f42595dcd52222e54e09613bf2e8e5f20700a443b371f97edcbc",
-    "package_size_bytes": 14214508,
+  "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.81.zip": {
+    "version": "v1.0.81",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.81.zip",
+    "package_sha256": "264d954c14b950714631f21a7cb023d51d91fbed598ef8743d7d3d878c2d80c5",
+    "package_size_bytes": 14224180,
     "files": {
       "config.json": {
         "sha256": "95032aabb072fdb9da1231365211c757e86036d31eafe697e4f0dc2404399c65",
@@ -606,12 +626,12 @@
         "size_bytes": 30524
       },
       "package-manifest.json": {
-        "sha256": "d3bddfadbdccde18412700868e15174132b7761fd34a61c0608cf680ee2011fa",
+        "sha256": "3e76869229c6cf4f5ade798f04c2ff3241a9099dd7f016522322aa919a74b2a9",
         "size_bytes": 285120
       },
       "package_release.py": {
-        "sha256": "3a124eb839e51d3843f442736078b6438eda7372bec316e39a2df87c431a3f60",
-        "size_bytes": 9728
+        "sha256": "4b8e3675bb185a02fdf0a24ef73e27bdd90420202563b7a55a55395b6b3024dc",
+        "size_bytes": 10206
       },
       "README.md": {
         "sha256": "94ccc0d2d32abf56e8376235d769770d97061afdd62f2947a96814f2488a6ed8",
@@ -646,8 +666,8 @@
         "size_bytes": 3988
       },
       "app/email_parser.py": {
-        "sha256": "4e5c73fe7985d2017eb4533dddecac064d50f658de48670424eeb02fd2e0ceb3",
-        "size_bytes": 48310
+        "sha256": "57f652984fa4920ecac5bc8e55d70c2a1c11376c538f5e182dbf6e94b60b2bfc",
+        "size_bytes": 49918
       },
       "app/extended_query_service.py": {
         "sha256": "3e20073dee0118e2cee8c38d32e93c9e8a488542315e59e4dda8f8cdbf378999",
@@ -661,9 +681,13 @@
         "sha256": "2c5cd13f4cc8d3bf5d15adc28757a6618ac7b0784b72133857441af44a314351",
         "size_bytes": 8464
       },
+      "app/nvl_master.py": {
+        "sha256": "633af7729574820bbdfc3bd67435421b22c7ed84ced9a2bfaaaec669605e4b3e",
+        "size_bytes": 10175
+      },
       "app/nvl_service.py": {
-        "sha256": "cc9f9ff2018e86966ab20a54e15791af7d1629f3f81c60f2e46a6a44d78cdd42",
-        "size_bytes": 27281
+        "sha256": "0614256724320a0abb698d7e00c3c5d3e53c016aa7823cd628e1cbc65489e203",
+        "size_bytes": 28209
       },
       "app/ob_service.py": {
         "sha256": "ed63618f9ff9fe0781f68713c40d155f1f5d7f9532895c565a9188a688f6a3d5",
@@ -678,12 +702,12 @@
         "size_bytes": 2600
       },
       "app/sap_attachment.py": {
-        "sha256": "c5b0bd7ff9e37ff5f66b488ce7a14eb82ddbb18281635476eafc2b1f51dfb05c",
-        "size_bytes": 109369
+        "sha256": "697c5d3047a1805ac7dc0393aa04c27fb74c63dfb58fda820abd21dec1ffc037",
+        "size_bytes": 109827
       },
       "app/sap_engine.py": {
-        "sha256": "aebe8b2b0d5d8b1de9b66bf62e751ea397d60dfd48f5cbf58684bfa83607c9cc",
-        "size_bytes": 253842
+        "sha256": "b81196587263200375e33446a8bd4161921c99086f3e78e6d7aee64d6a980108",
+        "size_bytes": 261479
       },
       "app/state_manager.py": {
         "sha256": "57c580e89f1798fffd464bae144f1dad5dddf04ad32d122d1e96011981921458",
@@ -726,8 +750,8 @@
         "size_bytes": 7495
       },
       "app/handlers/nvl_handler.py": {
-        "sha256": "c23ac151d3b734736ea7481f168cd5eb54de0ae6d5ce3bfb0f7ca78d59b8e3bc",
-        "size_bytes": 12536
+        "sha256": "ba359eaca9eb4a4c77dc2a5531e1b718e5fa20f804ed35dcc03b27fdf37f1b73",
+        "size_bytes": 12726
       },
       "app/handlers/production_handler.py": {
         "sha256": "3a76e58667c0adf9a198592b3e251f4e5fefd346675e427da9c5f3e0c25ecbf4",
@@ -822,8 +846,8 @@
         "size_bytes": 4611
       },
       "tests/test_email_parser.py": {
-        "sha256": "305b5d479b25ece14234b52e7a6c0ef48355ef76817decfb85a7b7bc181469f0",
-        "size_bytes": 29984
+        "sha256": "fa9317bd788c3a405e49ea70315e4811b881be41414bedf6c1d7cfd9264e071b",
+        "size_bytes": 31300
       },
       "tests/test_extended_queries.py": {
         "sha256": "edf7a3a3ec578d7299a4dc8536163d5b591bbd3d8489f2cd67e737e27b41682c",
@@ -846,8 +870,8 @@
         "size_bytes": 5911
       },
       "tests/test_nvl_service.py": {
-        "sha256": "25a7bec689e3f783ccc470bf6be2c7b51caf5dffdb894f3068425ca2c8609a63",
-        "size_bytes": 8621
+        "sha256": "3c0d6ee924213b3a67b2eaf1024b862c5e9ed1ce39c44c8fdfd493ed8a203790",
+        "size_bytes": 11987
       },
       "tests/test_ob_service.py": {
         "sha256": "2ca012b5f175b8572bb8c1f357a68afa7f391c06c1ce3a22823d66acc03bce86",
@@ -858,8 +882,8 @@
         "size_bytes": 8225
       },
       "tests/test_sap_attachment.py": {
-        "sha256": "9ba8fe57db8410c4a7357848e5126cc36f414f411007edded203401f0dfd979b",
-        "size_bytes": 51554
+        "sha256": "013a323a3e44fd9ff35f1dfecdd70517ae32149e02beae7e5643bd4cf089ec8e",
+        "size_bytes": 53529
       },
       "tests/test_sap_engine.py": {
         "sha256": "34c0277b95b71428c759a1e4cdae53910bb17aba9c9403bfdc2a7ac02c583693",
@@ -889,6 +913,10 @@
         "sha256": "eb97986496681285c88b86e97bf0b730e94af6aed486be854c6a6427a2d28324",
         "size_bytes": 1081
       },
+      "tools/add_att_tests.py": {
+        "sha256": "0c7ddd21c497858b04abc2bdc03c7f2fdf8e2310e1cbe58be02f50f19e711f8d",
+        "size_bytes": 2282
+      },
       "tools/resend_stuck_outbox.py": {
         "sha256": "ad1e8ba08fa5d0e1d7f3b220d6c00d1859eca6162d93372f789e858adf205ffb",
         "size_bytes": 3126
@@ -896,6 +924,10 @@
       "data/DATA_MASTER.xlsx": {
         "sha256": "7666e084dbe9c879ed44a0ad05b319cb177e58487ca3cbe0d30289ab2742e9a2",
         "size_bytes": 37343
+      },
+      "data/nvl_master_v31.json": {
+        "sha256": "80f74a3ad17de45c100ebbdf11c97a244b664f399d166d594499908ea5da2e8b",
+        "size_bytes": 32516
       },
       "runtime/LICENSE.txt": {
         "sha256": "e502c6b880ff58d614901495a9009c136539cd0b1e2a2abb8fc00b934c203419",

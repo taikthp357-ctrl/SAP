@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.number_utils import parse_sap_decimal, parse_sap_datetime_sort_key, format_qty_display
+from app.nvl_master import NvlMasterService
 
 ZERO = Decimal("0")
 
@@ -80,12 +81,27 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
         raise ValueError("Hạn sử dụng không hợp lệ")
     if hsd and hsd_key < datetime.now().strftime("%Y%m%d"):
         raise ValueError("Lô đã hết hạn sử dụng")
+    # V31 BIN BLOCK: Bỏ qua các Bin block hệ thống (APFL-BL* hoặc Zone BIN BLOCK)
+    if NvlMasterService.is_bin_blocked(bin_no):
+        raise ValueError(f"BIN BLOCK HE THONG - BO QUA FIFO/OB (Bin {bin_no})")
+
+    # Tự động gán Zone và Box từ Master Data nếu chưa có
+    zone_val = str(row.get("zone") or "").strip()
+    if not zone_val:
+        zone_val = NvlMasterService.get_bin_zone(bin_no)
+
+    box_val = str(row.get("box") or "").strip()
+    if not box_val:
+        b_info = NvlMasterService.get_box_info(material)
+        if b_info:
+            box_val = f"{b_info['model']}/{b_info['box_type']}/Pack {b_info['packing']}"
+
     lot = dict(material=material, batch=batch, bin=bin_no, unit=unit, plant=plant, sloc=sloc,
                stock_id=_text(_first(row, "stock_id", "stockId", "quant")), raw_qty=qty,
                gr_date=str(gr_date or ""), gr_time=str(gr_time or ""), gr_key=gr_key,
-               hsd=str(hsd or ""), hsd_score=hsd_key)
-    for key in ("zone", "station", "area", "box"):
-        lot[key] = str(row.get(key) or "").strip()
+               hsd=str(hsd or ""), hsd_score=hsd_key, zone=zone_val, box=box_val,
+               station=str(row.get("station") or "").strip(),
+               area=str(row.get("area") or "").strip())
     lot["stock_key"] = _scope_key(lot)
     return lot
 
@@ -208,8 +224,10 @@ class NvlService:
                 lot = validated_stock_lot(stock, source_plant, source_sloc)
                 key = lot["stock_key"]
                 if key in lots:
-                    # No unique stock identity: never double count identical-looking rows.
-                    errors.append(f"Dòng tồn {index + 1}: khóa tồn trùng; cần stock_id riêng")
+                    # Nhiều HU/Pallet trong cùng 1 Bin & Batch trên /SCWM/POST (không có stock_id)
+                    # Cộng dồn tồn khả dụng thay vì chặn toàn bộ kế hoạch
+                    lots[key]["raw_qty"] += lot["raw_qty"]
+                    lots[key]["available_qty"] = max(ZERO, lots[key]["raw_qty"] - reserved.get(key, ZERO))
                     continue
                 lot["available_qty"] = max(ZERO, lot["raw_qty"] - reserved.get(key, ZERO))
                 lots[key] = lot

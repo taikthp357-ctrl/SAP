@@ -60,14 +60,15 @@ class NvlHandler(BaseHandler):
                         "sloc": o.get("sloc") or ctx.meta.get("sloc", "1005")
                     })
             else:
-                if ctx.meta.get("qty") is None or not ctx.meta.get("station") or not (ctx.meta.get("unit") or ctx.meta.get("uom")):
-                    raise ValueError("Kế hoạch NVL cần qty, station và unit rõ ràng; không tự điền mặc định")
+                if ctx.meta.get("qty") is None or not ctx.meta.get("station"):
+                    raise ValueError("Kế hoạch NVL cần qty và station rõ ràng")
+                req_unit = ctx.meta.get("unit") or ctx.meta.get("uom") or "PC"
                 orders = [
                     {
                         "material": m,
                         "qty": ctx.meta["qty"],
                         "station": ctx.meta["station"],
-                        "unit": ctx.meta.get("unit") or ctx.meta.get("uom"),
+                        "unit": req_unit,
                         "plant": ctx.plant,
                         "sloc": ctx.meta.get("sloc", "1005")
                     }

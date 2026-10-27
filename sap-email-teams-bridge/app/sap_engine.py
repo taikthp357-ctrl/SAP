@@ -283,11 +283,16 @@ class SapEngine:
         return False
 
     def _find_by_id_safe(self, id_text: str):
-        """Tìm đối tượng theo ID an toàn tuyệt đối, không ném exception nếu không thấy."""
-        try:
-            return self.session.findById(id_text, False)
-        except Exception:
+        """Tìm đối tượng theo ID an toàn tuyệt đối, tương thích cả 1 tham số và 2 tham số."""
+        if self.session is None:
             return None
+        try:
+            return self.session.findById(id_text)
+        except Exception:
+            try:
+                return self.session.findById(id_text, False)
+            except Exception:
+                return None
 
     def smart_find(self, element_name: str, element_type: Optional[str] = None, window: str = "wnd[0]"):
         """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
@@ -4163,7 +4168,15 @@ class SapEngine:
                             e = entries(idx)
                             val = str(getattr(e, "Value", getattr(e, "Text", "")) or "").upper()
                             if "TRANSFER" in val:
-                                action_cmb.key = str(getattr(e, "Key", getattr(e, "key", "A08")))
+                                target_k = str(getattr(e, "Key", getattr(e, "key", "A08")))
+                                try:
+                                    action_cmb.Key = target_k
+                                except Exception:
+                                    pass
+                                try:
+                                    action_cmb.key = target_k
+                                except Exception:
+                                    pass
                                 act_set = True
                                 break
                 except Exception:
@@ -4172,7 +4185,14 @@ class SapEngine:
                     try:
                         cur_act = getattr(action_cmb, "Key", getattr(action_cmb, "key", ""))
                         if cur_act != "A08":
-                            action_cmb.key = "A08"
+                            try:
+                                action_cmb.Key = "A08"
+                            except Exception:
+                                pass
+                            try:
+                                action_cmb.key = "A08"
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 time.sleep(0.5)
@@ -4196,7 +4216,15 @@ class SapEngine:
                             e = entries(idx)
                             val = str(getattr(e, "Value", getattr(e, "Text", "")) or "").upper()
                             if "OTHER" in val:
-                                ref_cmb.key = str(getattr(e, "Key", getattr(e, "key", "R10")))
+                                target_r = str(getattr(e, "Key", getattr(e, "key", "R10")))
+                                try:
+                                    ref_cmb.Key = target_r
+                                except Exception:
+                                    pass
+                                try:
+                                    ref_cmb.key = target_r
+                                except Exception:
+                                    pass
                                 ref_set = True
                                 break
                 except Exception:
@@ -4205,7 +4233,14 @@ class SapEngine:
                     try:
                         cur_ref = getattr(ref_cmb, "Key", getattr(ref_cmb, "key", ""))
                         if cur_ref != "R10":
-                            ref_cmb.key = "R10"
+                            try:
+                                ref_cmb.Key = "R10"
+                            except Exception:
+                                pass
+                            try:
+                                ref_cmb.key = "R10"
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 time.sleep(0.5)
@@ -5021,7 +5056,7 @@ class SapEngine:
                                         c_cap = str(self._get_column_caption(grid, c_name)).strip().upper()
                                     except Exception:
                                         pass
-                                    if not resolved_doc_col and any(k in c_up or k in c_cap for k in ["DOCUMENTNO", "DOCUMENT_NO", "DOCNO", "BELNR", "MBELN", "DOCUMENT", "CHỨNG TỪ"]):
+                                    if not resolved_doc_col and any(k in c_up or k in c_cap for k in ["MBELN", "MBLNR", "MAT_DOC", "DOCUMENTNO", "DOCUMENT_NO", "DOCNO", "BELNR", "DOCUMENT", "CHỨNG TỪ"]):
                                         resolved_doc_col = c_name
                                     if not resolved_file_col and any(k in c_up or k in c_cap for k in ["FILE_NAME", "FILENAME", "FILE NAME", "TÊN FILE", "TÊN TỆP", "ATTACH"]):
                                         resolved_file_col = c_name
@@ -5080,9 +5115,24 @@ class SapEngine:
                                     except Exception:
                                         pass
 
-                                if r_doc and r_file and r_doc in zfir_results:
-                                    if r_file not in zfir_results[r_doc]:
-                                        zfir_results[r_doc].append(r_file)
+                                matched_doc = None
+                                if r_doc and r_doc in zfir_results:
+                                    matched_doc = r_doc
+                                else:
+                                    for k_cand in zfir_results.keys():
+                                        for c_cand in ["MBELN", "MBLNR", "MAT_DOC", "DOCUMENTNO", "DOCUMENT_NO", "BELNR", "DOCNO"]:
+                                            try:
+                                                if str(grid.GetCellValue(r, c_cand)).strip() == k_cand:
+                                                    matched_doc = k_cand
+                                                    break
+                                            except Exception:
+                                                pass
+                                        if matched_doc:
+                                            break
+
+                                if matched_doc and r_file:
+                                    if r_file not in zfir_results[matched_doc]:
+                                        zfir_results[matched_doc].append(r_file)
 
                             print(f"[ZFIR266 BATCH SUCCESS] Đã trích xuất xong {grid.RowCount} dòng từ ZFIR266.")
                             batch_ran_ok = True
@@ -5204,9 +5254,8 @@ class SapEngine:
             print(f"[ZFIR266 EXCEPTION] {zfir_err}")
             zfir_supported = False
 
-        # 5. DỰ PHÒNG MIGO DISPLAY: CHỈ KHI ZFIR266 KHÔNG KHẢ DỤNG TRÊN HỆ THỐNG
-        # (Nếu ZFIR266 chạy thành công, DOC rỗng nghĩa là thực tế chưa có đính kèm trên SAP, KHÔNG kích hoạt MIGO nhầm)
-        docs_need_migo_fallback = [d for d in clean_docs if not zfir_supported]
+        # 5. DỰ PHÒNG MIGO DISPLAY: Khi ZFIR266 không khả dụng hoặc trả về 0 kết quả cho DOC
+        docs_need_migo_fallback = [d for d in clean_docs if (not zfir_supported) or (d in zfir_results and not zfir_results[d])]
         migo_results = {}
         if docs_need_migo_fallback:
             print(f"[CHECK_ATT FALLBACK] ZFIR266 không khả dụng, chuyển sang kiểm tra GOS qua MIGO Display cho {len(docs_need_migo_fallback)} DOC...")

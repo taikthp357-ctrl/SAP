@@ -805,8 +805,17 @@ def test_parse_nvl_table_rows():
     )
     rows = EmailCommandParser.parse_nvl_table_rows(tab_text)
     assert len(rows) == 2
-    assert rows[0] == {"material": "BIW75111244AA", "qty": 100, "station": "KV08-Thức/Vũ"}
-    assert rows[1] == {"material": "BIW75111244AA", "qty": 100, "station": "KV08-Thức/Vũ"}
+    assert rows[0] == {"material": "BIW75111244AA", "qty": 100, "unit": "PC", "station": "KV08-Thức/Vũ"}
+    assert rows[1] == {"material": "BIW75111244AA", "qty": 100, "unit": "PC", "station": "KV08-Thức/Vũ"}
+
+    # Bảng 4 cột có ĐVT ở giữa (EA / PC)
+    four_cols_text = "BIW32025210AA | 128 | EA | KV-1/Duy/Bằng ZONE 21"
+    rows_4 = EmailCommandParser.parse_nvl_table_rows(four_cols_text)
+    assert len(rows_4) == 1
+    assert rows_4[0]["material"] == "BIW32025210AA"
+    assert rows_4[0]["qty"] == 128
+    assert rows_4[0]["unit"] == "EA"
+    assert rows_4[0]["station"] == "KV-1/Duy/Bằng ZONE 21"
 
     # 2. Bảng có cột STT đứng đầu
     stt_text = (

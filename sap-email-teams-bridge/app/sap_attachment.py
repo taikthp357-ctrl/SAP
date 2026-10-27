@@ -934,34 +934,37 @@ class MigoAttachmentRunner:
             if any(not isinstance(actual[key], str) or actual[key].strip().casefold() != str(self.expected_session_identity[key]).strip().casefold() for key in required):
                 return False, "SESSION_IDENTITY_MISMATCH"
 
-            # Kiểm tra session_id nếu có
-            exp_sess_id = self.expected_session_identity.get("session_id")
-            if exp_sess_id:
-                act_id = getattr(session, "Id", getattr(session, "id", None))
-                if not act_id:
-                    return False, "SESSION_IDENTITY_MISMATCH"
-                act_str = str(act_id).strip().casefold()
-                exp_str = str(exp_sess_id).strip().casefold()
-                if "/" in exp_str:
-                    if act_str != exp_str:
+            # Kiểm tra session_id và session_index (bỏ qua khi chạy multi-tab engine hoặc allow_any_tab)
+            allow_any_tab = self.expected_session_identity.get("allow_any_tab", False) or getattr(self, "_multi_tab_mode", False)
+            if not allow_any_tab:
+                # Kiểm tra session_id nếu có
+                exp_sess_id = self.expected_session_identity.get("session_id")
+                if exp_sess_id:
+                    act_id = getattr(session, "Id", getattr(session, "id", None))
+                    if not act_id:
                         return False, "SESSION_IDENTITY_MISMATCH"
-                else:
-                    if not (act_str == exp_str or act_str.endswith(f"/{exp_str}")):
-                        return False, "SESSION_IDENTITY_MISMATCH"
+                    act_str = str(act_id).strip().casefold()
+                    exp_str = str(exp_sess_id).strip().casefold()
+                    if "/" in exp_str:
+                        if act_str != exp_str:
+                            return False, "SESSION_IDENTITY_MISMATCH"
+                    else:
+                        if not (act_str == exp_str or act_str.endswith(f"/{exp_str}")):
+                            return False, "SESSION_IDENTITY_MISMATCH"
 
-            # Kiểm tra session_index nếu có
-            exp_sess_idx = self.expected_session_identity.get("session_index")
-            if exp_sess_idx is not None:
-                act_idx = None
-                if info is not None and hasattr(info, "SessionNumber"):
-                    act_idx = info.SessionNumber
-                elif hasattr(session, "Id") and "/ses[" in str(session.Id):
-                    try:
-                        act_idx = int(str(session.Id).split("/ses[")[1].split("]")[0])
-                    except Exception:
-                        pass
-                if act_idx is None or int(act_idx) != int(exp_sess_idx):
-                    return False, "SESSION_IDENTITY_MISMATCH"
+                # Kiểm tra session_index nếu có
+                exp_sess_idx = self.expected_session_identity.get("session_index")
+                if exp_sess_idx is not None:
+                    act_idx = None
+                    if info is not None and hasattr(info, "SessionNumber"):
+                        act_idx = info.SessionNumber
+                    elif hasattr(session, "Id") and "/ses[" in str(session.Id):
+                        try:
+                            act_idx = int(str(session.Id).split("/ses[")[1].split("]")[0])
+                        except Exception:
+                            pass
+                    if act_idx is None or int(act_idx) != int(exp_sess_idx):
+                        return False, "SESSION_IDENTITY_MISMATCH"
 
             # Kiểm tra connection_index hoặc connection_id nếu có
             exp_conn_idx = self.expected_session_identity.get("connection_index")
@@ -1194,7 +1197,7 @@ class MigoAttachmentRunner:
                 is_matched = (
                     curr_compact == tick_compact
                     or (tick_words and len(tick_words) == len(curr_words) and tick_words == curr_words)
-                    or bool(re.search(rf"\b{re.escape(ticket_clean.strip())}\b", current_text, re.IGNORECASE))
+                    or bool(re.search(rf"(?<![A-Za-z0-9]){re.escape(ticket_clean.strip())}(?![A-Za-z0-9])", current_text, re.IGNORECASE))
                 )
                 if is_matched:
                     return "HEADTEXT_OK", f"Đã có đúng số phiếu ('{current_text}')"
@@ -2122,6 +2125,7 @@ class MigoAttachmentRunner:
         # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)
         # ---------------------------------------------------------------------
         if len(active_tab_indices) > 1:
+            self._multi_tab_mode = True
             tab_chunks = {t_idx: [] for t_idx in active_tab_indices}
             for i, itm in enumerate(items):
                 target_tab = active_tab_indices[i % len(active_tab_indices)]

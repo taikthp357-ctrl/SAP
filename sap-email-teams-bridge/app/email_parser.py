@@ -224,8 +224,11 @@ class SmartCommandParser:
             elif "|" in line:
                 cols = [c.strip() for c in line.split("|") if c.strip()]
             else:
-                parts = re.split(r"\s{2,}|\s+", line)
-                if len(parts) >= 3:
+                parts = re.split(r"\s+", line)
+                known_units = {"EA", "PC", "KG", "M", "L", "SET", "ROL", "CAR", "THÙNG", "BOX", "BAG", "PALLET"}
+                if len(parts) >= 4 and parts[2].upper() in known_units:
+                    cols = [parts[0], parts[1], parts[2], " ".join(parts[3:])]
+                elif len(parts) >= 3:
                     cols = [parts[0], parts[1], " ".join(parts[2:])]
                 else:
                     cols = parts
@@ -252,11 +255,20 @@ class SmartCommandParser:
                 if re.fullmatch(r"(?:49|50|10)\d{8}", mat_cand) and re.fullmatch(r"(?:19|20|21)\d{2}", qty_str):
                     continue
 
-                station_cand = cols[2].strip() if len(cols) >= 3 else ""
+                unit_cand = "PC"
+                station_cand = ""
+                known_units = {"EA", "PC", "KG", "M", "L", "SET", "ROL", "CAR", "THÙNG", "BOX", "BAG", "PALLET"}
+                if len(cols) >= 4 and cols[2].strip().upper() in known_units:
+                    unit_cand = cols[2].strip().upper()
+                    station_cand = " ".join(cols[3:]).strip()
+                elif len(cols) >= 3:
+                    station_cand = " ".join(cols[2:]).strip()
+
                 int_or_float = int(qty_val) if qty_val.is_integer() else qty_val
                 rows.append({
                     "material": mat_cand,
                     "qty": int_or_float,
+                    "unit": unit_cand,
                     "station": station_cand
                 })
         return rows

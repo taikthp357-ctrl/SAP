@@ -1,0 +1,1376 @@
+{
+  "version": "V31_ZONE",
+  "source_file": "260810_RA_DON_NVL_V31_ZONE.xlsm",
+  "fefo_materials": {
+    "BIW30009362": "HSD",
+    "BIW30111041": "HSD",
+    "BIW71005512": "HSD",
+    "BIW71005612": "HSD",
+    "BIW32032012AA": "HSD",
+    "BIW32032018AA": "HSD",
+    "CON69000038": "HSD"
+  },
+  "box_catalog": {
+    "BIW80001331": {
+      "model": "VF9",
+      "material": "BIW80001331",
+      "box_type": "Thùng giấy",
+      "packing": 24
+    },
+    "BIW80001330": {
+      "model": "VF9",
+      "material": "BIW80001330",
+      "box_type": "Thùng giấy",
+      "packing": 24
+    },
+    "BIW71021240": {
+      "model": "VF7",
+      "material": "BIW71021240",
+      "box_type": "Thùng giấy VF7",
+      "packing": 28
+    },
+    "BIW80000391": {
+      "model": "VF9",
+      "material": "BIW80000391",
+      "box_type": "Thùng giấy",
+      "packing": 28
+    },
+    "BIW71004368AA": {
+      "model": "VF7",
+      "material": "BIW71004368AA",
+      "box_type": "BIW71004368AA/Thùng giấy VF7",
+      "packing": 30
+    },
+    "BIW35116120AA": {
+      "model": "VF9NP",
+      "material": "BIW35116120AA",
+      "box_type": "Thanh nhôm",
+      "packing": 49
+    },
+    "BIW35116110AA": {
+      "model": "VF9NP",
+      "material": "BIW35116110AA",
+      "box_type": "Thanh nhôm",
+      "packing": 49
+    },
+    "BIW30037057": {
+      "model": "VF8",
+      "material": "BIW30037057",
+      "box_type": "ThùngVF8",
+      "packing": 50
+    },
+    "BIW30037058": {
+      "model": "VF8",
+      "material": "BIW30037058",
+      "box_type": "ThùngVF8",
+      "packing": 50
+    },
+    "BIW80007003": {
+      "model": "VF9",
+      "material": "BIW80007003",
+      "box_type": "Thùng VF9",
+      "packing": 60
+    },
+    "BIW80007004": {
+      "model": "VF9",
+      "material": "BIW80007004",
+      "box_type": "Thùng VF9",
+      "packing": 60
+    },
+    "BIW71007528": {
+      "model": "VF6",
+      "material": "BIW71007528",
+      "box_type": "BIW71007528/Thùng giấy VF7",
+      "packing": 60
+    },
+    "BIW75115110AB": {
+      "model": "VF8NP",
+      "material": "BIW75115110AB",
+      "box_type": "Thanh nhôm",
+      "packing": 63
+    },
+    "BIW75115210AB": {
+      "model": "VF8NP",
+      "material": "BIW75115210AB",
+      "box_type": "Thanh nhôm",
+      "packing": 63
+    },
+    "BIW32013764AA": {
+      "model": "Limo",
+      "material": "BIW32013764AA",
+      "box_type": "Thùng giấy Limo",
+      "packing": 64
+    },
+    "BIW32013803AA": {
+      "model": "Limo",
+      "material": "BIW32013803AA",
+      "box_type": "Thùng giấy Limo",
+      "packing": 64
+    },
+    "BIW32013764AB": {
+      "model": "Limo",
+      "material": "BIW32013764AB",
+      "box_type": "BIW32013764AB/Thùng giấy Limo",
+      "packing": 64
+    },
+    "BIW32013803AB": {
+      "model": "Limo",
+      "material": "BIW32013803AB",
+      "box_type": "BIW32013803AB/Thùng giấy Limo",
+      "packing": 64
+    },
+    "BIW30009568": {
+      "model": "VF8",
+      "material": "BIW30009568",
+      "box_type": "Thùng giấy VF8",
+      "packing": 68
+    },
+    "BIW30009569": {
+      "model": "VF8",
+      "material": "BIW30009569",
+      "box_type": "Thùng giấy VF8",
+      "packing": 68
+    },
+    "BIW32013855AB": {
+      "model": "Limo",
+      "material": "BIW32013855AB",
+      "box_type": "Thùng giấy Limo",
+      "packing": 72
+    },
+    "BIW80005214": {
+      "model": "VF9",
+      "material": "BIW80005214",
+      "box_type": "Thùng giấy",
+      "packing": 72
+    },
+    "BIW70004369AA": {
+      "model": "VF6",
+      "material": "BIW70004369AA",
+      "box_type": "Thùng Giấy VF6",
+      "packing": 80
+    },
+    "BIW70004370AA": {
+      "model": "VF6",
+      "material": "BIW70004370AA",
+      "box_type": "Thùng Giấy VF6",
+      "packing": 80
+    },
+    "BIW10001403": {
+      "model": "VF9",
+      "material": "BIW10001403",
+      "box_type": "Thùng giấy",
+      "packing": 80
+    },
+    "BIW70004393": {
+      "model": "VF6",
+      "material": "BIW70004393",
+      "box_type": "Thùng Giấy VF6",
+      "packing": 90
+    },
+    "BIW70004394": {
+      "model": "VF6",
+      "material": "BIW70004394",
+      "box_type": "Thùng Giấy VF6",
+      "packing": 90
+    },
+    "BIW71004494": {
+      "model": "VF7",
+      "material": "BIW71004494",
+      "box_type": "Thùng giấy VF7",
+      "packing": 90
+    },
+    "BIW70004393AB": {
+      "model": "VF6",
+      "material": "BIW70004393AB",
+      "box_type": "Thùng giấy VF6",
+      "packing": 90
+    },
+    "BIW30009389": {
+      "model": "VF8",
+      "material": "BIW30009389",
+      "box_type": "Thùng giấy VF8",
+      "packing": 96
+    },
+    "BIW30009390": {
+      "model": "VF8",
+      "material": "BIW30009390",
+      "box_type": "Thùng giấy VF8",
+      "packing": 96
+    },
+    "BIW74115111AA": {
+      "model": "VF6NP",
+      "material": "BIW74115111AA",
+      "box_type": "Thanh nhôm",
+      "packing": 96
+    },
+    "BIW74115211AA": {
+      "model": "VF6NP",
+      "material": "BIW74115211AA",
+      "box_type": "Thanh nhôm",
+      "packing": 96
+    },
+    "BIW32011451AB": {
+      "model": "Limo",
+      "material": "BIW32011451AB",
+      "box_type": "Thùng giấy Limo",
+      "packing": 100
+    },
+    "BIW32023712SA": {
+      "model": "Limo",
+      "material": "BIW32023712SA",
+      "box_type": "Thùng giấy Limo",
+      "packing": 100
+    },
+    "BIW32023721SA": {
+      "model": "Limo",
+      "material": "BIW32023721SA",
+      "box_type": "Thùng giấy Limo",
+      "packing": 100
+    },
+    "BIW32026510SA": {
+      "model": "Limo",
+      "material": "BIW32026510SA",
+      "box_type": "Thùng giấy Limo",
+      "packing": 100
+    },
+    "BIW80004882": {
+      "model": "VF9",
+      "material": "BIW80004882",
+      "box_type": "Thùng giấy",
+      "packing": 100
+    },
+    "BIW80004695": {
+      "model": "VF9",
+      "material": "BIW80004695",
+      "box_type": "Thùng giấy",
+      "packing": 100
+    },
+    "BIW80004696": {
+      "model": "VF9",
+      "material": "BIW80004696",
+      "box_type": "Thùng giấy",
+      "packing": 100
+    },
+    "BIW30037050AA": {
+      "model": "VF8",
+      "material": "BIW30037050AA",
+      "box_type": "Thanh nhôm VF8",
+      "packing": 104
+    },
+    "BIW30037051AA": {
+      "model": "VF8",
+      "material": "BIW30037051AA",
+      "box_type": "Thanh nhôm VF8",
+      "packing": 104
+    },
+    "BIW80007006AA": {
+      "model": "VF9",
+      "material": "BIW80007006AA",
+      "box_type": "Thanh nhôm",
+      "packing": 104
+    },
+    "BIW80007005AA": {
+      "model": "VF9",
+      "material": "BIW80007005AA",
+      "box_type": "Thanh nhôm",
+      "packing": 104
+    },
+    "BIW30008759": {
+      "model": "VF8",
+      "material": "BIW30008759",
+      "box_type": "Thùng giấy VF8",
+      "packing": 130
+    },
+    "BIW30008760": {
+      "model": "VF8",
+      "material": "BIW30008760",
+      "box_type": "Thùng giấy VF8",
+      "packing": 130
+    },
+    "BIW70011227AA": {
+      "model": "VF7",
+      "material": "BIW70011227AA",
+      "box_type": "Thùng giấy VF7/VF6",
+      "packing": 144
+    },
+    "BIW70011072AC": {
+      "model": "VF6",
+      "material": "BIW70011072AC",
+      "box_type": "BIW70011072AC/Thùng giấy VF7/VF6",
+      "packing": 144
+    },
+    "BIW32013616AA": {
+      "model": "Limo",
+      "material": "BIW32013616AA",
+      "box_type": "Lỗi biến dạng",
+      "packing": 156
+    },
+    "BIW32013617AA": {
+      "model": "Limo",
+      "material": "BIW32013617AA",
+      "box_type": "Lỗi biến dạng",
+      "packing": 156
+    },
+    "BIW30008773": {
+      "model": "VF8",
+      "material": "BIW30008773",
+      "box_type": "Thùng giấy VF8",
+      "packing": 160
+    },
+    "BIW80004673": {
+      "model": "VF9",
+      "material": "BIW80004673",
+      "box_type": "Thùng giấy",
+      "packing": 160
+    },
+    "BIW80004674": {
+      "model": "VF9",
+      "material": "BIW80004674",
+      "box_type": "Thùng giấy",
+      "packing": 160
+    },
+    "BIW30008141": {
+      "model": "VF8",
+      "material": "BIW30008141",
+      "box_type": "Thùng giấy VF8",
+      "packing": 170
+    },
+    "BIW70011309": {
+      "model": "VF7",
+      "material": "BIW70011309",
+      "box_type": "Thùng giấy VF7",
+      "packing": 180
+    },
+    "BIW73018245HA": {
+      "model": "VF5",
+      "material": "BIW73018245HA",
+      "box_type": "Thùng GỖ VF5",
+      "packing": 200
+    },
+    "BIW32011342AB": {
+      "model": "Limo",
+      "material": "BIW32011342AB",
+      "box_type": "Thùng giấy",
+      "packing": 240
+    },
+    "BIW80003307": {
+      "model": "VF9",
+      "material": "BIW80003307",
+      "box_type": "Thùng giấy",
+      "packing": 300
+    },
+    "BIW73150108AA": {
+      "model": "VF5",
+      "material": "BIW73150108AA",
+      "box_type": "Thùng giấy VF5",
+      "packing": 850
+    },
+    "BIW70011307": {
+      "model": "VF7",
+      "material": "BIW70011307",
+      "box_type": "Thùng VF6/7",
+      "packing": 2800
+    },
+    "BIW70011097": {
+      "model": "VF6",
+      "material": "BIW70011097",
+      "box_type": "Thùng VF6/7",
+      "packing": 250
+    },
+    "BIW32025510SA": {
+      "model": "Limo",
+      "material": "BIW32025510SA",
+      "box_type": "Thùng giấy Limo/100",
+      "packing": 100
+    },
+    "BIW70004043": {
+      "model": "VF6",
+      "material": "BIW70004043",
+      "box_type": "Thùng Giấy VF6/100",
+      "packing": 100
+    },
+    "BIW70004044": {
+      "model": "VF7",
+      "material": "BIW70004044",
+      "box_type": "Thùng Giấy VF6/100",
+      "packing": 100
+    },
+    "BIW70005015": {
+      "model": "VF6",
+      "material": "BIW70005015",
+      "box_type": "Thùng Giấy VF6/100",
+      "packing": 100
+    },
+    "BIW70006015": {
+      "model": "VF6",
+      "material": "BIW70006015",
+      "box_type": "Thùng Giấy VF6/100",
+      "packing": 100
+    },
+    "BIW71004043": {
+      "model": "VF7",
+      "material": "BIW71004043",
+      "box_type": "Thùng giấy VF7/100",
+      "packing": 100
+    },
+    "BIW71004044": {
+      "model": "VF7",
+      "material": "BIW71004044",
+      "box_type": "Thùng giấy VF7/100",
+      "packing": 100
+    },
+    "BIW73016201BA": {
+      "model": "VF5",
+      "material": "BIW73016201BA",
+      "box_type": "Thanh nhôm VF5/100",
+      "packing": 100
+    },
+    "BIW73016200BA": {
+      "model": "VF5",
+      "material": "BIW73016200BA",
+      "box_type": "Thanh nhôm VF5/100",
+      "packing": 100
+    },
+    "BIW73016200AB": {
+      "model": "VF5",
+      "material": "BIW73016200AB",
+      "box_type": "Thùng giấy VF5/100",
+      "packing": 100
+    },
+    "BIW73016201AB": {
+      "model": "VF5",
+      "material": "BIW73016201AB",
+      "box_type": "Thùng giấy VF5/100",
+      "packing": 100
+    },
+    "BIW73015295AB": {
+      "model": "VF5",
+      "material": "BIW73015295AB",
+      "box_type": "Thùng giấy VF5 Unback/108",
+      "packing": 108
+    },
+    "BIW70004659": {
+      "model": "VF6",
+      "material": "BIW70004659",
+      "box_type": "Thùng Giấy VF6/125",
+      "packing": 125
+    },
+    "BIW71004497": {
+      "model": "VF6",
+      "material": "BIW71004497",
+      "box_type": "Thùng giấy VF7/125",
+      "packing": 125
+    },
+    "BIW70004050": {
+      "model": "VF6",
+      "material": "BIW70004050",
+      "box_type": "Thùng giấy VF6/7/126",
+      "packing": 126
+    },
+    "BIW73010539AB": {
+      "model": "VF5",
+      "material": "BIW73010539AB",
+      "box_type": "Thùng VF5/128",
+      "packing": 128
+    },
+    "BIW73010566AB": {
+      "model": "VF5",
+      "material": "BIW73010566AB",
+      "box_type": "Thùng VF5/128",
+      "packing": 128
+    },
+    "BIW32026215AA": {
+      "model": "Limo",
+      "material": "BIW32026215AA",
+      "box_type": "Thùng giấy Limo/128",
+      "packing": 128
+    },
+    "BIW32025210AA": {
+      "model": "Limo",
+      "material": "BIW32025210AA",
+      "box_type": "Thùng giấy Limo/128",
+      "packing": 128
+    },
+    "BIW70002003AA": {
+      "model": "VF6",
+      "material": "BIW70002003AA",
+      "box_type": "Thùng Giấy VF6/140",
+      "packing": 140
+    },
+    "BIW70003003AA": {
+      "model": "VF6",
+      "material": "BIW70003003AA",
+      "box_type": "Thùng Giấy VF6/140",
+      "packing": 140
+    },
+    "BIW70011227AC": {
+      "model": "VF7",
+      "material": "BIW70011227AC",
+      "box_type": "Thùng giấy VF7/VF6/144",
+      "packing": 144
+    },
+    "BIW70011072AD": {
+      "model": "VF6",
+      "material": "BIW70011072AD",
+      "box_type": "Thùng giấy VF7/VF6/144",
+      "packing": 144
+    },
+    "BIW70011227AD": {
+      "model": "VF6",
+      "material": "BIW70011227AD",
+      "box_type": "Thùng giấy VF6/144",
+      "packing": 144
+    },
+    "BIW32013741AB": {
+      "model": "Limo",
+      "material": "BIW32013741AB",
+      "box_type": "Thùng giấy Limo/144",
+      "packing": 144
+    },
+    "BIW32012454AA": {
+      "model": "Limo",
+      "material": "BIW32012454AA",
+      "box_type": "Thùng giấy Limo SAC/144",
+      "packing": 144
+    },
+    "BIW32012455AA": {
+      "model": "Limo",
+      "material": "BIW32012455AA",
+      "box_type": "Thùng giấy Limo SAC/144",
+      "packing": 144
+    },
+    "BIW73215311AB": {
+      "model": "VF5",
+      "material": "BIW73215311AB",
+      "box_type": "Thùng giấy VF5/160",
+      "packing": 160
+    },
+    "BIW73216320AB": {
+      "model": "VF5",
+      "material": "BIW73216320AB",
+      "box_type": "Thùng giấy VF5/160",
+      "packing": 160
+    },
+    "BIW70011309AA": {
+      "model": "VF6",
+      "material": "BIW70011309AA",
+      "box_type": "Thùng VF6/7/180",
+      "packing": 180
+    },
+    "BIW71004369": {
+      "model": "VF7",
+      "material": "BIW71004369",
+      "box_type": "Thùng giấy VF7/20",
+      "packing": 20
+    },
+    "BIW32011242AB": {
+      "model": "Limo",
+      "material": "BIW32011242AB",
+      "box_type": "Thùng gỗ/240",
+      "packing": 240
+    },
+    "BIW32011342AA": {
+      "model": "Limo",
+      "material": "BIW32011342AA",
+      "box_type": "Thùng gỗ/240",
+      "packing": 240
+    },
+    "BIW32011242AA": {
+      "model": "Limo",
+      "material": "BIW32011242AA",
+      "box_type": "Thùng gỗ /240",
+      "packing": 240
+    },
+    "BIW71005023": {
+      "model": "VF7",
+      "material": "BIW71005023",
+      "box_type": "Thùng giấy VF7/25",
+      "packing": 25
+    },
+    "BIW73010887AA": {
+      "model": "VF5",
+      "material": "BIW73010887AA",
+      "box_type": "Thùng giấy VF5/250",
+      "packing": 250
+    },
+    "BIW73015519AA": {
+      "model": "VF5",
+      "material": "BIW73015519AA",
+      "box_type": "Thùng giấy VF5/250",
+      "packing": 250
+    },
+    "BIW32012487AB": {
+      "model": "Limo",
+      "material": "BIW32012487AB",
+      "box_type": "Thùng giấy Limo SAC/270",
+      "packing": 270
+    },
+    "BIW32012488AC": {
+      "model": "Limo",
+      "material": "BIW32012488AC",
+      "box_type": "Thùng giấy Limo SAC/270",
+      "packing": 270
+    },
+    "BIW71004370": {
+      "model": "VF7",
+      "material": "BIW71004370",
+      "box_type": "Thùng giấy VF7/30",
+      "packing": 30
+    },
+    "BIW71006023": {
+      "model": "VF7",
+      "material": "BIW71006023",
+      "box_type": "Thùng giấy VF7/30",
+      "packing": 30
+    },
+    "BIW71004367": {
+      "model": "VF7",
+      "material": "BIW71004367",
+      "box_type": "Thùng giấy VF7/30",
+      "packing": 30
+    },
+    "BIW71004368": {
+      "model": "VF7",
+      "material": "BIW71004368",
+      "box_type": "Thùng Giấy VF7/30",
+      "packing": 30
+    },
+    "BIW71004368HA": {
+      "model": "VF7",
+      "material": "BIW71004368HA",
+      "box_type": "Thùng giấy VF7/30",
+      "packing": 30
+    },
+    "BIW32012310AA": {
+      "model": "Limo",
+      "material": "BIW32012310AA",
+      "box_type": "Thùng giấy Limo/350",
+      "packing": 350
+    },
+    "BIW32012410AA": {
+      "model": "Limo",
+      "material": "BIW32012410AA",
+      "box_type": "Thùng giấy Limo/350",
+      "packing": 350
+    },
+    "BIW73018245AB": {
+      "model": "VF5",
+      "material": "BIW73018245AB",
+      "box_type": "Thùng GỖ VF5/360",
+      "packing": 360
+    },
+    "BIW73015530AB": {
+      "model": "VF5",
+      "material": "BIW73015530AB",
+      "box_type": "Thùng GỖ VF5/371",
+      "packing": 371
+    },
+    "BIW70005023AB": {
+      "model": "VF6",
+      "material": "BIW70005023AB",
+      "box_type": "Thùng Giấy VF6/40",
+      "packing": 40
+    },
+    "BIW70006023AB": {
+      "model": "VF6",
+      "material": "BIW70006023AB",
+      "box_type": "Thùng Giấy VF6/40",
+      "packing": 40
+    },
+    "BIW32012580AA": {
+      "model": "Limo",
+      "material": "BIW32012580AA",
+      "box_type": "Thùng giấy Limo/48",
+      "packing": 48
+    },
+    "BIW32012585AA": {
+      "model": "Limo",
+      "material": "BIW32012585AA",
+      "box_type": "Thùng giấy Limo/48",
+      "packing": 48
+    },
+    "BIW70004371": {
+      "model": "VF6",
+      "material": "BIW70004371",
+      "box_type": "Thanh nhôm VF6/49",
+      "packing": 49
+    },
+    "BIW70004372": {
+      "model": "VF6",
+      "material": "BIW70004372",
+      "box_type": "Thanh nhôm VF6/49",
+      "packing": 49
+    },
+    "BIW70004371AA": {
+      "model": "VF6",
+      "material": "BIW70004371AA",
+      "box_type": "Thanh nhôm VF6/49",
+      "packing": 49
+    },
+    "BIW70004372AA": {
+      "model": "VF6",
+      "material": "BIW70004372AA",
+      "box_type": "Thanh nhôm VF6/49",
+      "packing": 49
+    },
+    "BIW71021193": {
+      "model": "VF7",
+      "material": "BIW71021193",
+      "box_type": "Thùng giấy VF7/520",
+      "packing": 520
+    },
+    "BIW71004371": {
+      "model": "VF7",
+      "material": "BIW71004371",
+      "box_type": "Thanh nhôm VF7/56",
+      "packing": 56
+    },
+    "BIW71004372": {
+      "model": "VF7",
+      "material": "BIW71004372",
+      "box_type": "Thanh nhôm VF7/56",
+      "packing": 56
+    },
+    "BIW70004018": {
+      "model": "VF6",
+      "material": "BIW70004018",
+      "box_type": "Thùng Giấy VF6/60",
+      "packing": 60
+    },
+    "BIW70004664AB": {
+      "model": "VF6",
+      "material": "BIW70004664AB",
+      "box_type": "Thùng Giấy VF6/60",
+      "packing": 60
+    },
+    "BIW70004676AB": {
+      "model": "VF6",
+      "material": "BIW70004676AB",
+      "box_type": "Thùng Giấy VF6/60",
+      "packing": 60
+    },
+    "BIW70007527AA": {
+      "model": "VF6",
+      "material": "BIW70007527AA",
+      "box_type": "Thùng giấy VF6/60",
+      "packing": 60
+    },
+    "BIW71002037AA": {
+      "model": "VF7",
+      "material": "BIW71002037AA",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71004664AA": {
+      "model": "VF7",
+      "material": "BIW71004664AA",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71004676AA": {
+      "model": "VF6",
+      "material": "BIW71004676AA",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71005016": {
+      "model": "VF7",
+      "material": "BIW71005016",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71006016": {
+      "model": "VF7",
+      "material": "BIW71006016",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71003037AA": {
+      "model": "VF7",
+      "material": "BIW71003037AA",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71004493HA": {
+      "model": "VF7",
+      "material": "BIW71004493HA",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71004498": {
+      "model": "VF7",
+      "material": "BIW71004498",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW73016320AA": {
+      "model": "VF5",
+      "material": "BIW73016320AA",
+      "box_type": "Thùng giấy  VF5 Unback/60",
+      "packing": 60
+    },
+    "BIW71003037AB": {
+      "model": "VF6",
+      "material": "BIW71003037AB",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW71002037AB": {
+      "model": "VF6",
+      "material": "BIW71002037AB",
+      "box_type": "Thùng giấy VF7/60",
+      "packing": 60
+    },
+    "BIW32015110AB": {
+      "model": "Limo",
+      "material": "BIW32015110AB",
+      "box_type": "Thanh nhôm Limo/63",
+      "packing": 63
+    },
+    "BIW32015210AB": {
+      "model": "Limo",
+      "material": "BIW32015210AB",
+      "box_type": "Thanh nhôm Limo/63",
+      "packing": 63
+    },
+    "BIW70004367": {
+      "model": "VF6",
+      "material": "BIW70004367",
+      "box_type": "Thùng Giấy VF6/64",
+      "packing": 64
+    },
+    "BIW70004368": {
+      "model": "VF6",
+      "material": "BIW70004368",
+      "box_type": "Thùng Giấy VF6/64",
+      "packing": 64
+    },
+    "BIW32025310AA": {
+      "model": "Limo",
+      "material": "BIW32025310AA",
+      "box_type": "Thùng giấy Limo/70",
+      "packing": 70
+    },
+    "BIW32026310AA": {
+      "model": "Limo",
+      "material": "BIW32026310AA",
+      "box_type": "Thùng giấy Limo/70",
+      "packing": 70
+    },
+    "BIW70048171": {
+      "model": "VF6",
+      "material": "BIW70048171",
+      "box_type": "Thùng Giấy VF6/715",
+      "packing": 715
+    },
+    "BIW73018245AC": {
+      "model": "VF5",
+      "material": "BIW73018245AC",
+      "box_type": "Thùng GỖ VF5/720",
+      "packing": 720
+    },
+    "BIW71048173": {
+      "model": "VF7",
+      "material": "BIW71048173",
+      "box_type": "Thùng giấy VF7/725",
+      "packing": 725
+    },
+    "BIW70021181": {
+      "model": "VF6",
+      "material": "BIW70021181",
+      "box_type": "Thùng Giấy VF6/740",
+      "packing": 740
+    },
+    "BIW70005016": {
+      "model": "VF6",
+      "material": "BIW70005016",
+      "box_type": "Thùng Giấy VF6/80",
+      "packing": 80
+    },
+    "BIW70006016": {
+      "model": "VF6",
+      "material": "BIW70006016",
+      "box_type": "Thùng Giấy VF6/80",
+      "packing": 80
+    },
+    "BIW70004369AB": {
+      "model": "VF6",
+      "material": "BIW70004369AB",
+      "box_type": "Thùng giấy VF7/VF6/80",
+      "packing": 80
+    },
+    "BIW70004370AB": {
+      "model": "VF6",
+      "material": "BIW70004370AB",
+      "box_type": "Thùng giấy VF7/VF6/80",
+      "packing": 80
+    },
+    "BIW73015311AA": {
+      "model": "VF5",
+      "material": "BIW73015311AA",
+      "box_type": "Thùng giấy  VF5 Unback/80",
+      "packing": 80
+    },
+    "BIW73110107AA": {
+      "model": "VF5",
+      "material": "BIW73110107AA",
+      "box_type": "Thùng giấy VF5/850",
+      "packing": 850
+    },
+    "BIW71004493": {
+      "model": "VF7",
+      "material": "BIW71004493",
+      "box_type": "Thùng giấy VF7/90",
+      "packing": 90
+    },
+    "BIW71004494AA": {
+      "model": "VF7",
+      "material": "BIW71004494AA",
+      "box_type": "Thùng giấy VF7/90",
+      "packing": 90
+    },
+    "BIW70004394AA": {
+      "model": "VF6",
+      "material": "BIW70004394AA",
+      "box_type": "Thùng giấy VF6/90",
+      "packing": 90
+    },
+    "BIW30037042": {
+      "model": "VF8",
+      "material": "BIW30037042",
+      "box_type": "Thùng giấy VF8/93",
+      "packing": 93
+    },
+    "BIW30037043": {
+      "model": "VF8",
+      "material": "BIW30037043",
+      "box_type": "Thùng giấy VF8/93",
+      "packing": 93
+    },
+    "BIW75112330AA": {
+      "model": "VF8NP",
+      "material": "BIW75112330AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 350
+    },
+    "BIW75112430AA": {
+      "model": "VF8NP",
+      "material": "BIW75112430AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 350
+    },
+    "BIW75113741AA": {
+      "model": "VF8NP",
+      "material": "BIW75113741AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 20
+    },
+    "BIW75113764AB": {
+      "model": "VF8NP",
+      "material": "BIW75113764AB",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 64
+    },
+    "BIW75113803AB": {
+      "model": "VF8NP",
+      "material": "BIW75113803AB",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 64
+    },
+    "BIW75125270AA": {
+      "model": "VF8NP",
+      "material": "BIW75125270AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 128
+    },
+    "BIW75125310AA": {
+      "model": "VF8NP",
+      "material": "BIW75125310AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 64
+    },
+    "BIW75125712AB": {
+      "model": "VF8NP",
+      "material": "BIW75125712AB",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 400
+    },
+    "BIW75126310AA": {
+      "model": "VF8NP",
+      "material": "BIW75126310AA",
+      "box_type": "Thùng giấy VF8NP",
+      "packing": 64
+    }
+  },
+  "bin_patterns": [
+    {
+      "pattern": "APFL-BL01-01-01",
+      "zone": "BIN BLOCK"
+    },
+    {
+      "pattern": "APFL-CC*",
+      "zone": "Sọt sắt-Box giấy"
+    },
+    {
+      "pattern": "APFL-HO*",
+      "zone": "Hàng Hold"
+    },
+    {
+      "pattern": "APFL-HR*",
+      "zone": "Box giấy-Hàng thùng"
+    },
+    {
+      "pattern": "APFL-HTK*",
+      "zone": "Hàng tập kết"
+    },
+    {
+      "pattern": "APFL-MA01-01-01",
+      "zone": "Hàng mới về"
+    },
+    {
+      "pattern": "APFL-OV*",
+      "zone": "MA2"
+    },
+    {
+      "pattern": "APFL-P00*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P01*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P02*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P03*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P04*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P05*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P06*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P07*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P08*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P09*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P10*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P11*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P12*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P13*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P14*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P15*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P16*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P17*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P18*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P19*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P20*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P21*",
+      "zone": "Box giấy"
+    },
+    {
+      "pattern": "APFL-P22*",
+      "zone": "Rack RV5"
+    },
+    {
+      "pattern": "APFL-P23*",
+      "zone": "Rack RV5"
+    },
+    {
+      "pattern": "APFL-P24*",
+      "zone": "Rack Cam"
+    },
+    {
+      "pattern": "APFL-P25*",
+      "zone": "Box giấy"
+    },
+    {
+      "pattern": "APFL-P26*",
+      "zone": "Sọt sắt"
+    },
+    {
+      "pattern": "APFL-P27*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P28*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P29*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P30*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P31*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-P32*",
+      "zone": "Hàng Box"
+    },
+    {
+      "pattern": "APFL-ZF01*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF02*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF03*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF04*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF05*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF06*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF07*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF08*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF09*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF10*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF11*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF12*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF13*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF14*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF15*",
+      "zone": "Box giấy"
+    },
+    {
+      "pattern": "APFL-ZF16*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF17*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF18*",
+      "zone": "Box giấy"
+    },
+    {
+      "pattern": "APFL-ZF19*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF20*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF21*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF22*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF23*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF24*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF25*",
+      "zone": "Box giấy"
+    },
+    {
+      "pattern": "APFL-ZF26*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF27*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF28*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF29*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF30*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF31*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF32*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF33*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF34*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF35*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF36*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF37*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF38*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF39*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF40*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF41*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF42*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF43*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF44*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF45*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF46*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF47*",
+      "zone": "Hàng thùng"
+    },
+    {
+      "pattern": "APFL-ZF48*",
+      "zone": "Hàng thùng"
+    }
+  ],
+  "box_rules": [
+    {
+      "min": 1,
+      "max": 100,
+      "boxes": 3
+    },
+    {
+      "min": 101,
+      "max": 200,
+      "boxes": 2
+    },
+    {
+      "min": 201,
+      "max": 999999,
+      "boxes": 1
+    }
+  ]
+}

@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.80"
+VERSION = "v1.0.81"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
@@ -107,7 +107,8 @@ def create_patch_zip():
         "START_BACKGROUND.vbs",
         "STOP_BRIDGE.cmd",
         "config.json",
-        "data/DATA_MASTER.xlsx"
+        "data/DATA_MASTER.xlsx",
+        "data/nvl_master_v31.json"
     ]
     with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for fname in patch_includes:
@@ -151,10 +152,14 @@ def create_standard_zip():
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
 
-        # Luôn bao gồm data/DATA_MASTER.xlsx (Từ điển mã hàng chuẩn)
+        # Luôn bao gồm data/DATA_MASTER.xlsx và data/nvl_master_v31.json (Từ điển mã hàng & Master V31)
         data_master = BASE_DIR / "data" / "DATA_MASTER.xlsx"
         if data_master.exists():
             zf.write(data_master, arcname="data/DATA_MASTER.xlsx")
+            count += 1
+        nvl_master = BASE_DIR / "data" / "nvl_master_v31.json"
+        if nvl_master.exists():
+            zf.write(nvl_master, arcname="data/nvl_master_v31.json")
             count += 1
 
     print(f"[SUCCESS] Đã tạo file Standard ({count} files): {STANDARD_ZIP.name}")
@@ -182,10 +187,14 @@ def create_portable_zip():
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
 
-        # Luôn bao gồm data/DATA_MASTER.xlsx (Từ điển mã hàng chuẩn)
+        # Luôn bao gồm data/DATA_MASTER.xlsx và data/nvl_master_v31.json (Từ điển mã hàng & Master V31)
         data_master = BASE_DIR / "data" / "DATA_MASTER.xlsx"
         if data_master.exists():
             zf.write(data_master, arcname="data/DATA_MASTER.xlsx")
+            count += 1
+        nvl_master = BASE_DIR / "data" / "nvl_master_v31.json"
+        if nvl_master.exists():
+            zf.write(nvl_master, arcname="data/nvl_master_v31.json")
             count += 1
 
         for root, dirs, files in os.walk(runtime_source):
