@@ -157,7 +157,22 @@ class SmartCommandParser:
         import html
         text = html.unescape(source)
         text = text.replace("\xa0", " ").replace("\u200b", "").replace("\u3000", " ")
-        text = re.sub(r"<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", text, flags=re.IGNORECASE)
+
+        # 1. Bảo toàn cấu trúc Table khi copy từ Excel/Teams (loại bỏ p/div/span lồng trong ô)
+        def _clean_table_row(match):
+            row_html = match.group(1)
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, flags=re.IGNORECASE | re.DOTALL)
+            cleaned_cells = []
+            for c in cells:
+                c_text = re.sub(r"<[^>]+>", " ", c)
+                c_text = re.sub(r"\s+", " ", c_text).strip()
+                cleaned_cells.append(c_text)
+            return "\t".join(cleaned_cells) + "\n"
+
+        text = re.sub(r"<tr[^>]*>(.*?)</tr>", _clean_table_row, text, flags=re.IGNORECASE | re.DOTALL)
+
+        # 2. Xử lý các thẻ ngoài bảng
+        text = re.sub(r"<br\s*/?>|</p>|</div>|</li>", "\n", text, flags=re.IGNORECASE)
         text = re.sub(r"</td>", "\t", text, flags=re.IGNORECASE)
         text = re.sub(r"<at[^>]*>.*?</at>", " ", text, flags=re.IGNORECASE | re.DOTALL)
         text = re.sub(r"<[^>]+>", " ", text)
@@ -190,6 +205,12 @@ class SmartCommandParser:
             line = raw_line.strip()
             if not line:
                 continue
+
+            # Bỏ qua tiền tố lệnh ở đầu dòng nếu người dùng gõ liền (VD: "SAP ra đơn nvl BIW... 128 KV-1")
+            m_pref = re.match(r"^\s*(?:sap\s+)?(?:ra\s+[dđ][oơ][n]\s+nvl|k[eê]\s+ho[aạ]ch\s+nvl|[dđ][oơ][n]\s+nvl)\s*[:=-]?\s*", line, re.I)
+            if m_pref and m_pref.end() < len(line):
+                line = line[m_pref.end():].strip()
+
             norm_line = cls.remove_accents(line).lower()
             # Bỏ qua các dòng chỉ chứa tiêu đề thuần túy
             if any(h in norm_line for h in ["ma nvl", "ma hang", "material", "so luong", "sl", "qty", "tram", "station", "ra don nvl"]):
@@ -205,6 +226,8 @@ class SmartCommandParser:
             else:
                 parts = re.split(r"\s{2,}|\s+", line)
                 if len(parts) >= 3:
+                    cols = [parts[0], parts[1], " ".join(parts[2:])]
+                else:
                     cols = parts
 
             # Nếu có cột STT hoặc OB ở đầu (VD: 1, 01, OB1, #1) và cột kế tiếp là mã vật tư
