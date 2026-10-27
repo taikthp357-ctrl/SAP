@@ -265,4 +265,58 @@ def test_parser_and_handler_tra_cuu_cap_nvl(mock_tracking_workbook):
     handler = NvlHandler()
     result = handler.handle(ctx)
     assert result.status == "SUCCEEDED"
-    assert "KẾT QUẢ ĐỐI SOÁT & ĐỊNH DANH" in result.custom_html
+    assert "BẢNG THEO DÕI CẤP HÀNG NVL" in result.custom_html
+    assert "BẢNG THEO DÕI CẤP HÀNG NVL" in result.summary
+    assert "BIW70004393AB" in result.summary
+    assert "sp_display" in result.headers
+    assert "gap_display" in result.headers
+
+
+def test_tra_cuu_cap_nvl_limo_table(mock_tracking_workbook):
+    """Kiểm tra truy vấn hỏi các mã của Limo và trả về bảng mã số phiếu, gap, order, cấp thiếu."""
+    # Thêm dòng order cho Model LIMO trong file theo dõi mock
+    wb = openpyxl.load_workbook(str(mock_tracking_workbook))
+    ws = wb["ODER NVl"]
+    ws.append([
+        "SIMWON", "KV01", 10, "BIW32025740AA", 840, "KV-1/Duy/Bằng ZONE 21", 3093, 1005, 3001, "LIMO",
+        "S1/S2", "S1/S2", "", "1012798678", "19-105", 500, "", "", 0, "", "", 0, "", "", 0,
+        500, -340, "Pending", "Cấp thiếu", "2026-10-28", "", "2026-10-28", "08:00", "TL_LIMO", "S1/S2", 0, ""
+    ])
+    wb.save(str(mock_tracking_workbook))
+
+    query = "các mã này của limo: BIW32025740AA"
+    parsed = SmartCommandParser.parse(query)
+    assert parsed["command"] == "TRA_CUU_CAP_NVL"
+    assert parsed["model"] == "LIMO"
+    assert "BIW32025740AA" in parsed["materials"]
+
+    ctx = RequestContext(
+        request_id="REQ_TEST_LIMO_QUERY",
+        command=parsed["command"],
+        raw_materials=parsed["materials"],
+        resolved_materials=parsed["materials"],
+        meta=parsed,
+        plant="3093",
+        config={"tracking_files_dir": str(mock_tracking_workbook.parent)}
+    )
+
+    handler = NvlHandler()
+    result = handler.handle(ctx)
+    assert result.status == "SUCCEEDED"
+    assert len(result.records) >= 1
+
+    rec = result.records[0]
+    assert rec["material"] == "BIW32025740AA"
+    assert rec["model"] == "LIMO"
+    assert "Phiếu 19-105" in rec["sp_display"]
+    assert rec["order_qty"] == 840.0
+    assert rec["total_cap"] == 500.0
+    assert rec["gap"] == -340.0
+    assert rec["gap_display"] == "-340 PC"
+    assert rec["status_pick"] == "Cấp thiếu"
+
+    # Kiểm tra cấu trúc Bảng HTML và Markdown
+    assert "BẢNG THEO DÕI CẤP HÀNG NVL (MODEL LIMO)" in result.summary
+    assert "| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu (SP / OB) | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng | Tồn 1005 |" in result.summary
+    assert "Quick Copy cho Zalo / Teams" in result.summary
+    assert "Phiếu 19-105" in result.custom_html

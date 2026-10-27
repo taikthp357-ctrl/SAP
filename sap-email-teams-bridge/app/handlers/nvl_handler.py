@@ -415,28 +415,28 @@ class NvlHandler(BaseHandler):
                 "model": "Model xe",
                 "shift_chay": "Ca chạy",
                 "station": "Trạm cấp",
+                "sp_display": "Số phiếu (SP / OB)",
                 "order_qty": "SL Order",
                 "total_cap": "Đã cấp",
-                "gap": "Còn thiếu (Gap)",
-                "sp_display": "Số Phiếu / OB",
-                "status_pick": "TT nhặt hàng"
+                "gap_display": "Cấp thiếu (Gap)",
+                "status_pick": "TT Nhặt hàng",
+                "stock_1005": "Tồn Kho 1005 (SAP)"
             }
 
             custom_html = (
-                f"<div style='font-family:Segoe UI,sans-serif;background:#ffffff;border:1px solid #d0d7de;"
-                f"border-radius:6px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'>"
-                f"<div style='font-size:15px;font-weight:bold;color:#0969da;margin-bottom:10px;'>"
-                f"🔍 KẾT QUẢ ĐỐI SOÁT & ĐỊNH DANH CẤP HÀNG NVL (Theo File Theo Dõi & SAP)"
-                f"</div>"
-                f"<div style='background:#f6f8fa;border-left:4px solid #0969da;padding:12px;border-radius:4px;font-size:13px;line-height:1.6;margin-bottom:12px;'>"
+                f"<div style='font-family:Segoe UI,sans-serif;'>"
+                f"{trace_res.get('html_table', '')}"
+                f"<div style='background:#f6f8fa;border-left:4px solid #0969da;padding:12px;border-radius:6px;font-size:13px;line-height:1.6;margin-top:10px;'>"
                 f"{trace_res['summary']}"
                 f"</div>"
                 f"</div>"
             )
 
+            summary_text = trace_res.get("markdown_table") or trace_res["summary"]
+
             return CommandResult(
                 status="SUCCEEDED",
-                summary=trace_res["summary"].replace("<br/>", " | ").replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")[:250] + "...",
+                summary=summary_text,
                 records=trace_res["records"],
                 headers=headers,
                 custom_html=custom_html,

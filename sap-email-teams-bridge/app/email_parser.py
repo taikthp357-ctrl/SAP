@@ -121,7 +121,10 @@ class SmartCommandParser:
         "TRA_CUU_CAP_NVL": [
             (r"\b(?:cap\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*chung)\b", 98),
             (r"\b(?:cap\s*du\s*(?:chua|hay\s*thieu)|cap\s*thieu\s*(?:khsx|chay\s*not)?|ra\s*don\s*cap\s*not|cap\s*giup\s*e|cap\s*cho\s*a\s*con)\b", 96),
+            (r"\b(?:cac\s*ma\s*(?:nay\s*)?(?:cua|cho)\s*(?:limo|vf\d+|xe|model))\b", 96),
+            (r"\b(?:so\s*phieu|phieu\s*sp|gap|cap\s*thieu|oder\s*bao\s*nhieu|cap\s*thieu\s*bao\s*nhieu)\b", 95),
             (r"\b(?:tinh\s*trang\s*cap\s*(?:ma|vat\s*tu)|tra\s*cuu\s*cap\s*nvl|check\s*cap\s*ma|ho\s*tro\s*em\s*may\s*ma)\b", 95),
+            (r"\b(?:hoi\s*(?:cac\s*)?ma|cac\s*ma\s*nay|danh\s*sach\s*ma\s*nay)\b", 90),
             (r"\b(?:cap\s*not|cap\s*bu|xin\s*cap)\b", 92),
         ],
         "TINH_TRANG_NVL": [

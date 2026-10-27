@@ -632,14 +632,25 @@ class NvlTrackingService:
             except Exception:
                 gap = total_cap - sl_order
 
-            sp1 = str(ws.cell(r, 15).value or "").strip()
-            ob1 = str(ws.cell(r, 14).value or "").strip()
-            if sp1 and sp1 not in ["None", "0"]:
-                sp_display = f"Phiếu {sp1}"
-            elif ob1 and ob1 not in ["None", "0"]:
-                sp_display = f"OB {ob1}"
-            else:
-                sp_display = "Chưa ra đơn"
+            collected_docs = []
+            for ob_c, sp_c in [(14, 15), (17, 18), (20, 21), (23, 24)]:
+                o_val = str(ws.cell(r, ob_c).value or "").strip()
+                s_val = str(ws.cell(r, sp_c).value or "").strip()
+                if o_val.endswith(".0"):
+                    o_val = o_val[:-2]
+                if s_val.endswith(".0"):
+                    s_val = s_val[:-2]
+                doc_str = ""
+                if s_val and s_val not in ["None", "0"]:
+                    doc_str = f"Phiếu {s_val}"
+                    if o_val and o_val not in ["None", "0"]:
+                        doc_str += f" ({o_val})"
+                elif o_val and o_val not in ["None", "0"]:
+                    doc_str = f"OB {o_val}"
+                if doc_str and doc_str not in collected_docs:
+                    collected_docs.append(doc_str)
+
+            sp_display = ", ".join(collected_docs) if collected_docs else "Chưa ra đơn" 
 
             status_order = str(ws.cell(r, 28).value or "Pending").strip()
             status_pick = str(ws.cell(r, 29).value or "Chưa Cấp").strip()
@@ -734,6 +745,32 @@ class NvlTrackingService:
 
         summary_text = "<br/>".join(lines_summary)
 
+        # Cập nhật chi tiết hiển thị cho từng dòng kết quả
+        for r_info in matched_rows:
+            r_info["stock_1005"] = f"{stock_1005:.0f} PC" if stock_checked else "---"
+            r_info["stock_1005_val"] = stock_1005 if stock_checked else 0.0
+            r_info["is_target_model"] = bool(highlighted_model and highlighted_model.upper() in r_info["model"].upper())
+            gap_val = r_info["gap"]
+            if gap_val < 0:
+                r_info["gap_display"] = f"-{abs(gap_val):.0f} PC"
+            elif gap_val == 0:
+                r_info["gap_display"] = "0 (Đủ)"
+            else:
+                r_info["gap_display"] = f"+{gap_val:.0f} PC"
+
+        if highlighted_model:
+            matched_rows.sort(key=lambda x: (0 if x["is_target_model"] else 1, x["row"]))
+
+        html_table = cls.generate_trace_table_html(
+            records=matched_rows,
+            hint_model=highlighted_model,
+            tracking_file=tracking_file.name
+        )
+        markdown_table = cls.generate_trace_markdown(
+            records=matched_rows,
+            hint_model=highlighted_model
+        )
+
         return {
             "status": "OK",
             "material": clean_mat,
@@ -744,7 +781,9 @@ class NvlTrackingService:
             "total_gap": total_gap,
             "stock_1005": stock_1005 if stock_checked else None,
             "records": matched_rows,
-            "tracking_file": tracking_file.name
+            "tracking_file": tracking_file.name,
+            "html_table": html_table,
+            "markdown_table": markdown_table
         }
 
     @classmethod
@@ -771,11 +810,29 @@ class NvlTrackingService:
             results.append(res)
 
         all_records = []
+        tracking_file_name = ""
         for r in results:
+            if not tracking_file_name and r.get("tracking_file"):
+                tracking_file_name = r["tracking_file"]
             all_records.extend(r.get("records", []))
+
+        # Ưu tiên sắp xếp dòng theo Model yêu cầu (Target Model), sau đó theo mã và số dòng
+        if hint_model:
+            h_clean = hint_model.strip().upper()
+            all_records.sort(key=lambda x: (0 if h_clean in (x.get("model") or "").upper() else 1, x.get("material", ""), x.get("row", 0)))
 
         full_summary = "<br/><hr style='border:0;border-top:1px dashed #d0d7de;margin:8px 0;'/>".join(
             r["summary"] for r in results if r.get("summary")
+        )
+
+        html_table = cls.generate_trace_table_html(
+            records=all_records,
+            hint_model=hint_model,
+            tracking_file=tracking_file_name
+        )
+        markdown_table = cls.generate_trace_markdown(
+            records=all_records,
+            hint_model=hint_model
         )
 
         return {
@@ -783,5 +840,193 @@ class NvlTrackingService:
             "count": len(materials),
             "results": results,
             "records": all_records,
-            "summary": full_summary
+            "summary": full_summary,
+            "html_table": html_table,
+            "markdown_table": markdown_table
         }
+
+    @classmethod
+    def generate_trace_table_html(
+        cls,
+        records: List[Dict[str, Any]],
+        hint_model: Optional[str] = None,
+        tracking_file: str = ""
+    ) -> str:
+        """Tạo bảng HTML trực quan, chuyên nghiệp cho Teams/Web khi tra cứu cấp NVL."""
+        if not records:
+            return "<div style='color:#57606a;font-style:italic;'>Không có dữ liệu cấp NVL để hiển thị.</div>"
+
+        total_order = sum(r.get("order_qty", 0) for r in records)
+        total_cap = sum(r.get("total_cap", 0) for r in records)
+        total_gap = sum(abs(r.get("gap", 0)) for r in records if r.get("gap", 0) < 0)
+        
+        hint_upper = hint_model.strip().upper() if hint_model else ""
+        model_badge = f" - MODEL <span style='color:#0969da;'>{hint_upper}</span>" if hint_upper else ""
+
+        rows_html = []
+        for r in records:
+            mat = r.get("material", "")
+            mdl = r.get("model", "")
+            shift = r.get("shift_chay", "")
+            stn = r.get("station", "")
+            sp = r.get("sp_display", "Chưa ra đơn")
+            sl_ord = r.get("order_qty", 0)
+            sl_cap = r.get("total_cap", 0)
+            gap = r.get("gap", 0)
+            gap_disp = r.get("gap_display", f"{gap:.0f}")
+            tt = r.get("status_pick", "Chưa Cấp")
+            stk = r.get("stock_1005", "---")
+            is_tgt = r.get("is_target_model", False) or (hint_upper and hint_upper in mdl.upper())
+
+            row_bg = "#f0fdf4" if is_tgt else "#ffffff"
+
+            if is_tgt:
+                mdl_html = f"<span style='background:#dafbe1;color:#1a7f37;padding:3px 7px;border-radius:4px;font-weight:bold;'>{mdl}</span>"
+            elif hint_upper and hint_upper not in mdl.upper():
+                mdl_html = f"<span style='background:#fff8c5;color:#9a6700;padding:2px 6px;border-radius:4px;font-size:11px;'>{mdl} (Chung)</span>"
+            else:
+                mdl_html = f"<b>{mdl}</b>"
+
+            if "Phiếu" in sp:
+                sp_html = f"<span style='background:#ddf4ff;color:#0969da;padding:3px 8px;border-radius:4px;font-weight:600;'>{sp}</span>"
+            elif "OB" in sp:
+                sp_html = f"<span style='background:#f6f8fa;color:#24292f;border:1px solid #d0d7de;padding:3px 8px;border-radius:4px;font-family:monospace;'>{sp}</span>"
+            else:
+                sp_html = f"<span style='background:#ffebe9;color:#cf222e;padding:3px 8px;border-radius:4px;'>Chưa ra đơn</span>"
+
+            if gap < 0:
+                gap_html = f"<span style='background:#ffebe9;color:#cf222e;padding:3px 7px;border-radius:4px;font-weight:bold;'>{gap_disp}</span>"
+            else:
+                gap_html = f"<span style='background:#dafbe1;color:#1a7f37;padding:3px 7px;border-radius:4px;font-weight:bold;'>{gap_disp}</span>"
+
+            if any(w in tt.lower() for w in ["đã cấp", "finished", "du"]):
+                tt_html = f"<span style='color:#1a7f37;font-weight:600;'>✅ {tt}</span>"
+            elif "cấp thiếu" in tt.lower():
+                tt_html = f"<span style='color:#9a6700;font-weight:600;'>⚠️ {tt}</span>"
+            else:
+                tt_html = f"<span style='color:#cf222e;font-weight:600;'>⏳ {tt}</span>"
+
+            rows_html.append(f"""
+            <tr style='background:{row_bg};border-bottom:1px solid #e1e4e8;font-size:12px;'>
+                <td style='padding:8px 10px;font-family:Consolas,monospace;font-weight:bold;color:#0969da;'>{mat}</td>
+                <td style='padding:8px 10px;text-align:center;'>{mdl_html}</td>
+                <td style='padding:8px 10px;text-align:center;font-weight:600;'>{shift}</td>
+                <td style='padding:8px 10px;color:#57606a;'>{stn}</td>
+                <td style='padding:8px 10px;text-align:center;'>{sp_html}</td>
+                <td style='padding:8px 10px;text-align:right;font-weight:600;'>{sl_ord:.0f}</td>
+                <td style='padding:8px 10px;text-align:right;font-weight:600;color:#1a7f37;'>{sl_cap:.0f}</td>
+                <td style='padding:8px 10px;text-align:center;'>{gap_html}</td>
+                <td style='padding:8px 10px;text-align:center;'>{tt_html}</td>
+                <td style='padding:8px 10px;text-align:center;font-weight:bold;color:#24292f;'>{stk}</td>
+            </tr>
+            """)
+
+        table_rows_str = "".join(rows_html)
+
+        html = f"""
+        <div style='font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:#ffffff;border:1px solid #d0d7de;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:12px;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:2px solid #0969da;padding-bottom:8px;'>
+                <div style='font-size:15px;font-weight:bold;color:#24292f;'>
+                    📋 BẢNG THEO DÕI CẤP HÀNG NVL{model_badge}
+                </div>
+                <div style='font-size:11px;color:#57606a;'>
+                    File: <code>{tracking_file or 'THEO DOI ODER NVL'}</code>
+                </div>
+            </div>
+
+            <!-- Thống kê nhanh KPI -->
+            <div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;'>
+                <div style='background:#f6f8fa;border:1px solid #d0d7de;padding:8px;border-radius:6px;text-align:center;'>
+                    <div style='font-size:11px;color:#57606a;'>Số dòng khớp</div>
+                    <div style='font-size:16px;font-weight:bold;color:#24292f;'>{len(records)}</div>
+                </div>
+                <div style='background:#f6f8fa;border:1px solid #d0d7de;padding:8px;border-radius:6px;text-align:center;'>
+                    <div style='font-size:11px;color:#57606a;'>Tổng SL Order</div>
+                    <div style='font-size:16px;font-weight:bold;color:#0969da;'>{total_order:.0f}</div>
+                </div>
+                <div style='background:#dafbe1;border:1px solid #aceebb;padding:8px;border-radius:6px;text-align:center;'>
+                    <div style='font-size:11px;color:#1a7f37;'>Đã cấp</div>
+                    <div style='font-size:16px;font-weight:bold;color:#1a7f37;'>{total_cap:.0f}</div>
+                </div>
+                <div style='background:#ffebe9;border:1px solid #ff8182;padding:8px;border-radius:6px;text-align:center;'>
+                    <div style='font-size:11px;color:#cf222e;'>Tổng thiếu (Gap)</div>
+                    <div style='font-size:16px;font-weight:bold;color:#cf222e;'>-{total_gap:.0f} PC</div>
+                </div>
+            </div>
+
+            <!-- Bảng chi tiết -->
+            <div style='overflow-x:auto;'>
+                <table style='width:100%;border-collapse:collapse;text-align:left;'>
+                    <thead>
+                        <tr style='background:#f6f8fa;border-bottom:2px solid #d0d7de;font-size:12px;color:#24292f;'>
+                            <th style='padding:8px 10px;'>Mã NVL</th>
+                            <th style='padding:8px 10px;text-align:center;'>Model</th>
+                            <th style='padding:8px 10px;text-align:center;'>Ca chạy</th>
+                            <th style='padding:8px 10px;'>Trạm cấp</th>
+                            <th style='padding:8px 10px;text-align:center;'>Số phiếu (SP / OB)</th>
+                            <th style='padding:8px 10px;text-align:right;'>SL Order</th>
+                            <th style='padding:8px 10px;text-align:right;'>Đã cấp</th>
+                            <th style='padding:8px 10px;text-align:center;'>Cấp thiếu (Gap)</th>
+                            <th style='padding:8px 10px;text-align:center;'>TT Nhặt hàng</th>
+                            <th style='padding:8px 10px;text-align:center;'>Tồn 1005 (SAP)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_rows_str}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        """
+        return html
+
+    @classmethod
+    def generate_trace_markdown(
+        cls,
+        records: List[Dict[str, Any]],
+        hint_model: Optional[str] = None
+    ) -> str:
+        """Tạo bảng Markdown chuẩn GFM kèm Quick Copy cho Zalo/Teams."""
+        if not records:
+            return "Không có dữ liệu cấp NVL."
+
+        hint_upper = hint_model.strip().upper() if hint_model else ""
+        md_lines = []
+        md_title = f"### 📋 BẢNG THEO DÕI CẤP HÀNG NVL (MODEL {hint_upper})" if hint_upper else "### 📋 BẢNG THEO DÕI CẤP HÀNG NVL"
+        md_lines.append(md_title)
+        md_lines.append("")
+        md_lines.append("| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu (SP / OB) | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng | Tồn 1005 |")
+        md_lines.append("| :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
+
+        quick_copy = []
+        for r in records:
+            mat = r.get("material", "")
+            mdl = r.get("model", "")
+            shift = r.get("shift_chay", "")
+            stn = r.get("station", "")
+            sp = r.get("sp_display", "Chưa ra đơn")
+            sl_ord = r.get("order_qty", 0)
+            sl_cap = r.get("total_cap", 0)
+            gap = r.get("gap", 0)
+            gap_disp = r.get("gap_display", f"{gap:.0f}")
+            tt = r.get("status_pick", "Chưa Cấp")
+            stk = r.get("stock_1005", "---")
+            is_tgt = r.get("is_target_model", False) or (hint_upper and hint_upper in mdl.upper())
+
+            mdl_disp = f"**{mdl}**" if is_tgt else mdl
+            gap_disp_md = f"**{gap_disp}**" if gap < 0 else gap_disp
+            md_lines.append(
+                f"| `{mat}` | {mdl_disp} | {shift} | {stn} | {sp} | {sl_ord:.0f} | {sl_cap:.0f} | {gap_disp_md} | {tt} | {stk} |"
+            )
+
+            if gap < 0:
+                quick_copy.append(f"- `{mat}` ({mdl} - {shift}): {sp} | Order: {sl_ord:.0f} | Đã cấp: {sl_cap:.0f} | **Thiếu: {abs(gap):.0f} PC** ({tt}, Tồn 1005: {stk})")
+            else:
+                quick_copy.append(f"- `{mat}` ({mdl} - {shift}): {sp} | Order: {sl_ord:.0f} | Đã cấp: {sl_cap:.0f} | Đủ ({tt})")
+
+        md_lines.append("")
+        if quick_copy:
+            md_lines.append("💬 **Quick Copy cho Zalo / Teams xưởng:**")
+            md_lines.extend(quick_copy)
+
+        return "\n".join(md_lines)
