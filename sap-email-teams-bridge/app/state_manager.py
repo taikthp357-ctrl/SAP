@@ -209,11 +209,18 @@ class StateManager:
             changed = conn.execute("UPDATE outbox_queue SET status='SENDING',lease_token=?,lease_until=?, attempts=attempts+1,last_attempt=? WHERE req_id=? AND status='PENDING'", (token,(datetime.now()+timedelta(seconds=60)).isoformat(),datetime.now().isoformat(),req_id)).rowcount
         return token if changed else None
 
-    def finish_delivery(self, req_id, token, outcome, detail=""):
+    def finish_delivery(self, req_id, token, outcome, detail="", max_attempts=3):
         if outcome not in {"ACCEPTED", "AMBIGUOUS", "REJECTED", "SIMULATED"}:
             raise ValueError("Invalid delivery outcome")
         with self._get_connection() as conn:
-            conn.execute("UPDATE outbox_queue SET status=?,last_error=?,accepted_at=?,lease_until=NULL WHERE req_id=? AND lease_token=? AND status='SENDING'", (outcome,detail,datetime.now().isoformat() if outcome=="ACCEPTED" else None,req_id,token))
+            final_status = outcome
+            if outcome == "AMBIGUOUS":
+                cur = conn.cursor()
+                row = cur.execute("SELECT attempts FROM outbox_queue WHERE req_id=?", (req_id,)).fetchone()
+                attempts = row["attempts"] if row else 1
+                if attempts < max_attempts:
+                    final_status = "PENDING"
+            conn.execute("UPDATE outbox_queue SET status=?,last_error=?,accepted_at=?,lease_until=NULL WHERE req_id=? AND lease_token=? AND status='SENDING'", (final_status,detail,datetime.now().isoformat() if outcome=="ACCEPTED" else None,req_id,token))
 
     def requeue_reviewed(self, req_id, *, confirmed_not_delivered=False):
         if not confirmed_not_delivered:

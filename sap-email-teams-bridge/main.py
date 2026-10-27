@@ -221,8 +221,9 @@ def deliver_outbox(state_mgr, max_attempts=3):
         token = state_mgr.begin_delivery(item["req_id"])
         if token:
             outcome = TeamsDispatcher.deliver_payload(item["webhook_url"], item["payload"])
-            state_mgr.finish_delivery(item["req_id"], token, outcome["status"], outcome["detail"])
-            print(f"[OUTBOX] {item['req_id']} | {outcome['status']}")
+            state_mgr.finish_delivery(item["req_id"], token, outcome["status"], outcome["detail"], max_attempts=max_attempts)
+            detail_str = f" - {outcome['detail']}" if outcome.get("detail") else ""
+            print(f"[OUTBOX] {item['req_id']} | {outcome['status']}{detail_str}")
 
 
 def actual_sender_address(mail):

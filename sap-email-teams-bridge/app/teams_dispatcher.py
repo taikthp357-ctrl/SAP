@@ -1008,22 +1008,42 @@ class TeamsDispatcher:
         return cls.send_raw_payload(webhook_url, payload)
 
     @classmethod
-    def deliver_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> Dict[str, str]:
+    def deliver_payload(cls, webhook_url: str, payload: Dict[str, Any], max_tries: int = 2) -> Dict[str, str]:
         """2xx means Flow accepted; transport failures have uncertain delivery."""
         if not webhook_url or "YOUR_WEBHOOK_URL_HERE" in webhook_url:
             return {"status": "SIMULATED", "detail": "Webhook not configured; nothing sent"}
         try:
             data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
-            req = urllib.request.Request(webhook_url, data=data,
-                headers={"Content-Type": "application/json; charset=utf-8", "X-Request-ID": str(payload.get("requestId", ""))}, method="POST")
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                code = int(resp.status)
-                return {"status": "ACCEPTED" if 200 <= code < 300 else "AMBIGUOUS", "detail": f"HTTP {code}; delivery in Teams not verified"}
-        except urllib.error.HTTPError as exc:
-            return {"status": "REJECTED" if 400 <= exc.code < 500 else "AMBIGUOUS", "detail": f"HTTP {exc.code}"}
-        except (urllib.error.URLError, TimeoutError, OSError):
-            # Do not log URLs/tokens or assume a timeout prevented receipt.
-            return {"status": "AMBIGUOUS", "detail": "Transport interrupted; check Flow before retry"}
+        except Exception as json_err:
+            return {"status": "REJECTED", "detail": f"JSON serialization error: {json_err}"}
+
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SAP-Teams-Bridge/1.0",
+            "X-Request-ID": str(payload.get("requestId", ""))
+        }
+
+        last_outcome = {"status": "AMBIGUOUS", "detail": "Transport interrupted; check Flow before retry"}
+        for attempt in range(1, max_tries + 1):
+            try:
+                req = urllib.request.Request(webhook_url, data=data, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    code = int(resp.status)
+                    if 200 <= code < 300:
+                        return {"status": "ACCEPTED", "detail": f"HTTP {code}; delivery in Teams verified"}
+                    last_outcome = {"status": "AMBIGUOUS", "detail": f"HTTP {code}; delivery in Teams not verified"}
+            except urllib.error.HTTPError as exc:
+                if 400 <= exc.code < 500:
+                    return {"status": "REJECTED", "detail": f"HTTP {exc.code}"}
+                last_outcome = {"status": "AMBIGUOUS", "detail": f"HTTP {exc.code}"}
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                err_detail = f"{type(exc).__name__}: {str(exc)[:120]}"
+                last_outcome = {"status": "AMBIGUOUS", "detail": f"Transport interrupted ({err_detail})"}
+
+            if attempt < max_tries:
+                time.sleep(1.5)
+
+        return last_outcome
 
     @classmethod
     def send_raw_payload(cls, webhook_url: str, payload: Dict[str, Any]) -> bool:

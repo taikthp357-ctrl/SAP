@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "v1.0.75"
+VERSION = "v1.0.76"
 PATCH_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_{VERSION}.zip"
 STANDARD_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_RELEASE_{VERSION}.zip"
 PORTABLE_ZIP = BASE_DIR / f"SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_{VERSION}.zip"
@@ -106,7 +106,8 @@ def create_patch_zip():
         "START_BRIDGE.cmd",
         "START_BACKGROUND.vbs",
         "STOP_BRIDGE.cmd",
-        "config.json"
+        "config.json",
+        "data/DATA_MASTER.xlsx"
     ]
     with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for fname in patch_includes:
@@ -150,6 +151,12 @@ def create_standard_zip():
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
 
+        # Luôn bao gồm data/DATA_MASTER.xlsx (Từ điển mã hàng chuẩn)
+        data_master = BASE_DIR / "data" / "DATA_MASTER.xlsx"
+        if data_master.exists():
+            zf.write(data_master, arcname="data/DATA_MASTER.xlsx")
+            count += 1
+
     print(f"[SUCCESS] Đã tạo file Standard ({count} files): {STANDARD_ZIP.name}")
     print(f"[SIZE] Dung lượng: {os.path.getsize(STANDARD_ZIP):,} bytes ({os.path.getsize(STANDARD_ZIP)/1024:.1f} KB)")
 
@@ -174,6 +181,12 @@ def create_portable_zip():
                 rel_path = file_path.relative_to(BASE_DIR)
                 zf.write(file_path, arcname=str(rel_path))
                 count += 1
+
+        # Luôn bao gồm data/DATA_MASTER.xlsx (Từ điển mã hàng chuẩn)
+        data_master = BASE_DIR / "data" / "DATA_MASTER.xlsx"
+        if data_master.exists():
+            zf.write(data_master, arcname="data/DATA_MASTER.xlsx")
+            count += 1
 
         for root, dirs, files in os.walk(runtime_source):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_RUNTIME_DIRS]
