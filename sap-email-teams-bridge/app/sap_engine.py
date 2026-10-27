@@ -3939,17 +3939,21 @@ class SapEngine:
             except Exception:
                 pass
 
-        # 2. Fallback đối xứng cho Material (cột 1 <-> cột 2) nếu cột chính không ghi được
+        # 2. Fallback đối xứng cho Material: Thử lần lượt các cột ứng viên [3, 1, 2] nếu cột chính không ghi được
         if label == "Material":
-            alt_col = 2 if col_no == 1 else (1 if col_no == 2 else None)
-            if alt_col is not None:
+            mat_candidates = [3, 1, 2]
+            if col_no in mat_candidates:
+                mat_candidates.remove(col_no)
+            for alt_c in mat_candidates:
                 try:
-                    alt_cell = table_ctl.GetCell(row_no, alt_col)
+                    alt_cell = table_ctl.GetCell(row_no, alt_c)
                     if alt_cell is not None:
+                        if getattr(alt_cell, "Changeable", True) is False:
+                            continue
                         try:
                             alt_cell.Text = val_str
                             if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
-                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_col}")
+                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_c}")
                                 return True
                         except Exception:
                             pass
@@ -3957,7 +3961,7 @@ class SapEngine:
                             alt_cell.SetFocus()
                             alt_cell.Text = val_str
                             if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
-                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_col}")
+                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_c}")
                                 return True
                         except Exception:
                             pass
@@ -4337,7 +4341,7 @@ class SapEngine:
 
             # 5. PHÂN GIẢI CỘT MIGO 311 (KẾT HỢP CHUẨN EXCEL V31 & ĐẶC TẢ GIAO DIỆN NHÀ MÁY)
             # Layout mặc định: Material=1, Qty=4, Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=9, BatchTo=10
-            mat_col = 1
+            mat_col = 3
             fallback_mat_col = -1
             qty_col = 4
             txt_col = 5
@@ -4395,13 +4399,14 @@ class SapEngine:
                         pass
 
                     # Material:
-                    # Ưu tiên 1 (Exact): GOITEM-MATNR hoặc tiêu đề chính xác MATERIAL/PRODUCT (loại trừ cột mô tả và nhóm)
-                    # Ưu tiên 2 (Transfer): Nếu không có cột MATNR hiển thị, nhận diện GOITEM-UMMAT hoặc MATERIAL TRFR PSTG
-                    is_mat_desc = any(k in c_title for k in ("SHORT TEXT", "SHORT", "MAKTX", "DESC", "MÔ TẢ", "DESCRIPTION"))
+                    # Ưu tiên 1 (Mat. Short Text - Chuẩn layout thực tế MIGO SAP):
+                    # Cột 'Mat. Short Text' (Col 3 trong layout thực tế) là ô nhập liệu chính thức có icon Search (F4)
                     is_mat_group = any(k in c_title for k in ("GROUP", "TYPE", "NHÓM", "LOẠI"))
-
-                    if not mat_found and is_visible_col and not is_mat_desc and not is_mat_group:
-                        if c_name == "GOITEM-MATNR" or c_title in ("MATERIAL", "PRODUCT", "VẬT TƯ"):
+                    if not mat_found and is_visible_col:
+                        if any(k in c_title for k in ("MAT. SHORT TEXT", "MAT. SHORT", "SHORT TEXT")) or c_name in ("GOITEM-MAKTX", "MAKTX"):
+                            mat_col = c_i
+                            mat_found = True
+                        elif (c_name == "GOITEM-MATNR" or c_title in ("MATERIAL", "PRODUCT", "VẬT TƯ")) and not is_mat_group and "TRFR" not in c_title:
                             mat_col = c_i
                             mat_found = True
                         elif (
@@ -4411,7 +4416,7 @@ class SapEngine:
                             or c_title.startswith("MATERIAL")
                             or c_title.startswith("VẬT TƯ")
                         ):
-                            # Tạm ghi nhận cột transfer posting dự phòng nếu chưa tìm thấy cột MATNR
+                            # Tạm ghi nhận cột transfer posting dự phòng nếu không có Mat. Short Text / MATNR
                             if fallback_mat_col < 0:
                                 fallback_mat_col = c_i
 
@@ -4471,8 +4476,8 @@ class SapEngine:
 
             # Chốt chặn van an toàn: Nếu mat_col >= 20 (chạm vào cột ẩn ngoài viewport như 61), ép về cột 1
             if mat_col >= 20:
-                print(f"[SAP MIGO WARN] mat_col={mat_col} nằm ngoài dải hiển thị, tự động ép về cột 1 (Material Trfr Pstg)")
-                mat_col = 1
+                print(f"[SAP MIGO WARN] mat_col={mat_col} nằm ngoài dải hiển thị, tự động ép về cột 3 (Mat. Short Text)")
+                mat_col = 3
             if batch_col >= 20:
                 batch_col = 9
 

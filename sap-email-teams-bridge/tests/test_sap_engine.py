@@ -2223,9 +2223,9 @@ def test_post_migo_311_material_column_resolution_not_taking_col_61(monkeypatch)
     assert ok is True
     assert doc_no == "5001234567"
 
-    # Kiểm tra ô (0, 1) được điền mã vật tư, KHÔNG PHẢI ô 61
-    assert (0, 1) in tbl.cells
-    assert tbl.cells[(0, 1)].Text == "BIW32025210AA"
+    # Kiểm tra ô (0, 3) (Mat. Short Text) được điền mã vật tư, KHÔNG PHẢI ô 61 hay ô 1 bị disable
+    assert (0, 3) in tbl.cells
+    assert tbl.cells[(0, 3)].Text == "BIW32025210AA"
     # Cột 4: Qty
     assert tbl.cells[(0, 4)].Text == "128"
     # Cột 5: Trạm
