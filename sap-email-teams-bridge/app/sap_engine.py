@@ -1277,7 +1277,8 @@ class SapEngine:
         self,
         materials: List[str],
         batch: Optional[str] = None,
-        plant: str = "3093"
+        plant: str = "3093",
+        sloc: Optional[str] = "1005"
     ) -> List[Dict[str, str]]:
         """Tra cứu vị trí Bin, số lô, tồn khả dụng và ngày giờ GR từ /SCWM/POST theo chuẩn BBBG."""
         try:
@@ -1421,8 +1422,9 @@ class SapEngine:
                 if not r.get("plant") and plant:
                     r["plant"] = str(plant)
                     r["source_plant_verified"] = True
-                if not r.get("sloc") and sloc:
-                    r["sloc"] = str(sloc)
+                target_sloc = str(sloc or "1005")
+                if not r.get("sloc"):
+                    r["sloc"] = target_sloc
                     r["source_sloc_verified"] = True
 
             # 10. SẮP XẾP ƯU TIÊN DỮ LIỆU GẦN NHẤT (Ngày GR & Giờ GR mới nhất lên đầu)
