@@ -122,15 +122,45 @@ class StockHandler(BaseHandler):
                 summary = f"Lịch sử giao dịch {ctx.days} ngày (MB51){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
         # -------------------------------------------------------------
-        # 5. CẢNH BÁO TỒN THẤP THEO MODEL / SHOP
+        # 5. CẢNH BÁO TỒN THẤP & THIẾU DOH THEO CA / MODEL
         # -------------------------------------------------------------
-        elif cmd in ["TON_THAP", "LOW_STOCK"]:
+        elif cmd in ["TON_THAP", "LOW_STOCK", "CANH_BAO_DOH", "DOH_CA", "TON_THAP_CA"]:
+            raw_t = str(ctx.meta.get("rawText") or "").lower()
+            is_shift_doh = (cmd in ["CANH_BAO_DOH", "DOH_CA", "TON_THAP_CA"]) or any(
+                k in raw_t for k in ["ca ", "ca s", "doh", "chua du doh", "thieu doh", "canh bao ton ca"]
+            )
             model_name = ctx.meta.get("model", "LIMO")
-            shop_name = ctx.meta.get("shop", "BODY")
-            target_plants = ctx.meta.get("plants", ["3093", "3001"] if shop_name == "BODY" else ["3093", "2001", "3001"])
-            limit_cnt = ctx.meta.get("limit", 20)
-            full_model = ctx.meta.get("fullModelList", False)
-            records = ctx.sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name, shop_name=shop_name, full_model_list=full_model)
+            shift_name = ctx.meta.get("shift") or "S6"
+
+            if is_shift_doh:
+                threshold = int(ctx.meta.get("threshold") or 200)
+                limit_cnt = ctx.meta.get("limit", 50)
+                records = ctx.sap.check_shift_doh_warning(
+                    materials=resolved_mats,
+                    model_name=model_name,
+                    shift_name=shift_name,
+                    plant=ctx.plant,
+                    threshold=threshold,
+                    limit=limit_cnt
+                )
+                headers = {
+                    "product": "Mã hàng",
+                    "ncc": "Nhà cung cấp",
+                    "stock_3001": "Tồn Line 3001",
+                    "stock_1005": "Tồn Kho 1005",
+                    "doh": "DOH (Xe)",
+                    "model": "Model"
+                }
+                summary = (
+                    f"Cảnh báo tồn thấp & thiếu DOH ca {shift_name} (Model: {model_name}) - "
+                    f"Có {len(records)} mã chưa đủ DOH (< {threshold} xe)"
+                )
+            else:
+                shop_name = ctx.meta.get("shop", "BODY")
+                target_plants = ctx.meta.get("plants", ["3093", "3001"] if shop_name == "BODY" else ["3093", "2001", "3001"])
+                limit_cnt = ctx.meta.get("limit", 20)
+                full_model = ctx.meta.get("fullModelList", False)
+                records = ctx.sap.check_low_stock(resolved_mats, target_plants, limit=limit_cnt, model_name=model_name, shop_name=shop_name, full_model_list=full_model)
             if shop_name == "BODY":
                 headers = {
                     "product": "Material",

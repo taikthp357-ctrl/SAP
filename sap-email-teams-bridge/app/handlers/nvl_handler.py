@@ -6,6 +6,7 @@ from app.core.context import RequestContext, CommandResult
 from app.core.security import assert_write_permission, WritePermissionError
 from app.handlers.base_handler import BaseHandler
 from app.nvl_service import NvlService
+from app.nvl_master import NvlMasterService
 
 
 class NvlHandler(BaseHandler):
@@ -42,8 +43,26 @@ class NvlHandler(BaseHandler):
         # NHÁNH 2: KẾ HOẠCH NVL & RA ĐƠN NVL (PHÂN BỔ FIFO & TẠO ĐƠN OB MIGO 311)
         # -------------------------------------------------------------
         elif cmd in ["RA_DON_NVL", "KE_HOACH_NVL"]:
+            # Layer 3 Handler Guard: Chống nhầm lẫn số chứng từ DOC (50x/49x) vào luồng ra đơn NVL
+            raw_text_check = str(ctx.meta.get("rawText") or "")
+            has_att_marker = any(k in raw_text_check.lower() for k in ["att mail", "dinh kem", "bktxt", "headtext", "zfir266"])
+            has_explicit_ra_don = any(k in raw_text_check.lower() for k in ["ra don", "don nvl", "ke hoach nvl", "phan bo nvl"])
+            if has_att_marker and not has_explicit_ra_don:
+                return CommandResult(
+                    status="REJECTED_INTENT_CONFLICT",
+                    summary="Lệnh chứa từ khóa đính kèm (ATT/HeadText) nhưng bị gửi nhầm sang Handler NVL. Đã chặn an toàn.",
+                    records=[],
+                    headers={},
+                    audit_target="INTENT_GUARD",
+                    audit_message="Chặn nhầm luồng ATT sang NVL Handler"
+                )
+
             is_plan_only = (cmd == "KE_HOACH_NVL")
             is_preview = is_plan_only or (ctx.meta.get("dryRun", False) is True)
+
+            req_src_sloc = ctx.meta.get("source_sloc") or ctx.meta.get("sourceSloc") or ctx.meta.get("sloc", "1005")
+            req_dest_sloc = ctx.meta.get("dest_sloc") or ctx.meta.get("destSloc") or ctx.meta.get("sloc_line", "3001")
+            req_target_bin = ctx.meta.get("target_bin") or ctx.meta.get("bin") or ""
 
             raw_orders = ctx.meta.get("nvlOrders") or ctx.meta.get("orders") or []
             if raw_orders:
@@ -52,29 +71,36 @@ class NvlHandler(BaseHandler):
                     raw_m = o.get("material", "")
                     resolved_cand, _ = ctx.resolver.resolve(raw_m)
                     resolved_m = resolved_cand[0] if resolved_cand else raw_m
+                    mat_src_sloc = o.get("sloc") or ("200C" if NvlMasterService.is_henkel_glue(resolved_m) else req_src_sloc)
+                    mat_dest_sloc = o.get("dest_sloc") or req_dest_sloc
+                    mat_bin = o.get("target_bin") or o.get("bin") or req_target_bin
                     orders.append({
                         "material": resolved_m,
                         "qty": o.get("qty", 0.0),
                         "station": o.get("station") or ctx.meta.get("station", "LINE"),
                         "unit": o.get("unit") or ctx.meta.get("unit") or ctx.meta.get("uom") or "PC",
                         "plant": ctx.plant,
-                        "sloc": o.get("sloc") or ctx.meta.get("sloc", "1005")
+                        "sloc": mat_src_sloc,
+                        "dest_sloc": mat_dest_sloc,
+                        "target_bin": mat_bin
                     })
             else:
                 if ctx.meta.get("qty") is None or not ctx.meta.get("station"):
                     raise ValueError("Kế hoạch NVL cần qty và station rõ ràng")
                 req_unit = ctx.meta.get("unit") or ctx.meta.get("uom") or "PC"
-                orders = [
-                    {
+                orders = []
+                for m in ctx.resolved_materials:
+                    mat_src_sloc = "200C" if NvlMasterService.is_henkel_glue(m) else req_src_sloc
+                    orders.append({
                         "material": m,
                         "qty": ctx.meta["qty"],
                         "station": ctx.meta["station"],
                         "unit": req_unit,
                         "plant": ctx.plant,
-                        "sloc": ctx.meta.get("sloc", "1005")
-                    }
-                    for m in ctx.resolved_materials
-                ]
+                        "sloc": mat_src_sloc,
+                        "dest_sloc": req_dest_sloc,
+                        "target_bin": req_target_bin
+                    })
 
             all_query_mats = list(dict.fromkeys(o["material"] for o in orders if o.get("material")))
             stock_records = ctx.sap.check_position_posting_change(all_query_mats, batch="", plant=ctx.plant)
@@ -211,12 +237,14 @@ class NvlHandler(BaseHandler):
                         Decimal(str(migo_consolidated[m_key]["allocated_qty"])) + Decimal(str(line.get("allocated_qty", 0)))
                     )
 
-            print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(migo_items)} dòng MIGO (từ {len(allocated_lines)} vị trí bin, Plant {ctx.plant}, 1005 -> 3001)...")
+            final_src_sloc = str(migo_items[0].get("source_sloc") or req_src_sloc or "1005") if migo_items else "1005"
+            final_dest_sloc = str(migo_items[0].get("dest_sloc") or req_dest_sloc or "3001") if migo_items else "3001"
+            print(f"[SAP MIGO] Bắt đầu tạo đơn OB MIGO 311 cho {len(migo_items)} dòng MIGO (từ {len(allocated_lines)} vị trí bin, Plant {ctx.plant}, {final_src_sloc} -> {final_dest_sloc})...")
             ok_post, doc_num, post_msg = ctx.sap.post_migo_311_ob_group(
                 migo_items,
                 plant=ctx.plant,
-                source_sloc="1005",
-                dest_sloc="3001",
+                source_sloc=final_src_sloc,
+                dest_sloc=final_dest_sloc,
                 dry_run=False
             )
             print(f"[SAP MIGO] Kết quả tạo đơn MIGO 311: ok={ok_post} | Số chứng từ='{doc_num}' | Chi tiết: {post_msg}")

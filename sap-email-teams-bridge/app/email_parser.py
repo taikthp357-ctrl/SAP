@@ -65,6 +65,7 @@ class SmartCommandParser:
             (r"\b(?:ib|inbound|con\s*ib|còn\s*ib|check\s*ib|kiem\s*tra\s*ib|hang\s*ve|hàng\s*về|lich\s*ve|lịch\s*về|asn|vl06i|zmme240)\b", 78),
         ],
         "TON_THAP": [
+            (r"\b(?:canh\s*bao\s*ton\s*ca|ton\s*thap\s*ca|doh\s*ca|thieu\s*doh|chua\s*du\s*doh)\b", 88),
             (r"\b(?:ton\s*thap|thap|canh\s*bao\s*ton|low\s*stock|doh\s*thap|sap\s*het|thieu\s*hang)\b", 78),
             (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 82),
             (r"\b(?:ton\s*thap\s*(?:body|xmd|limo|vf\d+))\b", 80),
@@ -249,10 +250,10 @@ class SmartCommandParser:
                 except ValueError:
                     continue
 
-                # Loại trừ trường hợp copy bảng số chứng từ DOC (10 chữ số: 50xxxxxxxx, 49xxxxxxxx, 10xxxxxxxx)
-                # và Cột thứ 2 là Năm tài chính (20xx). Đây là bảng tra cứu DOC (CHECK_ATT/ZFIR266),
-                # tuyệt đối KHÔNG coi là mã vật tư NVL và số lượng xuất kho!
-                if re.fullmatch(r"(?:49|50|10)\d{8}", mat_cand) and re.fullmatch(r"(?:19|20|21)\d{2}", qty_str):
+                # Hàng rào kiểm tra hình thái dữ liệu (Layer 2 Data Shape Shield):
+                # Số chứng từ DOC SAP (10 chữ số: 50xxxxxxxx, 49xxxxxxxx, 10xxxxxxxx) tuyệt đối KHÔNG phải mã NVL!
+                # Bất kể cột thứ 2 là năm, số phiếu hay số lượng, DOC number không bao giờ được coi là mã vật tư.
+                if re.fullmatch(r"(?:49|50|10)\d{8}", mat_cand):
                     continue
 
                 unit_cand = "PC"
@@ -529,17 +530,23 @@ class SmartCommandParser:
         has_explicit_ra_don = any(k in norm_text for k in ["ra don", "don nvl", "ke hoach nvl", "phan bo nvl", "nvl v31", "nvl zone"])
         is_att_or_doc_intent = best_intent in ("CHECK_ATT", "CHECK_ATT_DOC", "ATT_MIGO")
 
-        # BẢO VỆ CHẶN NHẦM Ý ĐỊNH:
-        # Nếu câu lệnh đã được nhận diện rõ ràng là kiểm tra/đính kèm file (CHECK_ATT, ZFIR266, ATT_MIGO)
-        # và KHÔNG có từ khóa 'ra don' / 'don nvl', TUYỆT ĐỐI KHÔNG để nvl_table_rows ghi đè sang RA_DON_NVL!
-        if nvl_table_rows and not (is_att_or_doc_intent and not has_explicit_ra_don):
-            if best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") or best_score == 0 or has_explicit_ra_don or len(nvl_table_rows) >= 2:
+        # BẢO VỆ CHẶN NHẦM Ý ĐỊNH (Layer 1 Intent Lock):
+        # Nếu câu lệnh đã được nhận diện là kiểm tra/đính kèm file (CHECK_ATT, ZFIR266, ATT_MIGO)
+        # hoặc có từ khóa đính kèm (att mail, headtext, bktxt, dinh kem), TUYỆT ĐỐI KHÔNG để nvl_table_rows ghi đè sang RA_DON_NVL
+        # trừ phi có từ khóa ra đơn tường minh (has_explicit_ra_don).
+        has_att_keywords = bool(re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem|headtext|bktxt|zfir266|bbbg|vat)\b", norm_text))
+        if (is_att_or_doc_intent or has_att_keywords) and not has_explicit_ra_don:
+            nvl_table_rows = []
+
+        if nvl_table_rows:
+            if has_explicit_ra_don or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and not is_att_or_doc_intent):
                 best_intent = "RA_DON_NVL"
                 best_score = max(best_score, 95)
                 matched_keywords.append(f"RA_DON_NVL: Bảng yêu cầu cấp NVL ({len(nvl_table_rows)} dòng)")
-        elif is_att_or_doc_intent and not has_explicit_ra_don:
-            # Dọn sạch nvl_table_rows để không kích hoạt luồng ra đơn NVL
-            nvl_table_rows = []
+            elif best_score == 0 and len(nvl_table_rows) >= 2 and not has_att_keywords:
+                best_intent = "RA_DON_NVL"
+                best_score = 90
+                matched_keywords.append(f"RA_DON_NVL: Tự động nhận diện bảng NVL ({len(nvl_table_rows)} dòng)")
 
         # Phân biệt TỒN KHO (Chỉ kiểm tra Kho 1005 & 3093) vs TỒN TỔNG HỢP (Toàn bộ SLoc)
         if best_intent == "TON":
@@ -564,6 +571,13 @@ class SmartCommandParser:
         ob_m = re.search(r"\b(?:ob\s*[:=]?\s*)?(80\d{6,8}|08\d{6,8}|10\d{8})\b", command_text, re.I)
         if ob_m:
             ob_no = ob_m.group(1)
+
+        shift_val = ""
+        shift_m = re.search(r"\b(?:ca\s*|shift\s*)(s[1-7]|[1-7])\b|\b(s[1-7])\b", norm_text)
+        if shift_m:
+            shift_val = (shift_m.group(1) or shift_m.group(2)).upper()
+            if not shift_val.startswith("S") and shift_val.isdigit():
+                shift_val = f"S{shift_val}"
 
         bin_val = ""
         bin_m = re.search(r"\b(?:bin|ke|\bo\b)\s*[:=]?\s*([a-z0-9_-]{3,15})\b|\b(\d{2}-[a-z0-9]+-[a-z0-9]+)\b", norm_text)
@@ -814,6 +828,7 @@ class SmartCommandParser:
             "days": days,
             "model": model_name or ("LIMO" if best_intent == "TON_THAP" else ""),
             "shop": shop_name,
+            "shift": shift_val,
             "plants": plants_list,
             "limit": limit_val,
             "obNo": ob_no,

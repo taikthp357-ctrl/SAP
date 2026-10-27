@@ -103,6 +103,55 @@ def sanitize_migo_session(session):
         pass
 
 
+def reset_session_to_main_menu(session):
+    """Đưa session SAP về màn hình chính (/n hoặc F3) sau khi hoàn tất batch chứng từ."""
+    if session is None:
+        return
+    try:
+        for w_idx in (3, 2, 1):
+            try:
+                w = safe_find_by_id(session, f"wnd[{w_idx}]")
+                if w:
+                    try:
+                        w.Close()
+                    except Exception:
+                        try:
+                            w.SendVKey(12)  # Esc
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
+        if okcd:
+            try:
+                okcd.Text = "/n"
+            except Exception:
+                okcd.text = "/n"
+            w0 = safe_find_by_id(session, "wnd[0]")
+            if w0:
+                w0.SendVKey(0)
+            sap_wait_idle(session, 2.0)
+
+        # Nếu chưa thoát MIGO về SESSION_MANAGER, gửi thêm F3 (SendVKey 3)
+        try:
+            info = getattr(session, "Info", None)
+            tcode = str(getattr(info, "Transaction", "") or "").upper() if info else ""
+            if tcode not in ("SESSION_MANAGER", ""):
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    for _ in range(3):
+                        w0.SendVKey(3)  # F3
+                        time.sleep(0.1)
+                        cur_t = str(getattr(getattr(session, "Info", None), "Transaction", "") or "").upper()
+                        if cur_t in ("SESSION_MANAGER", ""):
+                            break
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[TEARDOWN WARN] Lỗi dọn dẹp session về /n: {e}")
+
+
 def sap_wait_idle(session, max_wait_sec: float = 5.0) -> None:
     """Chờ SAP GUI hoàn tất xử lý (session.Busy == False) tương tự WaitIdle trong VBA."""
     if session is None:
@@ -141,7 +190,6 @@ RECORDED_MIGO_IDS = {
     ],
     "OK_REF_ATTA": [
         "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/btnOK_REF_ATTA",
-        "wnd[0]/titl/shellcont/shell",
     ],
     "GOHEAD-BKTXT": [
         "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0110/txtGOHEAD-BKTXT",
@@ -317,22 +365,33 @@ def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
 
 
 def smart_open_gos_view_attachment(session) -> bool:
-    """Tự động mở danh sách đính kèm file ở cả High Speed lẫn Low Speed."""
+    """Tự động mở danh sách đính kèm file ở cả High Speed lẫn Low Speed với Fast-Check Icon."""
     if session is None:
         return False
-    # 1. Thử nút OK_REF_ATTA
+    # 1. Thử nút OK_REF_ATTA (Fast-Check: Trên MIGO, nút này chỉ xuất hiện khi ĐÃ CÓ đính kèm)
     btn = smart_find(session, "OK_REF_ATTA", "GuiButton")
     if btn is not None:
-        enabled = getattr(btn, "Enabled", True)
-        if enabled is False or str(enabled).upper() == "FALSE":
-            return False  # Không có attachment
         try:
+            enabled = getattr(btn, "Enabled", True)
+            visible = getattr(btn, "Visibility", getattr(btn, "Visible", True))
+            if enabled is False or str(enabled).upper() == "FALSE" or visible is False or str(visible).upper() == "FALSE":
+                return False  # Không có attachment hoặc nút bị ẩn
             btn.Press()
             return True
         except Exception:
             pass
+    else:
+        # Fast-Check: Trên MIGO, nếu nút OK_REF_ATTA không tồn tại thì chứng từ 100% chưa có đính kèm nào!
+        # Dừng lại và trả về False ngay lập tức (0.001s), không fallback tránh timeout 1.5s vô ích
+        try:
+            info = getattr(session, "Info", None)
+            tcode = str(getattr(info, "Transaction", "") or "").upper() if info else ""
+            if tcode == "MIGO" or "MIGO" in str(getattr(session, "Name", "")).upper():
+                return False
+        except Exception:
+            return False
 
-    # 2. Thử GOS shell %GOS_VIEW_ATTA
+    # 2. Thử GOS shell %GOS_VIEW_ATTA cho các giao dịch khác (nếu không phải MIGO)
     gos_shell = safe_find_by_id(session, "wnd[0]/titl/shellcont/shell")
     if gos_shell is not None:
         try:
@@ -2162,43 +2221,47 @@ class MigoAttachmentRunner:
                     if worker_session is not None:
                         self.prepare_migo_session(worker_session, mode="CHANGE")
 
-                    for orig_idx, itm in chunk:
-                        doc_str = str(itm.get("doc", "")).strip()
-                        try:
-                            res_dict, is_s = self.process_single_migo_item(
-                                worker_session, itm, index_data, fill_headtext, year,
-                                is_folder_requested, has_folder, folder_error, dry_run=False
-                            )
-                        except Exception as item_err:
-                            print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
-                            sanitize_migo_session(worker_session)
-                            res_dict = {
-                                "doc": doc_str,
-                                "ticket_no": str(itm.get("ticket_no", "")).strip(),
-                                "headtext_status": "EXCEPTION",
-                                "headtext_msg": str(item_err),
-                                "bbbg_status": "ERROR",
-                                "vat_status": "ERROR",
-                                "mail_status": "ERROR",
-                                "overall_status": "ERROR",
-                                "match_notes": f"Tab {tab_idx} exception: {item_err}"
-                            }
-                            is_s = False
+                    try:
+                        for orig_idx, itm in chunk:
+                            doc_str = str(itm.get("doc", "")).strip()
+                            try:
+                                res_dict, is_s = self.process_single_migo_item(
+                                    worker_session, itm, index_data, fill_headtext, year,
+                                    is_folder_requested, has_folder, folder_error, dry_run=False
+                                )
+                            except Exception as item_err:
+                                print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
+                                sanitize_migo_session(worker_session)
+                                res_dict = {
+                                    "doc": doc_str,
+                                    "ticket_no": str(itm.get("ticket_no", "")).strip(),
+                                    "headtext_status": "EXCEPTION",
+                                    "headtext_msg": str(item_err),
+                                    "bbbg_status": "ERROR",
+                                    "vat_status": "ERROR",
+                                    "mail_status": "ERROR",
+                                    "overall_status": "ERROR",
+                                    "match_notes": f"Tab {tab_idx} exception: {item_err}"
+                                }
+                                is_s = False
 
-                        worker_results.append((orig_idx, res_dict, is_s))
+                            worker_results.append((orig_idx, res_dict, is_s))
 
-                        with prog_lock:
-                            processed_count += 1
-                            is_item_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
-                            if is_item_succ:
-                                success_count += 1
-                            now = time.time()
-                            if progress_callback and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
-                                last_progress_time = now
-                                try:
-                                    progress_callback(processed_count, total_items, doc_str, success_count)
-                                except Exception:
-                                    pass
+                            with prog_lock:
+                                processed_count += 1
+                                is_item_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
+                                if is_item_succ:
+                                    success_count += 1
+                                now = time.time()
+                                if progress_callback and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
+                                    last_progress_time = now
+                                    try:
+                                        progress_callback(processed_count, total_items, doc_str, success_count)
+                                    except Exception:
+                                        pass
+                    finally:
+                        # Đưa tab về /n hoặc F3 sạch sẽ sau khi hoàn tất batch
+                        reset_session_to_main_menu(worker_session)
 
                 if pythoncom is not None:
                     pythoncom.CoUninitialize()
@@ -2243,28 +2306,32 @@ class MigoAttachmentRunner:
                 if session is not None:
                     self.prepare_migo_session(session, mode="CHANGE")
 
-            for idx, item in enumerate(items, 1):
-                doc = str(item.get("doc", "")).strip()
-                now = time.time()
-                if progress_callback and total_items > 20 and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
-                    last_progress_time = now
-                    try:
-                        progress_callback(idx - 1, total_items, doc, total_success)
-                    except Exception as ex:
-                        print(f"[PROGRESS WARN] Callback error: {ex}")
+            try:
+                for idx, item in enumerate(items, 1):
+                    doc = str(item.get("doc", "")).strip()
+                    now = time.time()
+                    if progress_callback and total_items > 20 and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
+                        last_progress_time = now
+                        try:
+                            progress_callback(idx - 1, total_items, doc, total_success)
+                        except Exception as ex:
+                            print(f"[PROGRESS WARN] Callback error: {ex}")
 
-                res_dict, is_s = self.process_single_migo_item(
-                    session, item, index_data, fill_headtext, year,
-                    is_folder_requested, has_folder, folder_error, dry_run
-                )
-                results.append(res_dict)
-                st = str(res_dict.get("overall_status", "")).upper()
-                if "PARTIAL" in st:
-                    total_partial += 1
-                elif is_s or res_dict.get("is_succ") is True or st == "DONE":
-                    total_success += 1
-                else:
-                    total_missing += 1
+                    res_dict, is_s = self.process_single_migo_item(
+                        session, item, index_data, fill_headtext, year,
+                        is_folder_requested, has_folder, folder_error, dry_run
+                    )
+                    results.append(res_dict)
+                    st = str(res_dict.get("overall_status", "")).upper()
+                    if "PARTIAL" in st:
+                        total_partial += 1
+                    elif is_s or res_dict.get("is_succ") is True or st == "DONE":
+                        total_success += 1
+                    else:
+                        total_missing += 1
+            finally:
+                if not dry_run and session is not None:
+                    reset_session_to_main_menu(session)
 
         return {
             "folder_path": clean_folder if is_folder_requested else "",

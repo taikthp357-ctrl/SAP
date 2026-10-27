@@ -16,13 +16,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 class NvlMasterService:
     DEFAULT_JSON_PATH = Path(__file__).resolve().parent.parent / "data" / "nvl_master_v31.json"
+    MASTER_EXCEL_PATH = Path("G:/SAP/MASTER_DATA_VINFAST.xlsx")
     EXCEL_V31_PATH = Path("G:/SAP/260810_RA_DON_NVL_V31_ZONE.xlsm")
 
     _master_cache: Optional[Dict[str, Any]] = None
 
     @classmethod
     def load_master_data(cls, force_reload: bool = False) -> Dict[str, Any]:
-        """Tải dữ liệu danh mục từ cache JSON hoặc tự động trích xuất từ file V31 nếu cần."""
+        """Tải dữ liệu danh mục từ cache JSON hoặc tự động trích xuất từ file Master/V31 nếu cần."""
         if cls._master_cache is not None and not force_reload:
             return cls._master_cache
 
@@ -36,11 +37,13 @@ class NvlMasterService:
             except Exception as e:
                 print(f"[NVL_MASTER WARN] Không đọc được file cache JSON {json_path}: {e}")
 
-        if data is None and cls.EXCEL_V31_PATH.exists():
-            try:
-                data = cls._sync_from_excel(cls.EXCEL_V31_PATH, json_path)
-            except Exception as e:
-                print(f"[NVL_MASTER WARN] Lỗi khi trích xuất từ Excel {cls.EXCEL_V31_PATH}: {e}")
+        if data is None:
+            excel_target = cls.MASTER_EXCEL_PATH if cls.MASTER_EXCEL_PATH.exists() else cls.EXCEL_V31_PATH
+            if excel_target.exists():
+                try:
+                    data = cls._sync_from_excel(excel_target, json_path)
+                except Exception as e:
+                    print(f"[NVL_MASTER WARN] Lỗi khi trích xuất từ Excel {excel_target}: {e}")
 
         if data is None:
             # Dữ liệu dự phòng mặc định tối thiểu
@@ -81,63 +84,153 @@ class NvlMasterService:
 
     @classmethod
     def _sync_from_excel(cls, excel_path: Path, output_json_path: Path) -> Dict[str, Any]:
-        """Trích xuất dữ liệu từ các sheet DANH_MUC và CONFIG trong file Excel V31."""
+        """Trích xuất dữ liệu từ MASTER_DATA_VINFAST.xlsx hoặc V31 DANH_MUC/CONFIG."""
         import openpyxl
 
         wb = openpyxl.load_workbook(str(excel_path), data_only=True)
-        ws_dm = wb["DANH_MUC"]
-        ws_cfg = wb["CONFIG"]
+        sheet_names = wb.sheetnames
 
         fefo = {}
-        for r in range(5, ws_dm.max_row + 1):
-            p = ws_dm.cell(r, 1).value
-            t = ws_dm.cell(r, 2).value
-            if p:
-                fefo[str(p).strip().upper()] = str(t or "HSD").strip()
-
         boxes = {}
-        for r in range(5, ws_dm.max_row + 1):
-            m = ws_dm.cell(r, 5).value
-            if m:
-                mat_key = str(m).strip().upper()
-                if mat_key not in boxes:
-                    boxes[mat_key] = {
-                        "model": str(ws_dm.cell(r, 4).value or "").strip(),
-                        "material": mat_key,
-                        "box_type": str(ws_dm.cell(r, 6).value or "").strip(),
-                        "packing": int(ws_dm.cell(r, 7).value) if ws_dm.cell(r, 7).value else 1
-                    }
-
         bin_patterns = []
-        for r in range(5, ws_dm.max_row + 1):
-            bp = ws_dm.cell(r, 9).value
-            bz = ws_dm.cell(r, 10).value
-            if bp:
-                bin_patterns.append({
-                    "pattern": str(bp).strip().upper(),
-                    "zone": str(bz or "KHAC").strip()
-                })
-
         box_rules = []
-        for r in range(3, ws_cfg.max_row + 1):
-            pmin = ws_cfg.cell(r, 7).value
-            pmax = ws_cfg.cell(r, 8).value
-            nbox = ws_cfg.cell(r, 9).value
-            act = ws_cfg.cell(r, 10).value
-            if pmin is not None and str(act).upper() == "TRUE":
-                box_rules.append({
-                    "min": int(pmin),
-                    "max": int(pmax),
-                    "boxes": int(nbox)
-                })
+        vendor_map = {}
+        fg_catalog = {}
+        fg_shop_configs = {}
+
+        if "NVL_DANH_MUC" in sheet_names:
+            # Chuẩn MASTER_DATA_VINFAST.xlsx
+            ws_dm = wb["NVL_DANH_MUC"]
+            for r in range(2, ws_dm.max_row + 1):
+                m = ws_dm.cell(r, 2).value
+                if m:
+                    mat_key = str(m).strip().upper()
+                    ncc_val = str(ws_dm.cell(r, 3).value or "").strip()
+                    model_val = str(ws_dm.cell(r, 4).value or "").strip()
+                    box_type = str(ws_dm.cell(r, 5).value or "").strip()
+                    pkg_val = ws_dm.cell(r, 6).value
+                    pkg_int = int(pkg_val) if pkg_val and str(pkg_val).isdigit() else 1
+                    boxes[mat_key] = {
+                        "model": model_val,
+                        "material": mat_key,
+                        "box_type": box_type,
+                        "packing": pkg_int,
+                        "ncc": ncc_val
+                    }
+                    if ncc_val:
+                        vendor_map[mat_key] = ncc_val
+
+            if "NVL_FEFO_HSD" in sheet_names:
+                ws_fefo = wb["NVL_FEFO_HSD"]
+                for r in range(2, ws_fefo.max_row + 1):
+                    p = ws_fefo.cell(r, 2).value
+                    t = ws_fefo.cell(r, 3).value
+                    if p:
+                        fefo[str(p).strip().upper()] = str(t or "HSD").strip()
+
+            if "NVL_BIN_ZONE" in sheet_names:
+                ws_bz = wb["NVL_BIN_ZONE"]
+                for r in range(2, ws_bz.max_row + 1):
+                    bp = ws_bz.cell(r, 2).value
+                    bz = ws_bz.cell(r, 3).value
+                    desc = ws_bz.cell(r, 4).value
+                    lvl = ws_bz.cell(r, 5).value
+                    if bp:
+                        bin_patterns.append({
+                            "pattern": str(bp).strip().upper(),
+                            "zone": str(bz or "KHAC").strip(),
+                            "desc": str(desc or "").strip(),
+                            "ground_level": str(lvl or "Standard").strip()
+                        })
+
+            if "NVL_CONFIG" in sheet_names:
+                ws_cfg = wb["NVL_CONFIG"]
+                for r in range(2, ws_cfg.max_row + 1):
+                    pmin = ws_cfg.cell(r, 2).value
+                    pmax = ws_cfg.cell(r, 3).value
+                    nbox = ws_cfg.cell(r, 4).value
+                    act = ws_cfg.cell(r, 5).value
+                    if pmin is not None and str(act).upper() == "TRUE":
+                        box_rules.append({
+                            "min": int(pmin),
+                            "max": int(pmax),
+                            "boxes": int(nbox)
+                        })
+
+            if "FG_DANH_MUC" in sheet_names:
+                ws_fg = wb["FG_DANH_MUC"]
+                for r in range(2, ws_fg.max_row + 1):
+                    m_fg = ws_fg.cell(r, 2).value
+                    if m_fg:
+                        m_fg_key = str(m_fg).strip().upper()
+                        us_val = ws_fg.cell(r, 4).value
+                        try:
+                            us_float = float(us_val) if us_val is not None else 1.0
+                        except Exception:
+                            us_float = 1.0
+                        fg_catalog[m_fg_key] = {
+                            "material": m_fg_key,
+                            "model": str(ws_fg.cell(r, 3).value or "").strip(),
+                            "us": us_float,
+                            "tram": str(ws_fg.cell(r, 5).value or "").strip(),
+                            "shop": str(ws_fg.cell(r, 6).value or "BODY").strip(),
+                            "ma_son": str(ws_fg.cell(r, 7).value or "").strip(),
+                            "khu_vuc": str(ws_fg.cell(r, 8).value or "").strip()
+                        }
+        else:
+            # File V31 cũ (DANH_MUC & CONFIG)
+            ws_dm = wb["DANH_MUC"]
+            ws_cfg = wb["CONFIG"]
+
+            for r in range(5, ws_dm.max_row + 1):
+                p = ws_dm.cell(r, 1).value
+                t = ws_dm.cell(r, 2).value
+                if p:
+                    fefo[str(p).strip().upper()] = str(t or "HSD").strip()
+
+            for r in range(5, ws_dm.max_row + 1):
+                m = ws_dm.cell(r, 5).value
+                if m:
+                    mat_key = str(m).strip().upper()
+                    if mat_key not in boxes:
+                        boxes[mat_key] = {
+                            "model": str(ws_dm.cell(r, 4).value or "").strip(),
+                            "material": mat_key,
+                            "box_type": str(ws_dm.cell(r, 6).value or "").strip(),
+                            "packing": int(ws_dm.cell(r, 7).value) if ws_dm.cell(r, 7).value else 1
+                        }
+
+            for r in range(5, ws_dm.max_row + 1):
+                bp = ws_dm.cell(r, 9).value
+                bz = ws_dm.cell(r, 10).value
+                if bp:
+                    bin_patterns.append({
+                        "pattern": str(bp).strip().upper(),
+                        "zone": str(bz or "KHAC").strip()
+                    })
+
+            for r in range(3, ws_cfg.max_row + 1):
+                pmin = ws_cfg.cell(r, 7).value
+                pmax = ws_cfg.cell(r, 8).value
+                nbox = ws_cfg.cell(r, 9).value
+                act = ws_cfg.cell(r, 10).value
+                if pmin is not None and str(act).upper() == "TRUE":
+                    box_rules.append({
+                        "min": int(pmin),
+                        "max": int(pmax),
+                        "boxes": int(nbox)
+                    })
 
         master_data = {
-            "version": "V31_ZONE",
+            "version": "UNIFIED_MASTER_V20261027" if "NVL_DANH_MUC" in sheet_names else "V31_ZONE",
             "source_file": excel_path.name,
             "fefo_materials": fefo,
             "box_catalog": boxes,
             "bin_patterns": bin_patterns,
-            "box_rules": box_rules
+            "box_rules": box_rules,
+            "vendor_map": vendor_map,
+            "fg_catalog": fg_catalog,
+            "fg_shop_configs": fg_shop_configs,
         }
 
         try:
@@ -297,3 +390,89 @@ class NvlMasterService:
         elif b_clean.startswith("APFL-ZF"):
             return "ZF"
         return "SPECIAL"
+
+    @classmethod
+    def get_vendor(cls, material: str) -> str:
+        """Lấy tên Nhà Cung Cấp (NCC) từ Master Data."""
+        m_clean = str(material or "").strip().upper()
+        if not m_clean:
+            return ""
+        master = cls.load_master_data()
+        v_map = master.get("vendor_map", {})
+        if m_clean in v_map:
+            return str(v_map[m_clean]).strip()
+        catalog = master.get("box_catalog", {})
+        if m_clean in catalog:
+            return str(catalog[m_clean].get("ncc", "")).strip()
+        return ""
+
+    @classmethod
+    def get_fg_info(cls, material: str) -> Optional[Dict[str, Any]]:
+        """Lấy thông tin bán thành phẩm FG (Model, Định mức US, Trạm, Shop)."""
+        m_clean = str(material or "").strip().upper()
+        if not m_clean:
+            return None
+        master = cls.load_master_data()
+        fg_cat = master.get("fg_catalog", {})
+        return fg_cat.get(m_clean)
+
+    @classmethod
+    def get_fg_us(cls, material: str) -> float:
+        """Lấy định mức sử dụng trên mỗi xe (US) cho mã hàng, mặc định 1.0."""
+        info = cls.get_fg_info(material)
+        if info:
+            try:
+                return float(info.get("us", 1.0))
+            except Exception:
+                return 1.0
+        return 1.0
+
+    @classmethod
+    def is_ground_bin(cls, bin_name: str) -> bool:
+        """Kiểm tra Bin có phải ở mặt đất / dễ tiếp cận (Ground level) không.
+        - HR1-*-*-1: Mặt đất tầng 1
+        - HR1-*-*-2+: Tầng cao
+        - APFL-P*: Mặt đất (ngoại trừ P22, P23 là RV5 rack chồng, P24 là rack cam chồng)
+        - APFL-ZF*, APFL-TH*: Kiện thùng xếp sàn
+        """
+        b_clean = str(bin_name or "").strip().upper()
+        if not b_clean:
+            return False
+
+        # HR1 racks: check tier suffix
+        if "HR1" in b_clean or "HR" in b_clean:
+            parts = b_clean.split("-")
+            if len(parts) >= 5:
+                # e.g. APFL-HR1-01-01-1 vs APFL-HR1-01-01-2
+                tier = parts[-1]
+                if tier == "1":
+                    return True
+                elif tier.isdigit() and int(tier) >= 2:
+                    return False
+            if b_clean.endswith("-1"):
+                return True
+
+        # P racks: P22, P23, P24 are stacked racks
+        if b_clean.startswith("APFL-P22") or b_clean.startswith("APFL-P23") or b_clean.startswith("APFL-P24"):
+            return False  # Stacked rack
+        if b_clean.startswith("APFL-P"):
+            return True  # P ground box
+
+        # ZF and TH floor stacked
+        if b_clean.startswith("APFL-ZF") or b_clean.startswith("APFL-TH"):
+            return True
+
+        return False
+
+    @classmethod
+    def is_henkel_glue(cls, material: str) -> bool:
+        """Kiểm tra mã vật tư có phải là Keo Henkel cần xuất tại SLoc 200C không."""
+        m_clean = str(material or "").strip().upper()
+        if not m_clean:
+            return False
+        if m_clean in ("BIW71005512", "BIW71005612"):
+            return True
+        master = cls.load_master_data()
+        fefo = master.get("fefo_materials", {})
+        desc = str(fefo.get(m_clean, "")).upper()
+        return "200C" in desc or "HENKEL" in desc

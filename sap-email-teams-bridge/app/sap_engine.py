@@ -137,7 +137,7 @@ class SapEngine:
             if expected.get(key) and str(current.get(key, "")).upper() != str(expected[key]).upper():
                 raise SapExecutionError(f"SAP {key} không khớp cấu hình (mong đợi: {expected.get(key)}, thực tế: {current.get(key)})")
         prior = getattr(self, "session_identity", None)
-        if prior and any(current.get(k) != prior.get(k) for k in ("system", "client", "user", "session_id", "connection_id") if prior.get(k)):
+        if prior and any(current.get(k) != prior.get(k) for k in ("system", "client", "user", "connection_id") if prior.get(k)):
             raise SapExecutionError("Danh tính phiên SAP thay đổi; dừng để kiểm tra")
         return current
 
@@ -256,7 +256,7 @@ class SapEngine:
         if not self._is_session_alive():
             self.session = self._connect_sap()
         identity = self._check_identity(self.session)
-        if getattr(self, "session_identity", None) and identity != self.session_identity:
+        if getattr(self, "session_identity", None) and any(identity.get(k) != self.session_identity.get(k) for k in ("system", "client", "user", "connection_id") if self.session_identity.get(k)):
             raise SapExecutionError("Session SAP không còn thuộc phiên Bridge đã chọn")
         if getattr(self.session, "Busy", False) is True:
             raise SapExecutionError("SAP đang bận; không gửi thêm thao tác")
@@ -2494,6 +2494,94 @@ class SapEngine:
             r.pop("_raw_total", None)
 
         return output_records[:limit]
+
+    def check_shift_doh_warning(
+        self,
+        materials: Optional[List[str]] = None,
+        model_name: str = "ALL",
+        shift_name: str = "S6",
+        plant: str = "3093",
+        threshold: int = 200,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Tính toán và lọc danh sách mã chưa đủ DOH chạy trong ca (< threshold xe).
+        
+        Xuất bảng chuẩn xác 6 cột theo chỉ thị thực chiến:
+        Mã hàng | Nhà cung cấp (NCC) | Tồn Line 3001 | Tồn Kho 1005 | DOH (Xe) | Model
+        (Không suy đoán Inbound ảo khi hàng chưa về kho thực tế).
+        """
+        from app.nvl_master import NvlMasterService
+        from decimal import Decimal
+
+        master = NvlMasterService.load_master_data()
+        box_cat = master.get("box_catalog", {})
+        fg_cat = master.get("fg_catalog", {})
+
+        clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
+        if not clean_mats:
+            model_upper = (model_name or "ALL").strip().upper()
+            candidates = []
+            if model_upper not in ("ALL", "", "BODY"):
+                for m_k, b_v in box_cat.items():
+                    if model_upper in str(b_v.get("model", "")).upper():
+                        candidates.append(m_k)
+                for m_k, fg_v in fg_cat.items():
+                    if model_upper in str(fg_v.get("model", "")).upper():
+                        candidates.append(m_k)
+            if not candidates:
+                candidates = list(box_cat.keys())[:100]
+            clean_mats = list(dict.fromkeys(candidates))
+
+        # Query MB52 cho các mã này tại SLoc 1005 (Kho) và 3001 (Line)
+        mb52_records = self.check_stock_mb52(materials=clean_mats, plant=plant, slocs=["1005", "3001", "3000"])
+
+        stock_line_map = {m: Decimal("0") for m in clean_mats}
+        stock_wh_map = {m: Decimal("0") for m in clean_mats}
+
+        for r in mb52_records or []:
+            m_raw = str(r.get("product", "")).strip().upper()
+            if m_raw in stock_line_map:
+                sloc = str(r.get("sloc", "")).strip().upper()
+                qty_val = 0.0
+                try:
+                    qty_val = float(str(r.get("unrest", "0")).replace(",", "").replace(" ", ""))
+                except Exception:
+                    qty_val = 0.0
+
+                if sloc in ("3001", "3000"):
+                    stock_line_map[m_raw] += Decimal(str(qty_val))
+                elif sloc in ("1005", "3093"):
+                    stock_wh_map[m_raw] += Decimal(str(qty_val))
+
+        results = []
+        for m in clean_mats:
+            l_qty = float(stock_line_map[m])
+            w_qty = float(stock_wh_map[m])
+            us_val = NvlMasterService.get_fg_us(m)
+            doh_val = int(l_qty / us_val) if us_val > 0 else int(l_qty)
+
+            if doh_val < threshold:
+                ncc_name = NvlMasterService.get_vendor(m) or "---"
+                m_info = NvlMasterService.get_fg_info(m) or box_cat.get(m, {})
+                m_model = m_info.get("model") or (model_name if model_name != "ALL" else "")
+                if not m_model:
+                    m_model = str(m_info.get("model", "")).strip() or model_name or "N/A"
+
+                results.append({
+                    "product": m,
+                    "ncc": ncc_name,
+                    "stock_3001": int(l_qty) if float(l_qty).is_integer() else l_qty,
+                    "stock_1005": int(w_qty) if float(w_qty).is_integer() else w_qty,
+                    "doh": doh_val,
+                    "model": m_model,
+                    "_sort_key": (doh_val, l_qty, m)
+                })
+
+        results.sort(key=lambda x: x["_sort_key"])
+        for r in results:
+            r.pop("_sort_key", None)
+
+        return results[:limit]
 
     # --------------------------------------------------------------------------
     # 7. KIỂM TRA ĐƠN OUTBOUND (OB) TREO / ĐANG CHỜ (VL06O)

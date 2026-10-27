@@ -61,8 +61,12 @@ def validated_stock_lot(row, source_plant, source_sloc, require_fifo=True):
         raise ValueError("Thiếu material/batch/bin/plant/sloc/ĐVT được xác minh từ nguồn SAP")
     if not cat:
         raise ValueError("Thiếu Stock Category (Cat/Stock Type) được xác minh từ nguồn SAP")
-    if plant != _text(source_plant) or sloc != _text(source_sloc):
-        raise ValueError("Tồn kho ngoài phạm vi plant/sloc yêu cầu")
+    is_glue = NvlMasterService.is_henkel_glue(material)
+    if plant != _text(source_plant):
+        raise ValueError("Tồn kho ngoài phạm vi plant yêu cầu")
+    if sloc != _text(source_sloc):
+        if not (is_glue and sloc == "200C"):
+            raise ValueError("Tồn kho ngoài phạm vi plant/sloc yêu cầu")
     if cat not in {"FT", "F1", "F2", "UNRESTRICTED"} or row.get("eligible") is False:
         raise ValueError("Tồn QC/blocked/category chưa xác định không được phân bổ")
     # Zero must not fall back to total stock. Availability must be provided.
@@ -256,24 +260,29 @@ class NvlService:
             for index, order, material, unit, qty, station in validated_orders:
                 remaining = qty
                 st_zone = NvlMasterService.extract_zone_from_station(station)
+                target_bin = str(order.get("target_bin") or order.get("bin") or "").strip().upper()
 
                 def _lot_sort_key(lot):
-                    # 1. FEFO (HSD earliest first)
+                    # 1. FEFO (HSD earliest first) - Tuyệt đối số 1
                     hsd = lot.get("hsd_score", "99999999")
-                    # 2. FIFO (GR Date & Time earliest first)
+                    # 2. FIFO (GR Date & Time earliest first) - Tuyệt đối số 2
                     gr = lot.get("gr_key", ("99999999", "999999"))
-                    # 3. Zone Matching: nếu trạm có Zone, ưu tiên bin có chứa số Zone hoặc khu vực tương thích
+                    # 3. Target Bin Matching: nếu chỉ định vị trí cụ thể, ưu tiên tuyệt đối bin đó
                     bin_str = str(lot.get("bin") or "").upper()
+                    bin_match = 0 if (target_bin and target_bin == bin_str) else (1 if target_bin else 0)
+                    # 4. Zone Matching: nếu trạm có Zone, ưu tiên bin có chứa số Zone hoặc khu vực tương thích
                     zone_str = str(lot.get("zone") or "").upper()
                     zone_match = 0 if (st_zone and (st_zone in bin_str or st_zone in zone_str)) else 1
-                    # 4. Vét hàng lẻ (Broken Box / Partial Quantity First):
+                    # 5. Vét hàng lẻ (Broken Box / Partial Quantity First):
                     # Ô bin có tồn lẻ (0 < available_qty < packing) được ưu tiên vét trước
                     broken_priority = 0 if lot.get("is_broken") else 1
-                    # 5. Giữ nguyên thứ tự dòng gốc từ /SCWM/POST (như Excel V31 origRow)
+                    # 6. Ưu tiên mặt đất (Ground Level First): sàn/mặt đất lấy dễ hơn tầng cao (HR1-*-*-2+)
+                    ground_priority = 0 if NvlMasterService.is_ground_bin(bin_str) else 1
+                    # 7. Giữ nguyên thứ tự dòng gốc từ /SCWM/POST (như Excel V31 origRow)
                     orig_idx = lot.get("orig_index", 0)
-                    # 6. Fallback cố định
+                    # 8. Fallback cố định
                     stock_k = lot.get("stock_key", "")
-                    return (hsd, gr, zone_match, broken_priority, orig_idx, stock_k)
+                    return (hsd, gr, bin_match, zone_match, broken_priority, ground_priority, orig_idx, stock_k)
 
                 candidate_lots = [lot for lot in lots.values() if lot["material"] == material]
                 candidate_lots.sort(key=_lot_sort_key)
