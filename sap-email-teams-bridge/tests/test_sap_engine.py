@@ -2294,3 +2294,150 @@ def test_set_cell_material_and_batch_symmetric_fallbacks():
     res_batch = engine._set_cell(tbl, 0, 9, "BATCH_TEST_01", "Batch")
     assert res_batch is True
     assert tbl.cell_10.Text == "BATCH_TEST_01"
+
+
+def test_post_migo_311_dynamic_rescan_after_enter1_column_shift():
+    """Kiểm tra post_migo_311_ob_group tự động tái quét (Re-scan) và thích ứng khi SAP chèn thêm cột S.. sau Enter 1:
+    - Trước Enter 1: Bảng ở trạng thái sơ khai (Batch ở cột 9, Kho nhận ở cột 8).
+    - Sau Enter 1: SAP kích hoạt PBO, chèn cột S.. tại vị trí 4, đẩy Batch sang cột 10, Kho nhận sang cột 9.
+    - Nhịp 2 phải tự động phát hiện Batch đã chuyển sang cột 10, điền đúng vào (0, 10), không ghi đè vào (0, 9).
+    """
+    from app.sap_engine import SapEngine
+    from unittest.mock import MagicMock
+
+    engine = SapEngine.__new__(SapEngine)
+
+    class MockCol:
+        def __init__(self, name, title, visible=True):
+            self.Name = name
+            self.name = name
+            self.Title = title
+            self.title = title
+            self.Visible = visible
+            self.visible = visible
+
+    class MockCell:
+        def __init__(self):
+            self.Text = ""
+            self.text = ""
+        def SetFocus(self):
+            pass
+
+    class DynamicTable:
+        def __init__(self):
+            self.Name = "tblSAPLMIGOTV_GOITEM"
+            self.name = self.Name
+            self.Type = "GuiTableControl"
+            self.type = self.Type
+            self.Id = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
+            self.id = self.Id
+            self.FirstVisibleRow = 0
+            self.VisibleRowCount = 10
+            self.cells = {}
+            # Trước Enter 1: Chưa có cột S.. (Batch ở col 9)
+            self.cols = [
+                MockCol("LINE", "Line"),
+                MockCol("GOITEM-UMMAT", "Material Trfr Pstg"),
+                MockCol("GOITEM-DUMMY", "Material Trfr..."),
+                MockCol("GOITEM-MAKTX", "Mat. Short Text"),
+                MockCol("GOITEM-ERFMG", "Qty in UnE"),
+                MockCol("GOITEM-SGTXT", "Text"),
+                MockCol("GOITEM-WERKS", "Plnt"),
+                MockCol("GOITEM-LGORT", "SLoc"),
+                MockCol("GOITEM-UMLGO", "SLoc Tra..."),
+                MockCol("GOITEM-CHARG", "Batch"),
+                MockCol("GOITEM-UMCHA", "Batch Trfr..."),
+            ]
+
+        def spawn_status_column_after_enter1(self):
+            # SAP chèn thêm cột S.. tại vị trí 4 sau Enter 1
+            self.cols = [
+                MockCol("LINE", "Line"),
+                MockCol("GOITEM-UMMAT", "Material Trfr Pstg"),
+                MockCol("GOITEM-DUMMY", "Material Trfr..."),
+                MockCol("GOITEM-MAKTX", "Mat. Short Text"),
+                MockCol("STATUS", "S.."),                       # Mới xuất hiện tại col 4!
+                MockCol("GOITEM-ERFMG", "Qty in UnE"),          # col 5
+                MockCol("GOITEM-SGTXT", "Text"),                # col 6
+                MockCol("GOITEM-WERKS", "Plnt"),                # col 7
+                MockCol("GOITEM-LGORT", "SLoc"),                # col 8
+                MockCol("GOITEM-UMLGO", "SLoc Tra..."),         # col 9 (Kho nhận)
+                MockCol("GOITEM-CHARG", "Batch"),               # col 10 (Lô xuất dời sang 10!)
+                MockCol("GOITEM-UMCHA", "Batch Trfr..."),      # col 11
+            ]
+
+        @property
+        def Columns(self):
+            cols_list = self.cols
+            class ColColl:
+                Count = len(cols_list)
+                count = len(cols_list)
+                def Item(self, idx):
+                    return cols_list[idx]
+                def __call__(self, idx):
+                    return cols_list[idx]
+            return ColColl()
+
+        def GetCell(self, row, col):
+            if (row, col) not in self.cells:
+                self.cells[(row, col)] = MockCell()
+            return self.cells[(row, col)]
+
+    class MockSbar:
+        def __init__(self):
+            self.Text = "Material document 1099999999 posted"
+            self.text = self.Text
+            self.MessageType = "S"
+            self.messageType = "S"
+
+    tbl = DynamicTable()
+    sbar = MockSbar()
+
+    mock_w0 = MagicMock()
+    mock_w0.Children = [tbl, sbar]
+    mock_w0.children = mock_w0.Children
+
+    enter_count = [0]
+    def mock_send_vkey(vkey):
+        if vkey == 0:
+            enter_count[0] += 1
+            if enter_count[0] == 1:
+                tbl.spawn_status_column_after_enter1()
+
+    mock_w0.sendVKey = mock_send_vkey
+
+    mock_session = MagicMock()
+    mock_session.ActiveWindow.Name = "wnd[0]"
+    mock_session.Children.Count = 1
+
+    def mock_find(cid):
+        if cid == "wnd[0]":
+            return mock_w0
+        if cid == "wnd[0]/sbar":
+            return sbar
+        if "tblSAPLMIGOTV_GOITEM" in cid:
+            return tbl
+        return None
+
+    engine.session = mock_session
+    engine._find_by_id_safe = mock_find
+    engine._wait_idle = MagicMock()
+    engine._open_transaction = MagicMock()
+
+    items = [{
+        "material": "BIW32025210AA",
+        "qty": 128,
+        "plant": "3093",
+        "source_sloc": "1005",
+        "dest_sloc": "3001",
+        "batch": "260926-10",
+        "station": "KV-1/Duy/Bằng ZONE 21"
+    }]
+
+    ok, doc_no, msg = engine.post_migo_311_ob_group(items, plant="3093", source_sloc="1005", dest_sloc="3001")
+    assert ok is True
+    assert doc_no == "1099999999"
+
+    # Kiểm tra Nhịp 2: Batch phải được điền vào ô (0, 10), KHÔNG PHẢI ô (0, 9)!
+    assert (0, 10) in tbl.cells
+    assert tbl.cells[(0, 10)].Text == "260926-10"

@@ -4667,9 +4667,115 @@ class SapEngine:
                     pass
                 return False, "", err_msg
 
+            def _get_real_batch_columns(table_ctl):
+                """Tái hiện 100% chuẩn xác hàm RUN_GetBatchColumnForRow & RUN_IsRealBatchTitle từ VBA MIGO311_RunPost_V24_ErrorGuard.bas.
+                Quét lại động cột Batch xuất và Batch nhận trên bảng mới render sau Enter 1 (loại trừ Batch Trfr Pstg).
+                """
+                r_batch = -1
+                r_dest_batch = -1
+                if table_ctl is None:
+                    return r_batch, r_dest_batch
+
+                # Lượt 1: Quét qua table_ctl.Columns (ElementAt / Item)
+                try:
+                    col_count = int(getattr(table_ctl.Columns, "Count", getattr(table_ctl.Columns, "count", 0)))
+                    for c_i in range(col_count):
+                        if c_i >= 20:
+                            continue
+                        col_obj = None
+                        try:
+                            col_obj = table_ctl.Columns.Item(c_i)
+                        except Exception:
+                            pass
+                        if col_obj is None:
+                            try:
+                                col_obj = table_ctl.Columns.ElementAt(c_i)
+                            except Exception:
+                                pass
+                        if col_obj is None:
+                            try:
+                                col_obj = table_ctl.Columns(c_i)
+                            except Exception:
+                                pass
+                        if col_obj is None:
+                            try:
+                                col_obj = table_ctl.Columns[c_i]
+                            except Exception:
+                                pass
+                        if col_obj is None:
+                            continue
+
+                        c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
+                        c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
+
+                        is_real_title = (
+                            ("BATCH" in c_title or "LÔ" in c_title or "SỐ LÔ" in c_title)
+                            and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG", "NHẬN", "DEST"))
+                            and not any(w in c_title.split() for w in ("TO",))
+                        )
+                        is_real_name = (c_name in ("GOITEM-CHARG", "CHARG") and c_name not in ("GOITEM-UMCHA", "UMCHA"))
+
+                        is_dest_title = (
+                            c_name in ("GOITEM-UMCHA", "UMCHA")
+                            or any(c_title.startswith(k) for k in ("BATCH TRFR", "REC. BATCH", "BATCHTO", "DEST. BATCH", "LÔ NHẬN"))
+                            or ("BATCH" in c_title and any(k in c_title for k in ("TRANSFER", "TRFR", "TRA", "DEST", "NHẬN", "PSTG")))
+                            or ("BATCH" in c_title and any(w in c_title.split() for w in ("TO",)))
+                        )
+
+                        if r_batch < 0 and (is_real_name or is_real_title):
+                            r_batch = c_i
+                        elif r_dest_batch < 0 and is_dest_title:
+                            r_dest_batch = c_i
+                except Exception as col_err:
+                    print(f"[SAP MIGO WARN] Tái phân giải Nhịp 2 qua Columns thất bại: {col_err}")
+
+                # Lượt 2: Quét qua table_ctl.Children theo Token kỹ thuật Id
+                try:
+                    children = getattr(table_ctl, "Children", getattr(table_ctl, "children", None))
+                    if children:
+                        cnt = getattr(children, "Count", getattr(children, "count", 0))
+                        for i in range(cnt):
+                            ch = None
+                            try:
+                                ch = children.Item(i)
+                            except Exception:
+                                try:
+                                    ch = children(i) if callable(children) else children[i]
+                                except Exception:
+                                    pass
+                            if ch is None:
+                                continue
+                            cid = str(getattr(ch, "Id", getattr(ch, "id", "")) or "").upper()
+                            at = cid.rfind("[")
+                            if at != -1 and cid.endswith("]"):
+                                coord_str = cid[at + 1:-1]
+                                parts = coord_str.split(",")
+                                if len(parts) == 2:
+                                    try:
+                                        c_col = int(parts[0])
+                                    except Exception:
+                                        continue
+                                    if c_col < 20:
+                                        if r_batch < 0 and "GOITEM-CHARG[" in cid and "GOITEM-UMCHA[" not in cid:
+                                            r_batch = c_col
+                                        elif r_dest_batch < 0 and "GOITEM-UMCHA[" in cid:
+                                            r_dest_batch = c_col
+                except Exception as child_err:
+                    print(f"[SAP MIGO WARN] Tái phân giải Nhịp 2 qua Children thất bại: {child_err}")
+
+                return r_batch, r_dest_batch
+
             # 7. Nhịp 2: Điền số lô Batch động (nếu có lô)
             has_any_batch = any(bool(str(it.get("batch") or "").strip() and str(it.get("batch") or "").strip() != "-") for it in ob_items)
             if has_any_batch and tbl is not None:
+                # TÁI QUÉT ĐỘNG CỘT BATCH SAU ENTER 1 (Chuẩn 100% RUN_FillBatchDynamic_ByGrid & RUN_GetBatchColumnForRow từ VBA Excel)
+                new_b_col, new_dest_b_col = _get_real_batch_columns(tbl)
+                if new_b_col >= 0:
+                    batch_col = new_b_col
+                    print(f"[SAP MIGO] Tái phân giải Nhịp 2 thành công (VBA RUN_GetBatchColumnForRow): Batch={batch_col}")
+                if new_dest_b_col >= 0:
+                    dest_batch_col = new_dest_b_col
+
                 print(f"[SAP MIGO] Điền Nhịp 2: Batch (cột {batch_col})...")
                 for logical_row, item in enumerate(ob_items):
                     batch_val = str(item.get("batch", "")).strip()
