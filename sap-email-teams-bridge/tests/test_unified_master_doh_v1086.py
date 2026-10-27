@@ -146,3 +146,14 @@ def test_shift_doh_warning_report():
     assert row["model"] == "VF6"
     assert "inbound" not in row
     assert "eta" not in row
+
+
+def test_user_query_s6_nay_chay_vf6_limo():
+    """Kiểm tra câu lệnh người dùng thực tế: 'SAP S6 nay chạy VF6 Limo'."""
+    res = SmartCommandParser.parse("SAP S6 nay chạy VF6 Limo", default_plant="3093")
+    assert res is not None
+    assert res["valid"] is True
+    assert res["command"] == "TON_THAP"
+    assert res["shift"] == "S6"
+    assert "VF6" in res["model"]
+    assert "LIMO" in res["model"]

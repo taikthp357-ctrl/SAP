@@ -2519,14 +2519,23 @@ class SapEngine:
 
         clean_mats = [m.strip().upper() for m in (materials or []) if m.strip()]
         if not clean_mats:
-            model_upper = (model_name or "ALL").strip().upper()
+            # Hỗ trợ nhiều model cùng lúc (vd: 'VF6, LIMO' hoặc ['VF6', 'LIMO'])
+            if isinstance(model_name, (list, tuple, set)):
+                target_models = [str(m).strip().upper() for m in model_name if m]
+            else:
+                target_models = [m.strip().upper() for m in str(model_name).replace("/", ",").split(",") if m.strip()]
+                if len(target_models) == 1 and " " in target_models[0]:
+                    target_models = [m.strip().upper() for m in target_models[0].split() if m.strip()]
+            
             candidates = []
-            if model_upper not in ("ALL", "", "BODY"):
+            if target_models and not any(m in ("ALL", "", "BODY") for m in target_models):
                 for m_k, b_v in box_cat.items():
-                    if model_upper in str(b_v.get("model", "")).upper():
+                    b_m = str(b_v.get("model", "")).upper()
+                    if any(tm in b_m for tm in target_models):
                         candidates.append(m_k)
                 for m_k, fg_v in fg_cat.items():
-                    if model_upper in str(fg_v.get("model", "")).upper():
+                    fg_m = str(fg_v.get("model", "")).upper()
+                    if any(tm in fg_m for tm in target_models):
                         candidates.append(m_k)
             if not candidates:
                 candidates = list(box_cat.keys())[:100]

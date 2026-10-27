@@ -65,6 +65,7 @@ class SmartCommandParser:
             (r"\b(?:ib|inbound|con\s*ib|còn\s*ib|check\s*ib|kiem\s*tra\s*ib|hang\s*ve|hàng\s*về|lich\s*ve|lịch\s*về|asn|vl06i|zmme240)\b", 78),
         ],
         "TON_THAP": [
+            (r"\b(?:s[1-7]|ca\s*[s0-9]|[1-7])\s+(?:nay\s+)?ch[aạ]y\b|\bch[aạ]y\s+(?:ca\s*)?(?:s[1-7]|[1-7])\b|\b(?:tinh|check)\s+doh\b", 92),
             (r"\b(?:canh\s*bao\s*ton\s*ca|ton\s*thap\s*ca|doh\s*ca|thieu\s*doh|chua\s*du\s*doh)\b", 88),
             (r"\b(?:ton\s*thap|thap|canh\s*bao\s*ton|low\s*stock|doh\s*thap|sap\s*het|thieu\s*hang)\b", 78),
             (r"\b(?:top\s*\d+\s*(?:ma)?\s*ton\s*thap|check\s*(?:cho\s*toi\s*)?\d+\s*ma\s*.*ton\s*thap)\b", 82),
@@ -559,6 +560,15 @@ class SmartCommandParser:
         # 2. Xử lý các thực thể đặc biệt: MODEL, SHOP, PLANTS, LIMIT, OB, BIN
         from app.material_resolver import MaterialResolver
         model_name, shop_name, plants_list = MaterialResolver.detect_model_and_shop(command_text)
+
+        # Hỗ trợ nhận diện nhiều Model cùng chạy trong ca (ví dụ: "S6 nay chạy VF6 Limo")
+        known_models_list = ["LIMO", "VF3", "VF5", "VF6", "VF7", "VF8", "VF9", "VFE34", "WILD", "KLARA", "FELIZ", "VENTO", "THEON", "EVO"]
+        detected_multi_models = []
+        for km in known_models_list:
+            if re.search(r"\b" + km + r"\b", norm_text.upper()):
+                detected_multi_models.append(km)
+        if len(detected_multi_models) > 1:
+            model_name = ", ".join(detected_multi_models)
 
         limit_val = 20
         top_m = re.search(r"\b(?:top\s*|check\s*(?:cho\s*toi\s*)?)?(\d{1,3})\s*(?:ma|dong)\b|\btop\s*(\d{1,3})\b", norm_text)
