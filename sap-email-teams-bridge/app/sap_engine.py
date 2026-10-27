@@ -3910,58 +3910,125 @@ class SapEngine:
         return records
 
     def _set_cell(self, table_ctl, row_no, col_no, value_text, label=""):
-        """Điền ô trong TableControl (Token TableField -> GetCell -> Coord)."""
+        """Điền ô trong TableControl (GetCell -> Symmetric Fallback -> Token TableField -> Coord)."""
         val_str = str(value_text or "").strip()
-        migo_token_map = {
-            "Material": "GOITEM-MATNR",
-            "Qty": "GOITEM-ERFMG",
-            "Trạm": "GOITEM-SGTXT",
-            "Plant": "GOITEM-WERKS",
-            "SLoc xuất": "GOITEM-LGORT",
-            "SLoc nhận": "GOITEM-UMLGO",
-            "Batch": "GOITEM-CHARG",
-            "OK": "GOITEM-TAKE_IT"
-        }
-        token = migo_token_map.get(label)
-        if token:
-            try:
-                fld = self.table_field(table_ctl, token, row_no)
-                if fld is not None:
-                    for prop in ("Text", "text"):
-                        try:
-                            setattr(fld, prop, val_str)
-                            return True
-                        except Exception:
-                            pass
-                    try:
-                        fld.SetFocus()
-                        fld.Text = val_str
-                        return True
-                    except Exception:
-                        pass
-            except Exception:
-                pass
 
-        if col_no is not None and col_no >= 0:
+        # 1. Ưu tiên cao nhất: GetCell trực tiếp theo toạ độ (row_no, col_no) nếu hợp lệ (< 30)
+        if col_no is not None and 0 <= col_no < 30:
             try:
                 cell = table_ctl.GetCell(row_no, col_no)
                 if cell is not None:
-                    for prop in ("Text", "text"):
-                        try:
-                            setattr(cell, prop, val_str)
+                    try:
+                        cell.Text = val_str
+                        if str(getattr(cell, "Text", "") or "").strip() == val_str:
                             return True
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
                     try:
                         cell.SetFocus()
                         cell.Text = val_str
-                        return True
+                        if str(getattr(cell, "Text", "") or "").strip() == val_str:
+                            return True
                     except Exception:
                         pass
             except Exception:
                 pass
 
-        if col_no is not None and col_no >= 0:
+        # 2. Fallback đối xứng cho Material (cột 1 <-> cột 2) nếu cột chính không ghi được
+        if label == "Material":
+            alt_col = 2 if col_no == 1 else (1 if col_no == 2 else None)
+            if alt_col is not None:
+                try:
+                    alt_cell = table_ctl.GetCell(row_no, alt_col)
+                    if alt_cell is not None:
+                        try:
+                            alt_cell.Text = val_str
+                            if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
+                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_col}")
+                                return True
+                        except Exception:
+                            pass
+                        try:
+                            alt_cell.SetFocus()
+                            alt_cell.Text = val_str
+                            if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
+                                print(f"[SAP MIGO] Đã điền Material vào cột thay thế {alt_col}")
+                                return True
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        # 3. Fallback đối xứng cho Batch (cột 9 <-> cột 10) nếu cột chính không ghi được
+        if label == "Batch":
+            alt_batch = 10 if col_no == 9 else (9 if col_no == 10 else None)
+            if alt_batch is not None:
+                try:
+                    alt_cell = table_ctl.GetCell(row_no, alt_batch)
+                    if alt_cell is not None:
+                        try:
+                            alt_cell.Text = val_str
+                            if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
+                                print(f"[SAP MIGO] Đã điền Batch vào cột thay thế {alt_batch}")
+                                return True
+                        except Exception:
+                            pass
+                        try:
+                            alt_cell.SetFocus()
+                            alt_cell.Text = val_str
+                            if str(getattr(alt_cell, "Text", "") or "").strip() == val_str:
+                                print(f"[SAP MIGO] Đã điền Batch vào cột thay thế {alt_batch}")
+                                return True
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        # 4. Token Relative ID (chỉ tìm token hợp lệ trong dải hiển thị < 30)
+        migo_token_map = {
+            "Material": ["GOITEM-MATNR", "GOITEM-UMMAT"],
+            "Qty": ["GOITEM-ERFMG"],
+            "Trạm": ["GOITEM-SGTXT"],
+            "Plant": ["GOITEM-WERKS"],
+            "SLoc xuất": ["GOITEM-LGORT"],
+            "SLoc nhận": ["GOITEM-UMLGO"],
+            "Batch": ["GOITEM-CHARG", "GOITEM-UMCHA"],
+            "OK": ["GOITEM-TAKE_IT"]
+        }
+        tokens = migo_token_map.get(label, [])
+        if isinstance(tokens, str):
+            tokens = [tokens]
+        for token in tokens:
+            try:
+                fld = self.table_field(table_ctl, token, row_no)
+                if fld is not None:
+                    # Kiểm tra ID không thuộc cột ẩn (>= 30)
+                    fld_id = str(getattr(fld, "Id", getattr(fld, "id", "")) or "")
+                    if fld_id:
+                        at = fld_id.rfind("[")
+                        if at != -1 and fld_id.endswith("]"):
+                            coord_str = fld_id[at + 1:-1]
+                            parts = coord_str.split(",")
+                            if len(parts) == 2 and int(parts[0]) >= 30:
+                                continue  # Bỏ qua cột ẩn ngoài dải hiển thị
+                    try:
+                        fld.Text = val_str
+                        if str(getattr(fld, "Text", "") or "").strip() == val_str:
+                            return True
+                    except Exception:
+                        pass
+                    try:
+                        fld.SetFocus()
+                        fld.Text = val_str
+                        if str(getattr(fld, "Text", "") or "").strip() == val_str:
+                            return True
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 5. Suffix Coord [col, row]
+        if col_no is not None and 0 <= col_no < 30:
             suffix = f"[{col_no},{row_no}]"
             def _find_by_coord(obj, depth=0):
                 if obj is None or depth > 10:
@@ -3993,12 +4060,12 @@ class SapEngine:
             try:
                 ctl = _find_by_coord(table_ctl)
                 if ctl is not None:
-                    for prop in ("Text", "text"):
-                        try:
-                            setattr(ctl, prop, val_str)
+                    try:
+                        ctl.Text = val_str
+                        if str(getattr(ctl, "Text", "") or "").strip() == val_str:
                             return True
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -4234,14 +4301,16 @@ class SapEngine:
             print(f"[SAP MIGO] Đã tìm thấy bảng nhập liệu tblSAPLMIGOTV_GOITEM. Đang phân giải cột...")
 
             # 5. PHÂN GIẢI CỘT MIGO 311 (KẾT HỢP CHUẨN EXCEL V31 & ĐẶC TẢ GIAO DIỆN NHÀ MÁY)
-            # Layout mặc định: Material=3, Qty=4, Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=10
-            mat_col = 3
+            # Layout mặc định: Material=1, Qty=4, Trạm=5, Plant=6, SLoc=7, SLocTo=8, Batch=9, BatchTo=10
+            mat_col = 1
+            fallback_mat_col = -1
             qty_col = 4
             txt_col = 5
             plant_col = 6
             src_sloc_col = 7
             dest_sloc_col = 8
-            batch_col = 10
+            batch_col = 9
+            dest_batch_col = 10
             ok_col = -1
 
             mat_found = False
@@ -4251,10 +4320,12 @@ class SapEngine:
             src_sloc_found = False
             dest_sloc_found = False
             batch_found = False
+            dest_batch_found = False
             ok_found = False
 
             try:
                 col_cnt = int(getattr(tbl.Columns, "Count", getattr(tbl.Columns, "count", 0)))
+                # Ưu tiên các cột hiển thị trong viewport (c_i < 20), tuyệt đối chặn cột ẩn (như col 61)
                 for c_i in range(col_cnt):
                     col_obj = None
                     for acc in ("ElementAt", "Item"):
@@ -4279,40 +4350,96 @@ class SapEngine:
                     c_title = str(getattr(col_obj, "Title", getattr(col_obj, "title", "")) or "").strip().upper()
                     c_name = str(getattr(col_obj, "Name", getattr(col_obj, "name", "")) or "").strip().upper()
 
-                    # Material: GOITEM-MATNR hoặc tiêu đề chính xác Material / Product (không ăn sang Material Group hay Trfr)
-                    if not mat_found and (c_name == "GOITEM-MATNR" or c_title in ("MATERIAL", "PRODUCT")):
-                        mat_col = c_i
-                        mat_found = True
+                    # Cột ngoài vùng hiển thị (c_i >= 20) không được ưu tiên
+                    is_visible_col = (c_i < 20)
+                    try:
+                        vis_prop = getattr(col_obj, "Visible", getattr(col_obj, "visible", True))
+                        if vis_prop is False:
+                            is_visible_col = False
+                    except Exception:
+                        pass
+
+                    # Material:
+                    # Ưu tiên 1 (Exact): GOITEM-MATNR hoặc tiêu đề chính xác MATERIAL/PRODUCT (loại trừ cột mô tả và nhóm)
+                    # Ưu tiên 2 (Transfer): Nếu không có cột MATNR hiển thị, nhận diện GOITEM-UMMAT hoặc MATERIAL TRFR PSTG
+                    is_mat_desc = any(k in c_title for k in ("SHORT TEXT", "SHORT", "MAKTX", "DESC", "MÔ TẢ", "DESCRIPTION"))
+                    is_mat_group = any(k in c_title for k in ("GROUP", "TYPE", "NHÓM", "LOẠI"))
+
+                    if not mat_found and is_visible_col and not is_mat_desc and not is_mat_group:
+                        if c_name == "GOITEM-MATNR" or c_title in ("MATERIAL", "PRODUCT", "VẬT TƯ"):
+                            mat_col = c_i
+                            mat_found = True
+                        elif (
+                            c_name in ("GOITEM-UMMAT", "UMMAT")
+                            or "TRFR PSTG" in c_title
+                            or "TRANSFER POSTING" in c_title
+                            or c_title.startswith("MATERIAL")
+                            or c_title.startswith("VẬT TƯ")
+                        ):
+                            # Tạm ghi nhận cột transfer posting dự phòng nếu chưa tìm thấy cột MATNR
+                            if fallback_mat_col < 0:
+                                fallback_mat_col = c_i
+
                     # Qty: GOITEM-ERFMG hoặc Qty in UnE / Quantity / Qty (không ăn sang PO Qty)
-                    elif not qty_found and (c_name == "GOITEM-ERFMG" or c_title in ("QTY IN UNE", "QUANTITY", "QTY")):
+                    if not qty_found and is_visible_col and (c_name == "GOITEM-ERFMG" or any(k in c_title for k in ("QTY IN UNE", "QUANTITY", "QTY", "SỐ LƯỢNG"))):
                         qty_col = c_i
                         qty_found = True
                     # Text / Trạm: GOITEM-SGTXT hoặc Text / Item Text
-                    elif not txt_found and (c_name == "GOITEM-SGTXT" or c_title in ("TEXT", "ITEM TEXT")):
+                    elif not txt_found and is_visible_col and (c_name == "GOITEM-SGTXT" or c_title in ("TEXT", "ITEM TEXT", "TRẠM")):
                         txt_col = c_i
                         txt_found = True
                     # Plant: GOITEM-WERKS hoặc Plnt / Plant
-                    elif not plant_found and (c_name == "GOITEM-WERKS" or c_title in ("PLNT", "PLANT")):
+                    elif not plant_found and is_visible_col and (c_name == "GOITEM-WERKS" or c_title in ("PLNT", "PLANT", "NHÀ MÁY")):
                         plant_col = c_i
                         plant_found = True
                     # SLoc xuất: GOITEM-LGORT hoặc SLoc / Storage Loc (không ăn sang SLoc Tra... hay Receiving)
-                    elif not src_sloc_found and (c_name == "GOITEM-LGORT" or (c_title in ("SLOC", "STORAGE LOC", "STORAGE LOCATION") and not any(k in c_title for k in ("TRA", "TRANSFER", "REC", "TO", "DEST")))):
+                    elif not src_sloc_found and is_visible_col and (
+                        c_name == "GOITEM-LGORT" 
+                        or (c_title in ("SLOC", "STORAGE LOC", "STORAGE LOCATION", "KHO XUẤT") and not any(k in c_title for k in ("TRA", "TRANSFER", "REC", "TO", "DEST", "NHẬN")))
+                    ):
                         src_sloc_col = c_i
                         src_sloc_found = True
                     # SLoc nhận: GOITEM-UMLGO hoặc SLoc Tra... / SLoc Transfer Pstg / Rec. SLoc
-                    elif not dest_sloc_found and (c_name == "GOITEM-UMLGO" or any(c_title.startswith(k) for k in ("SLOC TRA", "REC. SLOC", "SLOCTO", "DEST. SLOC")) or ("SLOC" in c_title and ("TRANSFER" in c_title or "TRFR" in c_title or "TRA" in c_title))):
+                    elif not dest_sloc_found and is_visible_col and (
+                        c_name == "GOITEM-UMLGO" 
+                        or any(c_title.startswith(k) for k in ("SLOC TRA", "REC. SLOC", "SLOCTO", "DEST. SLOC", "KHO NHẬN")) 
+                        or ("SLOC" in c_title and any(k in c_title for k in ("TRANSFER", "TRFR", "TRA", "TO", "DEST", "NHẬN")))
+                    ):
                         dest_sloc_col = c_i
                         dest_sloc_found = True
                     # Batch: GOITEM-CHARG hoặc Batch chính xác (loại trừ Batch Trfr, Batch Management...)
-                    elif not batch_found and ((c_name == "GOITEM-CHARG" or c_title == "BATCH") and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG")) and c_name != "GOITEM-UMCHA"):
+                    elif not batch_found and is_visible_col and (
+                        (c_name == "GOITEM-CHARG" or c_title in ("BATCH", "LÔ", "SỐ LÔ")) 
+                        and not any(k in c_title for k in ("TRFR", "TRANSFER", "PSTG", "NHẬN", "TO", "DEST")) 
+                        and c_name != "GOITEM-UMCHA"
+                    ):
                         batch_col = c_i
                         batch_found = True
+                    # Batch nhận: GOITEM-UMCHA hoặc Batch Trfr...
+                    elif not dest_batch_found and is_visible_col and (
+                        c_name == "GOITEM-UMCHA"
+                        or any(c_title.startswith(k) for k in ("BATCH TRFR", "REC. BATCH", "BATCHTO", "DEST. BATCH", "LÔ NHẬN"))
+                        or ("BATCH" in c_title and any(k in c_title for k in ("TRANSFER", "TRFR", "TRA", "TO", "DEST", "NHẬN")))
+                    ):
+                        dest_batch_col = c_i
+                        dest_batch_found = True
                     # OK: GOITEM-TAKE_IT hoặc OK
                     elif not ok_found and (c_name == "GOITEM-TAKE_IT" or c_title == "OK"):
                         ok_col = c_i
                         ok_found = True
             except Exception as col_err:
                 print(f"[SAP MIGO WARN] Lỗi đọc danh sách cột: {col_err}")
+
+            if not mat_found and fallback_mat_col >= 0:
+                mat_col = fallback_mat_col
+                mat_found = True
+
+            # Chốt chặn van an toàn: Nếu mat_col >= 20 (chạm vào cột ẩn ngoài viewport như 61), ép về cột 1
+            if mat_col >= 20:
+                print(f"[SAP MIGO WARN] mat_col={mat_col} nằm ngoài dải hiển thị, tự động ép về cột 1 (Material Trfr Pstg)")
+                mat_col = 1
+            if batch_col >= 20:
+                batch_col = 9
 
             print(f"[SAP MIGO] Cột TableControl: Material={mat_col}, Qty={qty_col}, Trạm={txt_col}, Plant={plant_col}, KhoXuất={src_sloc_col}, KhoNhận={dest_sloc_col}, Lô={batch_col}")
 
@@ -4406,7 +4533,10 @@ class SapEngine:
                     batch_val = str(item.get("batch", "")).strip()
                     if batch_val and batch_val != "-":
                         table_row = _ensure_visible_row(tbl, logical_row)
-                        _set_cell(tbl, table_row, batch_col, batch_val, "Batch")
+                        ok_b = _set_cell(tbl, table_row, batch_col, batch_val, "Batch")
+                        if not ok_b and dest_batch_col is not None and dest_batch_col != batch_col:
+                            print(f"[SAP MIGO] Thử điền Batch vào cột nhận {dest_batch_col}...")
+                            _set_cell(tbl, table_row, dest_batch_col, batch_val, "Batch")
 
                 print("[SAP MIGO] Gửi Enter Nhịp 2...")
                 w0 = self._find_by_id_safe("wnd[0]")

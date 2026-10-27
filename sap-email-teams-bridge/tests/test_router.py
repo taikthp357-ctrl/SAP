@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests cho CommandRouter và các Handler nghiệp vụ độc lập."""
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, create_autospec
+from app.sap_engine import SapEngine
 from app.core.context import RequestContext, CommandResult
 from app.router import CommandRouter, router
 from app.handlers import (
@@ -104,7 +105,7 @@ def test_router_dispatch_unknown_command():
 
 def test_stock_handler_vitri_dispatch():
     """Kiểm tra StockHandler xử lý lệnh VITRI với mock sap."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_sap.check_position_posting_change.return_value = [
         {"product": "BIW32013765AA", "batch": "B01", "bin": "BIN-A01", "totalQty": "100", "availQty": "100", "unit": "PC", "grDate": "20261026", "grTime": "100000", "cat": "Tồn kho"}
     ]
@@ -123,7 +124,7 @@ def test_stock_handler_vitri_dispatch():
 
 def test_stock_handler_smart_combo_check():
     """Kiểm tra StockHandler tự động combo check MB52 khi EWM trả về 0 dòng."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_sap.check_position_posting_change.return_value = []
     mock_sap.check_stock_mb52.return_value = [
         {"product": "BIW32013765AA", "batch": "B01", "sloc": "1005", "unrest": "50", "unit": "PC"}
@@ -143,7 +144,7 @@ def test_stock_handler_smart_combo_check():
 
 def test_logistics_handler_dispatch():
     """Kiểm tra LogisticsHandler xử lý lệnh CHECK_IB."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_sap.check_inbound_detail_vl06i.return_value = [
         {"ibNo": "1800012345", "item": "000010", "product": "BIW32013765AA", "actualQty": 50.0, "expectedQty": 50.0, "delta": 0.0, "qtyCheck": "OK", "unit": "PC", "sloc": "1005", "status": "Pending"}
     ]
@@ -162,7 +163,7 @@ def test_logistics_handler_dispatch():
 
 def test_production_handler_dispatch():
     """Kiểm tra ProductionHandler xử lý lệnh CHECK_BOM."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_sap.check_bom_cs03.return_value = [
         {"parent": "PAR01", "component": "CMP01", "description": "Part 1", "qty": "2", "unit": "PC", "status": "CÓ BOM (Active)"}
     ]
@@ -180,7 +181,7 @@ def test_production_handler_dispatch():
 
 def test_bbbg_handler_dispatch():
     """Kiểm tra BbbgHandler xử lý lệnh XEM_BBBG."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_sap.check_history_mb51.return_value = []
     mock_sap.check_inbound_treo_vl06i.return_value = []
     with patch("app.handlers.bbbg_handler.BbbgService") as mock_bbbg:
@@ -203,7 +204,7 @@ def test_bbbg_handler_dispatch():
 
 def test_att_handler_check_att_no_docs():
     """Kiểm tra AttHandler báo lỗi khi không có số chứng từ."""
-    mock_sap = MagicMock()
+    mock_sap = create_autospec(SapEngine, instance=True)
     ctx = RequestContext(
         request_id="REQ-ATT-001",
         command="CHECK_ATT",

@@ -122,6 +122,10 @@ class ObService:
                     if len(parts) == 2:
                         try:
                             row_coord = int(parts[1])
+                            col_coord = int(parts[0])
+                            # Chặn triệt để các cột ẩn off-screen (col >= 30, ví dụ col 61)
+                            if col_coord >= 30:
+                                continue
                             if row_coord == visible_row:
                                 if tbl_id and cid.upper().startswith(tbl_id.upper()):
                                     rel_part = cid[len(tbl_id) + 1:]

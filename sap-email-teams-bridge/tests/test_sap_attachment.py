@@ -547,8 +547,9 @@ def test_check_existing_sap_attachments():
 
 def test_process_attachment_batch_with_sap_existing_attachments():
     """Kiểm tra khi BBBG đã có sẵn trên SAP MIGO thì bot đánh dấu Thành Công in 3874, không báo FILE_NOT_FOUND."""
-    from unittest.mock import MagicMock
-    mock_sap = MagicMock()
+    from unittest.mock import MagicMock, create_autospec
+    from app.sap_engine import SapEngine
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_session = MagicMock()
     mock_sap.ensure_session.return_value = mock_session
 
@@ -832,8 +833,9 @@ def test_open_migo_document_auto_switch_display_to_change():
 
 def test_multi_tab_session_identity_and_eligibility():
     """Kiểm tra xác thực phiên đa tab dựa trên system/client/user và tính toán is_multi_tab_eligible."""
-    from unittest.mock import MagicMock
-    mock_sap = MagicMock()
+    from unittest.mock import MagicMock, create_autospec
+    from app.sap_engine import SapEngine
+    mock_sap = create_autospec(SapEngine, instance=True)
     mock_session_tab0 = MagicMock()
     mock_session_tab0.Info.SystemName = "PRD"
     mock_session_tab0.Info.Client = "100"
@@ -919,8 +921,9 @@ def test_deduplicate_files_by_content_and_claim_matching():
 def test_incremental_multi_vat_attachment():
     """Kiểm tra kịch bản đính kèm lũy kế: DOC đã có sẵn 1 VAT trên SAP, đính thêm file VAT thứ 2."""
     import tempfile
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, create_autospec
     from app.sap_attachment import MigoAttachmentRunner
+    from app.sap_engine import SapEngine
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -931,7 +934,7 @@ def test_incremental_multi_vat_attachment():
         f2.write_bytes(b"VAT2")
         f_bb.write_bytes(b"BBBG")
 
-        mock_sap = MagicMock()
+        mock_sap = create_autospec(SapEngine, instance=True)
         mock_session = MagicMock()
         mock_session.Info.SystemName = "PRD"
         mock_session.Info.Client = "100"

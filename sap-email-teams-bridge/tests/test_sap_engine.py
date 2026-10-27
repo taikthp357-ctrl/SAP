@@ -2103,3 +2103,194 @@ def test_delivery_overview_rc65_fallback_hierarchy():
 
 
 
+
+
+def test_post_migo_311_material_column_resolution_not_taking_col_61(monkeypatch):
+    """Đảm bảo MIGO 311 không bao giờ lấy cột ẩn 61 và ưu tiên cột hiển thị Material Trfr Pstg (cột 1)."""
+    from app.sap_engine import SapEngine
+    from unittest.mock import MagicMock
+
+    engine = SapEngine.__new__(SapEngine)
+
+    class MockCol:
+        def __init__(self, name, title, visible=True):
+            self.Name = name
+            self.name = name
+            self.Title = title
+            self.title = title
+            self.Visible = visible
+            self.visible = visible
+
+    class MockCell:
+        def __init__(self):
+            self.Text = ""
+            self.text = ""
+        def SetFocus(self):
+            pass
+
+    class MockTable:
+        def __init__(self):
+            self.Name = "tblSAPLMIGOTV_GOITEM"
+            self.name = self.Name
+            self.Type = "GuiTableControl"
+            self.type = self.Type
+            self.Id = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
+            self.id = self.Id
+            self.FirstVisibleRow = 0
+            self.VisibleRowCount = 10
+            self.cells = {}
+            # 84 cột: Cột 1 là Material Trfr Pstg, cột 61 là Material ẩn
+            self.cols = [MockCol("LINE", "Line")]
+            self.cols.append(MockCol("GOITEM-UMMAT", "Material Trfr Pstg"))  # Col 1
+            self.cols.append(MockCol("GOITEM-DUMMY", "Material Trfr..."))   # Col 2
+            self.cols.append(MockCol("GOITEM-MAKTX", "Mat. Short Text"))   # Col 3
+            self.cols.append(MockCol("GOITEM-ERFMG", "Qty in UnE"))         # Col 4
+            self.cols.append(MockCol("GOITEM-SGTXT", "Text"))               # Col 5
+            self.cols.append(MockCol("GOITEM-WERKS", "Plnt"))               # Col 6
+            self.cols.append(MockCol("GOITEM-LGORT", "SLoc"))               # Col 7
+            self.cols.append(MockCol("GOITEM-UMLGO", "SLoc Tra..."))        # Col 8
+            self.cols.append(MockCol("GOITEM-CHARG", "Batch"))              # Col 9
+            self.cols.append(MockCol("GOITEM-UMCHA", "Batch Trfr..."))     # Col 10
+            # Điền dummy columns đến 60
+            for i in range(11, 61):
+                self.cols.append(MockCol(f"DUMMY_{i}", f"Dummy {i}"))
+            # Cột 61: Cột ẩn kỹ thuật trong từ điển SAP
+            self.cols.append(MockCol("GOITEM-MATNR", "Material", visible=False))  # Col 61
+
+        @property
+        def Columns(self):
+            cols_list = self.cols
+            class ColColl:
+                Count = len(cols_list)
+                count = len(cols_list)
+                def Item(self, idx):
+                    return cols_list[idx]
+                def __call__(self, idx):
+                    return cols_list[idx]
+            return ColColl()
+
+        def GetCell(self, row, col):
+            # Cột 61 là cột ẩn, nếu cố truy cập sẽ báo lỗi như SAP GUI thực tế
+            if col == 61:
+                raise Exception("Field not visible on screen (col 61)")
+            if (row, col) not in self.cells:
+                self.cells[(row, col)] = MockCell()
+            return self.cells[(row, col)]
+
+    class MockSbar:
+        def __init__(self):
+            self.Text = "Material document 5001234567 posted"
+            self.text = self.Text
+            self.MessageType = "S"
+            self.messageType = "S"
+
+    tbl = MockTable()
+    sbar = MockSbar()
+
+    mock_w0 = MagicMock()
+    mock_w0.Children = [tbl, sbar]
+    mock_w0.children = mock_w0.Children
+
+    mock_session = MagicMock()
+    mock_session.ActiveWindow.Name = "wnd[0]"
+    mock_session.Children.Count = 1
+
+    def mock_find(cid):
+        if cid == "wnd[0]":
+            return mock_w0
+        if cid == "wnd[0]/sbar":
+            return sbar
+        if "tblSAPLMIGOTV_GOITEM" in cid:
+            return tbl
+        return None
+
+    engine.session = mock_session
+    engine._find_by_id_safe = mock_find
+    engine._wait_idle = MagicMock()
+    engine._open_transaction = MagicMock()
+
+    items = [{
+        "material": "BIW32025210AA",
+        "qty": 128,
+        "plant": "3093",
+        "source_sloc": "1005",
+        "dest_sloc": "3001",
+        "batch": "LOT01",
+        "station": "KV-1/Duy/Bằng ZONE 21"
+    }]
+
+    ok, doc_no, msg = engine.post_migo_311_ob_group(items, plant="3093", source_sloc="1005", dest_sloc="3001")
+    assert ok is True
+    assert doc_no == "5001234567"
+
+    # Kiểm tra ô (0, 1) được điền mã vật tư, KHÔNG PHẢI ô 61
+    assert (0, 1) in tbl.cells
+    assert tbl.cells[(0, 1)].Text == "BIW32025210AA"
+    # Cột 4: Qty
+    assert tbl.cells[(0, 4)].Text == "128"
+    # Cột 5: Trạm
+    assert tbl.cells[(0, 5)].Text == "KV-1/Duy/Bằng ZONE 21"
+    # Cột 6: Plant
+    assert tbl.cells[(0, 6)].Text == "3093"
+    # Cột 7: SLoc xuất
+    assert tbl.cells[(0, 7)].Text == "1005"
+    # Cột 8: SLoc nhận
+    assert tbl.cells[(0, 8)].Text == "3001"
+    # Cột 9: Batch
+    assert tbl.cells[(0, 9)].Text == "LOT01"
+
+
+def test_set_cell_material_and_batch_symmetric_fallbacks():
+    """Đảm bảo _set_cell tự động fallback qua lại giữa các cột Material và Batch."""
+    from app.sap_engine import SapEngine
+
+    engine = SapEngine.__new__(SapEngine)
+    engine.table_field = lambda *args: None
+
+    class MockCell:
+        def __init__(self, writable=True):
+            self.writable = writable
+            self._text = ""
+        @property
+        def Text(self):
+            return self._text
+        @Text.setter
+        def Text(self, v):
+            if not self.writable:
+                raise Exception("Cell is read-only")
+            self._text = v
+        def SetFocus(self):
+            if not self.writable:
+                raise Exception("Cell is read-only")
+
+    class MockTable:
+        def __init__(self):
+            # Cột 1 read-only, cột 2 writable
+            self.cell_1 = MockCell(writable=False)
+            self.cell_2 = MockCell(writable=True)
+            # Cột 9 read-only, cột 10 writable
+            self.cell_9 = MockCell(writable=False)
+            self.cell_10 = MockCell(writable=True)
+
+        def GetCell(self, row, col):
+            if col == 1:
+                return self.cell_1
+            if col == 2:
+                return self.cell_2
+            if col == 9:
+                return self.cell_9
+            if col == 10:
+                return self.cell_10
+            return None
+
+    tbl = MockTable()
+
+    # Thử điền Material tại col 1 (read-only) -> Tự động fallback sang col 2
+    res_mat = engine._set_cell(tbl, 0, 1, "MAT_TEST_01", "Material")
+    assert res_mat is True
+    assert tbl.cell_2.Text == "MAT_TEST_01"
+
+    # Thử điền Batch tại col 9 (read-only) -> Tự động fallback sang col 10
+    res_batch = engine._set_cell(tbl, 0, 9, "BATCH_TEST_01", "Batch")
+    assert res_batch is True
+    assert tbl.cell_10.Text == "BATCH_TEST_01"
