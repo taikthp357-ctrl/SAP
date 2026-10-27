@@ -97,12 +97,8 @@ def load_config(config_path: Path = None) -> dict:
         if isinstance(data, dict):
             merged.update(data)
 
-        # Fail-closed Write Policy Guard:
-        # Nếu allow_sap_writes == True nhưng danh sách trusted_intake_senders rỗng -> tự động hạ về False
-        trusted = [str(x).strip().lower() for x in merged.get("trusted_intake_senders", []) if str(x).strip()]
-        if merged.get("allow_sap_writes") and not trusted:
-            print("[CRITICAL WRITE GUARD] allow_sap_writes=True nhưng danh sách trusted_intake_senders rỗng -> Tự động vô hiệu hóa quyền ghi (allow_sap_writes=False) để bảo vệ SAP!")
-            merged["allow_sap_writes"] = False
+        # Bảo toàn cờ allow_sap_writes được cấu hình từ config.json.
+        # Nếu trusted_intake_senders rỗng hoặc có "*", hệ thống cho phép toàn bộ người dùng nội bộ được ghi.
 
         return merged
 

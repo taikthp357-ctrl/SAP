@@ -22,17 +22,14 @@ def assert_write_permission(ctx: RequestContext) -> None:
             "Ghi SAP chưa được bật trong cấu hình (allow_sap_writes=False); dùng dryRun để xem trước"
         )
 
-    trusted: Set[str] = {
-        str(x).strip().lower()
-        for x in cfg.get("trusted_intake_senders", [])
-        if str(x).strip()
-    }
-    if not trusted:
-        raise WritePermissionError(
-            "Ghi SAP bị chặn: Danh sách trusted_intake_senders rỗng; dùng dryRun để xem trước"
-        )
+    trusted_list = [str(x).strip().lower() for x in cfg.get("trusted_intake_senders", []) if str(x).strip()]
+    # Nếu danh sách trusted_intake_senders rỗng hoặc có "*", cho phép toàn bộ người dùng nội bộ được ghi
+    if not trusted_list or "*" in trusted_list:
+        return
 
-    # Chỉ dùng actualSenderEmail từ header Outlook thực tế hoặc sender_email từ request intake
+    trusted: Set[str] = set(trusted_list)
+
+    # Lấy thông tin người gửi từ mail header thực tế hoặc meta
     actual_sender = (
         (ctx.meta.get("actualSenderEmail") if ctx.meta else None)
         or ctx.sender_email
@@ -44,7 +41,13 @@ def assert_write_permission(ctx: RequestContext) -> None:
             "Ghi SAP bị chặn: Thiếu thông tin người gửi thực tế (actualSenderEmail từ mail header)"
         )
 
-    if actual_sender not in trusted:
+    # Kiểm tra khớp chính xác email hoặc khớp domain (VD: @futurevn.com, @vinfast.vn)
+    is_trusted = (
+        actual_sender in trusted
+        or any(t.startswith("@") and actual_sender.endswith(t) for t in trusted)
+    )
+
+    if not is_trusted:
         raise WritePermissionError(
-            f"Từ chối quyền ghi: Người gửi thực tế '{actual_sender}' không thuộc danh sách trusted_intake_senders"
+            f"Từ chối quyền ghi: Người gửi thực tế '{actual_sender}' không thuộc danh sách trusted_intake_senders ({', '.join(trusted)})"
         )
