@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """Handler chuyên trách nghiệp vụ ra đơn NVL MIGO 311 và đối soát Posting Change Kho 1005."""
+import os
+import json
+import re
+from pathlib import Path
 from decimal import Decimal
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
@@ -390,7 +394,7 @@ class NvlHandler(BaseHandler):
             mats = ctx.resolved_materials or ctx.raw_materials or []
             hint_model = ctx.meta.get("model")
             hint_shift = ctx.meta.get("shift")
-            tracking_dir = ctx.config.get("tracking_files_dir")
+            tracking_dir = ctx.meta.get("folderPath") or ctx.meta.get("tracking_files_dir") or ctx.config.get("tracking_files_dir")
 
             if not mats:
                 return CommandResult(
@@ -415,12 +419,11 @@ class NvlHandler(BaseHandler):
                 "model": "Model xe",
                 "shift_chay": "Ca chạy",
                 "station": "Trạm cấp",
-                "sp_display": "Số phiếu (SP / OB)",
+                "sp_display": "Số phiếu",
                 "order_qty": "SL Order",
                 "total_cap": "Đã cấp",
                 "gap_display": "Cấp thiếu (Gap)",
-                "status_pick": "TT Nhặt hàng",
-                "stock_1005": "Tồn Kho 1005 (SAP)"
+                "status_pick": "TT Nhặt hàng"
             }
 
             custom_html = (
@@ -475,6 +478,91 @@ class NvlHandler(BaseHandler):
                 custom_html=custom_html,
                 audit_target=doc_no or "WHT_GUIDANCE",
                 audit_message=f"Hướng dẫn in WHT cho chứng từ {doc_no}"
+            )
+
+        # -------------------------------------------------------------
+        # NHÁNH 6: CẤU HÌNH & THAY ĐỔI THƯ MỤC THEO DÕI NVL THEO THÁNG
+        # -------------------------------------------------------------
+        elif cmd in ["SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"]:
+            folder_path = str(ctx.meta.get("folderPath") or "").strip()
+            if not folder_path:
+                raw_text = str(ctx.meta.get("rawText") or "").strip()
+                m = re.search(r'(?:[A-Za-z]:\\[^<>":|?*\r\n\t]+|\\[^<>":|?*\r\n\t]+)', raw_text)
+                if m:
+                    folder_path = m.group(0).strip()
+
+            if not folder_path:
+                current_dir = ctx.config.get("tracking_files_dir") or NvlTrackingService.DEFAULT_TRACKING_DIR
+                return CommandResult(
+                    status="FAILED",
+                    summary=(
+                        f"Vui lòng cung cấp đường dẫn thư mục cần cấu hình.\n"
+                        f"📁 Thư mục hiện tại đang dùng: `{current_dir}`\n"
+                        f"👉 Cú pháp mẫu: `chọn folder: G:\\SAP\\2026_10` hoặc `thư mục nvl: D:\\THEO_DOI\\T11`"
+                    ),
+                    records=[],
+                    headers={},
+                    audit_target="SET_FOLDER_NO_PATH",
+                    audit_message="Thiếu đường dẫn khi cấu hình thư mục theo dõi NVL"
+                )
+
+            clean_folder = folder_path.strip().strip('"').strip("'")
+            if not os.path.isdir(clean_folder):
+                return CommandResult(
+                    status="FAILED",
+                    summary=f"❌ Thư mục `{clean_folder}` không tồn tại trên hệ thống Windows. Vui lòng kiểm tra lại đường dẫn.",
+                    records=[],
+                    headers={},
+                    audit_target=clean_folder,
+                    audit_message=f"Thư mục không tồn tại: {clean_folder}"
+                )
+
+            found_files = NvlTrackingService.find_tracking_files(directory=clean_folder)
+            file_names = [f.name for f in found_files[:5]]
+            file_list_str = ", ".join(file_names) if file_names else "Chưa có file nào"
+
+            # Lưu cấu hình vào config.json trên đĩa để bền vững qua các phiên khởi động
+            import json
+            config_file = Path(__file__).resolve().parent.parent.parent / "config.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        cfg_data = json.load(f)
+                    cfg_data["tracking_files_dir"] = clean_folder
+                    with open(config_file, "w", encoding="utf-8") as f:
+                        json.dump(cfg_data, f, indent=2, ensure_ascii=False)
+                except Exception as save_err:
+                    print(f"[SET_FOLDER WARN] Không thể ghi config.json: {save_err}")
+
+            # Cập nhật cache runtime
+            ctx.config["tracking_files_dir"] = clean_folder
+            NvlTrackingService.DEFAULT_TRACKING_DIR = clean_folder
+
+            custom_html = (
+                f"<div style='font-family:Segoe UI,sans-serif;background:#ffffff;border:1px solid #d0d7de;border-radius:6px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'>"
+                f"<div style='font-size:16px;font-weight:bold;color:#1a7f37;margin-bottom:8px;'>✅ ĐÃ CẬP NHẬT THƯ MỤC THEO DÕI NVL THÀNH CÔNG</div>"
+                f"<div style='background:#f6f8fa;padding:12px;border-radius:6px;border-left:4px solid #1a7f37;font-size:13px;line-height:1.6;'>"
+                f"📁 <b>Đường dẫn mới:</b> <code>{clean_folder}</code><br/>"
+                f"📊 <b>Số file theo dõi tìm thấy:</b> <b>{len(found_files)} file</b> (*THEO DOI ODER NVL_P_*.xlsx)<br/>"
+                f"📋 <b>File mới nhất:</b> <code>{file_list_str}</code><br/>"
+                f"ℹ️ <i>Từ bây giờ, tất cả các yêu cầu kiểm tra tiến độ, đối soát cấp hàng và tính DOH sẽ tự động truy xuất từ thư mục này. Khi sang tháng mới, bạn chỉ cần gửi lệnh: <code>chọn folder: [đường dẫn mới]</code> để chuyển tháng.</i>"
+                f"</div></div>"
+            )
+
+            return CommandResult(
+                status="SUCCEEDED",
+                summary=(
+                    f"✅ Đã cập nhật thư mục theo dõi NVL thành công: `{clean_folder}`\n"
+                    f"- Tìm thấy: {len(found_files)} file theo dõi (*THEO DOI ODER NVL_P_*.xlsx)\n"
+                    f"- File mới nhất: {file_list_str}\n"
+                    f"- Kể từ bây giờ, Bot sẽ tự động truy xuất dữ liệu từ thư mục này.\n"
+                    f"- Khi sang tháng mới, bạn chỉ cần gõ: `chọn folder: [đường dẫn mới]`"
+                ),
+                records=[{"folder_path": clean_folder, "file_count": len(found_files), "latest_files": file_list_str}],
+                headers={"folder_path": "Đường dẫn thư mục", "file_count": "Số lượng file", "latest_files": "File mới nhất"},
+                custom_html=custom_html,
+                audit_target=clean_folder,
+                audit_message=f"Đổi thư mục theo dõi NVL sang {clean_folder} ({len(found_files)} files)"
             )
 
         raise ValueError(f"NvlHandler không hỗ trợ lệnh: {cmd}")

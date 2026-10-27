@@ -133,6 +133,11 @@ class SmartCommandParser:
             (r"\b(?:tinh\s*trang\s*(?:don\s*)?nvl\s*(?:ca|model)|tien\s*do\s*don\s*nvl)\b", 92),
             (r"\b(?:tinh\s*trang\s*cap\s*don|kiem\s*tra\s*cap\s*nvl|check\s*cap\s*nvl)\b", 91),
         ],
+        "SET_FOLDER": [
+            (r"\b(?:chon\s*folder|chon\s*thu\s*muc|doi\s*folder|doi\s*thu\s*muc|set\s*folder|set\s*tracking\s*folder)\b", 99),
+            (r"\b(?:folder\s*theo\s*doi|thu\s*muc\s*theo\s*doi|thu\s*muc\s*nvl|folder\s*nvl|duong\s*dan\s*nvl)\b", 98),
+            (r"\b(?:cau\s*hinh\s*folder|cau\s*hinh\s*thu\s*muc)\b", 95),
+        ],
         "IN_WHT": [
             (r"\b(?:in\s*wht|in\s*phieu\s*wht|in\s*lenh\s*wht|print\s*wht)\b", 96),
             (r"\b(?:tcode\s*in\s*wht|huong\s*dan\s*in\s*wht|cach\s*in\s*wht|in\s*warehouse\s*task)\b", 95),
@@ -305,7 +310,7 @@ class SmartCommandParser:
         "BOM": "CHECK_BOM", "CS03": "CHECK_BOM", "QUEUE": "CHECK_QUEUE",
         "ATTACH_VAT_BBBG": "ATT_MIGO", "MIGO_ATT": "ATT_MIGO", "ATTACH_MIGO": "ATT_MIGO",
         "CHECK_ATT": "CHECK_ATT", "CHECK_ATT_DOC": "CHECK_ATT", "CHECK_DINH_KEM": "CHECK_ATT", "ZFIR266": "CHECK_ATT",
-        "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO",
+        "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO", "SET_FOLDER": "SET_FOLDER", "CHON_FOLDER": "SET_FOLDER", "THU_MUC_NVL": "SET_FOLDER",
     }
     JSON_COMMANDS = frozenset(INTENT_SCORES) | {
         "PING", "BIN", "POST", "SCWM", "/SCWM/POST", "TON_KHO", "MB52", "MB51",
@@ -826,7 +831,7 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
-                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL"))
+                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL", "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"))
                 or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))
             )
         ) or (best_score == 0 and bool(bin_val))

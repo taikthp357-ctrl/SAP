@@ -56,9 +56,15 @@ class NvlTrackingService:
         search_dir = cls.get_tracking_directory(directory)
         pattern = str(search_dir / "*THEO DOI ODER NVL_P_*.xlsx")
         all_files = glob.glob(pattern)
+        # Hỗ trợ tự động quét thêm thư mục con theo tháng (ví dụ G:\SAP\2026_10, G:\SAP\Thang_10...)
+        sub_files = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsx"))
+        sub_files_xlsb = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsb"))
+        all_files.extend(sub_files)
+        all_files.extend(sub_files_xlsb)
         if not all_files:
-            # Tìm đệ quy hoặc tìm thêm định dạng xlsb
+            # Tìm đệ quy toàn bộ thư mục
             all_files = glob.glob(str(search_dir / "**/*THEO DOI ODER NVL_P_*.xlsx"), recursive=True)
+            all_files.extend(glob.glob(str(search_dir / "**/*THEO DOI ODER NVL_P_*.xlsb"), recursive=True))
 
         found_paths = [Path(f) for f in all_files if not os.path.basename(f).startswith("~$")]
 
@@ -633,22 +639,14 @@ class NvlTrackingService:
                 gap = total_cap - sl_order
 
             collected_docs = []
-            for ob_c, sp_c in [(14, 15), (17, 18), (20, 21), (23, 24)]:
-                o_val = str(ws.cell(r, ob_c).value or "").strip()
+            for sp_c in [15, 18, 21, 24]:
                 s_val = str(ws.cell(r, sp_c).value or "").strip()
-                if o_val.endswith(".0"):
-                    o_val = o_val[:-2]
                 if s_val.endswith(".0"):
                     s_val = s_val[:-2]
-                doc_str = ""
                 if s_val and s_val not in ["None", "0"]:
-                    doc_str = f"Phiếu {s_val}"
-                    if o_val and o_val not in ["None", "0"]:
-                        doc_str += f" ({o_val})"
-                elif o_val and o_val not in ["None", "0"]:
-                    doc_str = f"OB {o_val}"
-                if doc_str and doc_str not in collected_docs:
-                    collected_docs.append(doc_str)
+                    doc_str = f"Phiếu {s_val}" if not s_val.lower().startswith("phiếu") else s_val
+                    if doc_str not in collected_docs:
+                        collected_docs.append(doc_str)
 
             sp_display = ", ".join(collected_docs) if collected_docs else "Chưa ra đơn" 
 
@@ -889,8 +887,6 @@ class NvlTrackingService:
 
             if "Phiếu" in sp:
                 sp_html = f"<span style='background:#ddf4ff;color:#0969da;padding:3px 8px;border-radius:4px;font-weight:600;'>{sp}</span>"
-            elif "OB" in sp:
-                sp_html = f"<span style='background:#f6f8fa;color:#24292f;border:1px solid #d0d7de;padding:3px 8px;border-radius:4px;font-family:monospace;'>{sp}</span>"
             else:
                 sp_html = f"<span style='background:#ffebe9;color:#cf222e;padding:3px 8px;border-radius:4px;'>Chưa ra đơn</span>"
 
@@ -917,7 +913,6 @@ class NvlTrackingService:
                 <td style='padding:8px 10px;text-align:right;font-weight:600;color:#1a7f37;'>{sl_cap:.0f}</td>
                 <td style='padding:8px 10px;text-align:center;'>{gap_html}</td>
                 <td style='padding:8px 10px;text-align:center;'>{tt_html}</td>
-                <td style='padding:8px 10px;text-align:center;font-weight:bold;color:#24292f;'>{stk}</td>
             </tr>
             """)
 
@@ -930,7 +925,7 @@ class NvlTrackingService:
                     📋 BẢNG THEO DÕI CẤP HÀNG NVL{model_badge}
                 </div>
                 <div style='font-size:11px;color:#57606a;'>
-                    File: <code>{tracking_file or 'THEO DOI ODER NVL'}</code>
+                    Thư mục: <code>{tracking_file or 'THEO DOI ODER NVL'}</code>
                 </div>
             </div>
 
@@ -963,12 +958,11 @@ class NvlTrackingService:
                             <th style='padding:8px 10px;text-align:center;'>Model</th>
                             <th style='padding:8px 10px;text-align:center;'>Ca chạy</th>
                             <th style='padding:8px 10px;'>Trạm cấp</th>
-                            <th style='padding:8px 10px;text-align:center;'>Số phiếu (SP / OB)</th>
+                            <th style='padding:8px 10px;text-align:center;'>Số phiếu</th>
                             <th style='padding:8px 10px;text-align:right;'>SL Order</th>
                             <th style='padding:8px 10px;text-align:right;'>Đã cấp</th>
                             <th style='padding:8px 10px;text-align:center;'>Cấp thiếu (Gap)</th>
                             <th style='padding:8px 10px;text-align:center;'>TT Nhặt hàng</th>
-                            <th style='padding:8px 10px;text-align:center;'>Tồn 1005 (SAP)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -995,8 +989,8 @@ class NvlTrackingService:
         md_title = f"### 📋 BẢNG THEO DÕI CẤP HÀNG NVL (MODEL {hint_upper})" if hint_upper else "### 📋 BẢNG THEO DÕI CẤP HÀNG NVL"
         md_lines.append(md_title)
         md_lines.append("")
-        md_lines.append("| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu (SP / OB) | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng | Tồn 1005 |")
-        md_lines.append("| :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
+        md_lines.append("| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng |")
+        md_lines.append("| :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: |")
 
         quick_copy = []
         for r in records:
@@ -1010,17 +1004,16 @@ class NvlTrackingService:
             gap = r.get("gap", 0)
             gap_disp = r.get("gap_display", f"{gap:.0f}")
             tt = r.get("status_pick", "Chưa Cấp")
-            stk = r.get("stock_1005", "---")
             is_tgt = r.get("is_target_model", False) or (hint_upper and hint_upper in mdl.upper())
 
             mdl_disp = f"**{mdl}**" if is_tgt else mdl
             gap_disp_md = f"**{gap_disp}**" if gap < 0 else gap_disp
             md_lines.append(
-                f"| `{mat}` | {mdl_disp} | {shift} | {stn} | {sp} | {sl_ord:.0f} | {sl_cap:.0f} | {gap_disp_md} | {tt} | {stk} |"
+                f"| `{mat}` | {mdl_disp} | {shift} | {stn} | {sp} | {sl_ord:.0f} | {sl_cap:.0f} | {gap_disp_md} | {tt} |"
             )
 
             if gap < 0:
-                quick_copy.append(f"- `{mat}` ({mdl} - {shift}): {sp} | Order: {sl_ord:.0f} | Đã cấp: {sl_cap:.0f} | **Thiếu: {abs(gap):.0f} PC** ({tt}, Tồn 1005: {stk})")
+                quick_copy.append(f"- `{mat}` ({mdl} - {shift}): {sp} | Order: {sl_ord:.0f} | Đã cấp: {sl_cap:.0f} | **Thiếu: {abs(gap):.0f} PC** ({tt})")
             else:
                 quick_copy.append(f"- `{mat}` ({mdl} - {shift}): {sp} | Order: {sl_ord:.0f} | Đã cấp: {sl_cap:.0f} | Đủ ({tt})")
 

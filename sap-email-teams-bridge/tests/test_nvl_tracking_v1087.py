@@ -315,8 +315,33 @@ def test_tra_cuu_cap_nvl_limo_table(mock_tracking_workbook):
     assert rec["gap_display"] == "-340 PC"
     assert rec["status_pick"] == "Cấp thiếu"
 
-    # Kiểm tra cấu trúc Bảng HTML và Markdown
+    # Kiểm tra cấu trúc Bảng HTML và Markdown (Đã bỏ OB và Tồn 1005 theo yêu cầu)
     assert "BẢNG THEO DÕI CẤP HÀNG NVL (MODEL LIMO)" in result.summary
-    assert "| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu (SP / OB) | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng | Tồn 1005 |" in result.summary
+    assert "| Mã NVL | Model | Ca chạy | Trạm cấp | Số phiếu | SL Order | Đã cấp | Cấp thiếu (Gap) | TT Nhặt hàng |" in result.summary
     assert "Quick Copy cho Zalo / Teams" in result.summary
     assert "Phiếu 19-105" in result.custom_html
+    assert "Tồn 1005" not in result.summary
+
+
+def test_set_tracking_folder(mock_tracking_workbook):
+    """Kiểm tra lệnh cấu hình đổi thư mục theo dõi theo tháng."""
+    query = f"chọn folder: {mock_tracking_workbook.parent}"
+    parsed = SmartCommandParser.parse(query)
+    assert parsed["command"] == "SET_FOLDER"
+    assert parsed["folderPath"] == str(mock_tracking_workbook.parent)
+
+    ctx = RequestContext(
+        request_id="REQ_SET_FOLDER",
+        command=parsed["command"],
+        raw_materials=[],
+        resolved_materials=[],
+        meta=parsed,
+        plant="3093",
+        config={"tracking_files_dir": str(mock_tracking_workbook.parent)}
+    )
+
+    handler = NvlHandler()
+    result = handler.handle(ctx)
+    assert result.status == "SUCCEEDED"
+    assert "Đã cập nhật thư mục theo dõi NVL thành công" in result.summary
+    assert "Tìm thấy:" in result.summary

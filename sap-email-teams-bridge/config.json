@@ -48,5 +48,5 @@
   "trusted_intake_senders": [],
   "enable_multi_tab": true,
   "max_batch_tabs": 2,
-  "tracking_files_dir": "G:\\\\SAP"
+  "tracking_files_dir": "C:\\Users\\taikt\\AppData\\Local\\Temp\\pytest-of-taikt\\pytest-611\\test_set_tracking_folder0"
 }
