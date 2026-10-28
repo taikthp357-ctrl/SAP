@@ -107,6 +107,27 @@ class NvlHandler(BaseHandler):
                         "target_bin": req_target_bin
                     })
 
+            # Hỗ trợ tự động khống chế theo giới hạn thùng V31 nếu có yêu cầu (cap_boxes / theo thùng)
+            enforce_box_limit = (
+                bool(ctx.meta.get("capBoxes") or ctx.meta.get("cap_boxes"))
+                or bool(ctx.config.get("enforce_v31_box_limit", False))
+                or any(k in raw_text_check.lower() for k in ["theo thung", "gioi han thung", "cap thung", "khong che thung", "ep thung"])
+            )
+            if enforce_box_limit:
+                capped_orders = []
+                for o in orders:
+                    o_copy = dict(o)
+                    m = o_copy.get("material", "")
+                    q = float(o_copy.get("qty", 0.0))
+                    b_split = NvlMasterService.calculate_box_split(m, q)
+                    if b_split.get("is_box") and b_split.get("v31_capped_qty", 0) > 0:
+                        capped_q = float(b_split["v31_capped_qty"])
+                        if q > capped_q:
+                            o_copy["qty"] = capped_q
+                            o_copy["original_qty"] = q
+                    capped_orders.append(o_copy)
+                orders = capped_orders
+
             all_query_mats = list(dict.fromkeys(o["material"] for o in orders if o.get("material")))
             stock_records = ctx.sap.check_position_posting_change(all_query_mats, batch="", plant=ctx.plant)
 
@@ -129,8 +150,9 @@ class NvlHandler(BaseHandler):
                 "stt": "OB",
                 "delivery_no": "Số OB",
                 "material": "Mã NVL",
-                "allocated_qty": "SL",
+                "allocated_qty": "SL Cấp",
                 "packing_desc": "Quy cách đóng thùng",
+                "box_limit": "Trần thùng V31",
                 "batch": "Lô",
                 "bin": "Bin",
                 "station": "Trạm",

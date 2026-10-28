@@ -118,4 +118,24 @@ def test_xlsb_sync_safety(tmp_path):
         tracking_file=fake_xlsb
     )
     # Không được ném ngoại lệ crash openpyxl
-    assert res["status"] in ["SKIPPED_XLSB", "LOCKED", "ERROR", "SUCCEEDED"]
+    assert res["status"] in ["SKIPPED_XLSB", "LOCKED", "ERROR", "SUCCEEDED", "INVALID_FILE"]
+
+
+def test_box_limit_and_capping():
+    """Kiểm tra quy tắc giới hạn thùng V31:
+    - Dưới 100 là tối đa 3 thùng
+    - Trên 100 là tối đa 2 thùng
+    - Trên 200 là tối đa 1 thùng
+    """
+    assert NvlMasterService.get_box_limit(24) == 3
+    assert NvlMasterService.get_box_limit(48) == 3
+    assert NvlMasterService.get_box_limit(100) == 3
+    assert NvlMasterService.get_box_limit(101) == 2
+    assert NvlMasterService.get_box_limit(128) == 2
+    assert NvlMasterService.get_box_limit(200) == 2
+    assert NvlMasterService.get_box_limit(201) == 1
+    assert NvlMasterService.get_box_limit(500) == 1
+
+    # Kiểm tra cờ capBoxes khi người dùng yêu cầu 'theo thùng'
+    res = EmailCommandParser.parse("ra đơn nvl theo thùng BIW32025210AA 420 KV-1")
+    assert res.get("capBoxes") is True

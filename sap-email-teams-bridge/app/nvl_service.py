@@ -519,14 +519,18 @@ class NvlService:
             if p > 0:
                 fb = int(q_val // p)
                 lq = int(q_val % p)
+                mb = NvlMasterService.get_box_limit(p)
+                cap_q = int(mb * p)
+                row["box_limit"] = f"Tối đa {mb} thùng ({cap_q} EA)"
                 if fb > 0 and lq > 0:
-                    row["packing_desc"] = f"📦 {fb} thùng ({fb * p}) + lẻ {lq} EA"
+                    row["packing_desc"] = f"📦 {fb} thùng ({fb * p}) + lẻ {lq} EA [Chuẩn {p}/thùng]"
                 elif fb > 0 and lq == 0:
-                    row["packing_desc"] = f"📦 {fb} thùng nguyên ({int(q_val)} EA)"
+                    row["packing_desc"] = f"📦 {fb} thùng nguyên ({int(q_val)} EA) [Chuẩn {p}/thùng]"
                 else:
-                    row["packing_desc"] = f"Lẻ {lq} EA (Pack {p})"
+                    row["packing_desc"] = f"Lẻ {lq} EA [Chuẩn {p}/thùng]"
             else:
                 row["packing_desc"] = "Hàng lẻ / linh kiện"
+                row["box_limit"] = "Không giới hạn"
             results.append(row)
 
         # 3. Bổ sung các dòng thiếu tồn (Shortages) nếu có
@@ -542,6 +546,8 @@ class NvlService:
             r_display = int(req_qty) if isinstance(req_qty, (int, float)) and float(req_qty).is_integer() else req_qty
             b_info = NvlMasterService.get_box_info(mat)
             packing = int(b_info.get("packing") or 0) if b_info else 0
+            mb = NvlMasterService.get_box_limit(packing) if packing > 0 else 0
+            cap_q = int(mb * packing) if packing > 0 else 0
             results.append({
                 "stt": ob_tag,
                 "delivery_no": "---",
@@ -554,7 +560,8 @@ class NvlService:
                 "status": f"⚠️ Thiếu tồn ({a_display}/{r_display})",
                 "packing": packing,
                 "model": str(b_info.get("model") or "") if b_info else "",
-                "packing_desc": f"Thiếu {q_display} EA" + (f" (Pack {packing})" if packing > 0 else ""),
+                "packing_desc": f"Thiếu {q_display} EA" + (f" [Chuẩn {packing}/thùng]" if packing > 0 else ""),
+                "box_limit": f"Tối đa {mb} thùng ({cap_q} EA)" if packing > 0 else "Không giới hạn",
                 "hsd": "",
                 "gr_date": ""
             })

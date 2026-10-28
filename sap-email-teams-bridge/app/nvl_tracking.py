@@ -638,6 +638,32 @@ class NvlTrackingService:
         delivery_no: str
     ) -> Dict[str, Any]:
         """Đồng bộ số OB vào file .xlsb thông qua Excel COM (hỗ trợ mật khẩu)."""
+        # Kiểm tra tính toàn vẹn nhị phân trước khi gọi COM để tránh crash tiến trình
+        if not tracking_file.exists() or tracking_file.stat().st_size < 512:
+            return {
+                "status": "INVALID_FILE",
+                "updated_count": 0,
+                "tracking_file": tracking_file.name,
+                "message": "File .xlsb không đúng định dạng hoặc kích thước quá nhỏ"
+            }
+        try:
+            with open(tracking_file, "rb") as f:
+                header = f.read(8)
+            if not (header.startswith(b"PK\x03\x04") or header.startswith(b"\xd0\xcf\x11\xe0")):
+                return {
+                    "status": "INVALID_FILE",
+                    "updated_count": 0,
+                    "tracking_file": tracking_file.name,
+                    "message": "File .xlsb không có chữ ký nhị phân hợp lệ của Excel"
+                }
+        except Exception as read_err:
+            return {
+                "status": "ERROR",
+                "updated_count": 0,
+                "tracking_file": tracking_file.name,
+                "message": f"Không thể đọc file: {read_err}"
+            }
+
         try:
             import win32com.client
         except ImportError:

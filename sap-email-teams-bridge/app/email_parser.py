@@ -921,9 +921,12 @@ class SmartCommandParser:
         if best_intent in ("ATT_MIGO", "WHO_IS_TAI", "CHECK_ATT", "CHECK_ATT_DOC"):
             materials = []
 
+        cap_boxes = bool(re.search(r"\b(?:theo\s*thung|gioi\s*han\s*thung|cap\s*thung|khong\s*che\s*thung|ep\s*thung|chuan\s*thung)\b", norm_text))
+
         meta.update({
             "valid": True,
             "command": best_intent,
+            "capBoxes": cap_boxes,
             "intentReason": ", ".join(matched_keywords) if matched_keywords else f"Trọng số {best_score}",
             "materials": materials,
             "plant": plant,
