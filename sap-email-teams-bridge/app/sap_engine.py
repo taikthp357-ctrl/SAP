@@ -4113,14 +4113,16 @@ class SapEngine:
                 if cell is not None:
                     try:
                         cell.Text = val_str
-                        if str(getattr(cell, "Text", "") or "").strip() == val_str:
+                        _cur_t = str(getattr(cell, "Text", "") or "").strip()
+                        if _cur_t == val_str or (label == "Trạm" and _cur_t and val_str.startswith(_cur_t)):
                             return True
                     except Exception:
                         pass
                     try:
                         cell.SetFocus()
                         cell.Text = val_str
-                        if str(getattr(cell, "Text", "") or "").strip() == val_str:
+                        _cur_t = str(getattr(cell, "Text", "") or "").strip()
+                        if _cur_t == val_str or (label == "Trạm" and _cur_t and val_str.startswith(_cur_t)):
                             return True
                     except Exception:
                         pass
@@ -4212,14 +4214,16 @@ class SapEngine:
                                 continue  # Bỏ qua cột ẩn ngoài dải hiển thị
                     try:
                         fld.Text = val_str
-                        if str(getattr(fld, "Text", "") or "").strip() == val_str:
+                        _cur_ft = str(getattr(fld, "Text", "") or "").strip()
+                        if _cur_ft == val_str or (label == "Trạm" and _cur_ft and val_str.startswith(_cur_ft)):
                             return True
                     except Exception:
                         pass
                     try:
                         fld.SetFocus()
                         fld.Text = val_str
-                        if str(getattr(fld, "Text", "") or "").strip() == val_str:
+                        _cur_ft = str(getattr(fld, "Text", "") or "").strip()
+                        if _cur_ft == val_str or (label == "Trạm" and _cur_ft and val_str.startswith(_cur_ft)):
                             return True
                     except Exception:
                         pass
@@ -4806,7 +4810,7 @@ class SapEngine:
                     qty_str = str(int(float(raw_qty))) if float(raw_qty).is_integer() else str(raw_qty)
                 except Exception:
                     qty_str = str(raw_qty)
-                tram_str = str(item.get("station") or "").strip()
+                tram_str = str(item.get("station") or "").strip()[:50].strip()
                 mat_str = str(item.get("material", "")).strip()
                 plant_str = str(item.get("plant") or plant or "3093").strip()
                 src_sloc_str = str(item.get("source_sloc") or source_sloc or "1005").strip()

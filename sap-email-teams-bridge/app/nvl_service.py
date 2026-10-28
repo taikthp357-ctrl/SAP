@@ -488,6 +488,11 @@ class NvlService:
                 else:
                     deliv_str = "---"
                     status_text = "⚠️ Chưa tạo OB"
+                
+                b_info = NvlMasterService.get_box_info(mat)
+                packing = int(b_info.get("packing") or 0) if b_info else 0
+                box_model = str(b_info.get("model") or "") if b_info else ""
+
                 consolidated[key] = {
                     "stt": ob_tag,
                     "delivery_no": deliv_str,
@@ -498,6 +503,9 @@ class NvlService:
                     "station": st,
                     "unit": unit,
                     "status": status_text,
+                    "packing": packing,
+                    "model": box_model,
+                    "packing_desc": "",
                     "hsd": item.get("hsd", ""),
                     "gr_date": item.get("gr_date", "")
                 }
@@ -507,6 +515,18 @@ class NvlService:
         for row in consolidated.values():
             q_val = float(row["allocated_qty"])
             row["allocated_qty"] = int(q_val) if q_val.is_integer() else q_val
+            p = row.get("packing", 0)
+            if p > 0:
+                fb = int(q_val // p)
+                lq = int(q_val % p)
+                if fb > 0 and lq > 0:
+                    row["packing_desc"] = f"📦 {fb} thùng ({fb * p}) + lẻ {lq} EA"
+                elif fb > 0 and lq == 0:
+                    row["packing_desc"] = f"📦 {fb} thùng nguyên ({int(q_val)} EA)"
+                else:
+                    row["packing_desc"] = f"Lẻ {lq} EA (Pack {p})"
+            else:
+                row["packing_desc"] = "Hàng lẻ / linh kiện"
             results.append(row)
 
         # 3. Bổ sung các dòng thiếu tồn (Shortages) nếu có
@@ -520,6 +540,8 @@ class NvlService:
             q_display = int(short_qty) if isinstance(short_qty, (int, float)) and float(short_qty).is_integer() else short_qty
             a_display = int(alloc_qty) if isinstance(alloc_qty, (int, float)) and float(alloc_qty).is_integer() else alloc_qty
             r_display = int(req_qty) if isinstance(req_qty, (int, float)) and float(req_qty).is_integer() else req_qty
+            b_info = NvlMasterService.get_box_info(mat)
+            packing = int(b_info.get("packing") or 0) if b_info else 0
             results.append({
                 "stt": ob_tag,
                 "delivery_no": "---",
@@ -530,6 +552,9 @@ class NvlService:
                 "station": st,
                 "unit": s.get("unit", "PC"),
                 "status": f"⚠️ Thiếu tồn ({a_display}/{r_display})",
+                "packing": packing,
+                "model": str(b_info.get("model") or "") if b_info else "",
+                "packing_desc": f"Thiếu {q_display} EA" + (f" (Pack {packing})" if packing > 0 else ""),
                 "hsd": "",
                 "gr_date": ""
             })

@@ -130,6 +130,7 @@ class NvlHandler(BaseHandler):
                 "delivery_no": "Số OB",
                 "material": "Mã NVL",
                 "allocated_qty": "SL",
+                "packing_desc": "Quy cách đóng thùng",
                 "batch": "Lô",
                 "bin": "Bin",
                 "station": "Trạm",

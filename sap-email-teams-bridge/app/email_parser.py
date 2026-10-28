@@ -235,11 +235,40 @@ class SmartCommandParser:
         Mỗi dòng gồm: Mã NVL (cột 1), Số lượng (cột 2), Trạm cấp (cột 3).
         Ví dụ: BIW75111244AA    100    KV08-Thức/Vũ
         Hỗ trợ cả trường hợp có cột STT đứng đầu: 1  BIW75111244AA  100  KV08-Thức/Vũ
+        Hỗ trợ phân rã dòng bị gộp nhiều mã trên cùng 1 hàng do Teams/Power Automate gửi dính.
         """
         if not text:
             return []
-        rows = []
+
+        # 0. Tiền xử lý: Mở rộng các dòng chứa nhiều mã NVL bị dính liền trên 1 dòng
+        mat_row_re = re.compile(
+            r'(?:^|[\s|;\t])(?P<mat>[A-Za-z]{2,5}\d{5,10}[A-Za-z0-9]{0,4}|\b\d{8}\b)\s*[:=\t| ]\s*(?P<qty>\d+(?:[.,]\d+)?)\b',
+            re.I
+        )
+        expanded_lines = []
         for raw_line in text.splitlines():
+            line_str = raw_line.strip()
+            if not line_str:
+                continue
+            # Bỏ qua dòng thuần tiêu đề trước khi tách
+            norm_check = cls.remove_accents(line_str).lower()
+            if any(h in norm_check for h in ["ma nvl", "ma hang", "material", "so luong", "sl", "qty", "tram", "station", "ra don nvl"]):
+                if not re.search(r"\b\d+\b", line_str):
+                    continue
+
+            matches = list(mat_row_re.finditer(line_str))
+            if len(matches) > 1:
+                starts = [m.start('mat') for m in matches]
+                for i, s in enumerate(starts):
+                    end = starts[i + 1] if i + 1 < len(starts) else len(line_str)
+                    sub = line_str[s:end].strip()
+                    if sub:
+                        expanded_lines.append(sub)
+            else:
+                expanded_lines.append(line_str)
+
+        rows = []
+        for raw_line in expanded_lines:
             line = raw_line.strip()
             if not line:
                 continue
@@ -301,6 +330,14 @@ class SmartCommandParser:
                     station_cand = " ".join(cols[3:]).strip()
                 elif len(cols) >= 3:
                     station_cand = " ".join(cols[2:]).strip()
+
+                # Vệ sinh chuỗi Trạm: loại bỏ số STT của dòng kế tiếp dính vào đuôi
+                if station_cand:
+                    m_stt = re.search(r'^(.*?)\s+(\d{1,3})$', station_cand)
+                    if m_stt:
+                        st_pfx, st_num = m_stt.group(1).strip(), m_stt.group(2)
+                        if not re.search(r'\b(?:zone|kv|line|op|stage|tram|cell|kho|xuong)[ -]*$', st_pfx, re.I):
+                            station_cand = st_pfx
 
                 int_or_float = int(qty_val) if qty_val.is_integer() else qty_val
                 rows.append({

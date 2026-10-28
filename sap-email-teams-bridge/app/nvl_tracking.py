@@ -477,7 +477,20 @@ class NvlTrackingService:
                     "updated_count": 0,
                     "message": f"Không tìm thấy file theo dõi ca để đồng bộ OB {delivery_no}"
                 }
-            tracking_file = candidates[0]
+            xlsx_cands = [p for p in candidates if p.suffix.lower() in [".xlsx", ".xlsm"]]
+            tracking_file = xlsx_cands[0] if xlsx_cands else candidates[0]
+
+        # Nếu file là .xlsb: kiểm tra xem có file .xlsx song hành không
+        if tracking_file.suffix.lower() == ".xlsb":
+            xlsx_alt = tracking_file.with_suffix(".xlsx")
+            if xlsx_alt.exists():
+                tracking_file = xlsx_alt
+            else:
+                return cls._sync_dispatch_to_xlsb(
+                    tracking_file=tracking_file,
+                    orders_dispatched=orders_dispatched,
+                    delivery_no=delivery_no
+                )
 
         wb = openpyxl.load_workbook(str(tracking_file))
         sheet_name = "ODER NVl" if "ODER NVl" in wb.sheetnames else wb.sheetnames[0]
@@ -616,6 +629,168 @@ class NvlTrackingService:
             "file_path": str(tracking_file),
             "details": sync_details
         }
+
+    @classmethod
+    def _sync_dispatch_to_xlsb(
+        cls,
+        tracking_file: Path,
+        orders_dispatched: List[Dict[str, Any]],
+        delivery_no: str
+    ) -> Dict[str, Any]:
+        """Đồng bộ số OB vào file .xlsb thông qua Excel COM (hỗ trợ mật khẩu)."""
+        try:
+            import win32com.client
+        except ImportError:
+            return {
+                "status": "SKIPPED_XLSB",
+                "updated_count": 0,
+                "tracking_file": tracking_file.name,
+                "message": "Cần win32com hoặc Excel để ghi file .xlsb"
+            }
+
+        excel = None
+        wb = None
+        updated_count = 0
+        sync_details: List[Dict[str, Any]] = []
+
+        disp_map: Dict[str, List[Dict[str, Any]]] = {}
+        for o in orders_dispatched:
+            m = str(o.get("material") or "").strip().upper()
+            if m:
+                disp_map.setdefault(m, []).append(o)
+
+        passwords = cls.get_known_passwords()
+
+        try:
+            excel = win32com.client.DispatchEx("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+
+            opened = False
+            for pwd in passwords:
+                try:
+                    wb = excel.Workbooks.Open(str(tracking_file.resolve()), False, False, None, pwd)
+                    opened = True
+                    break
+                except Exception:
+                    continue
+
+            if not opened or wb is None:
+                return {
+                    "status": "LOCKED",
+                    "updated_count": 0,
+                    "tracking_file": tracking_file.name,
+                    "message": "Không thể mở file .xlsb bằng các mật khẩu đã lưu"
+                }
+
+            sheet_names = [s.Name for s in wb.Sheets]
+            target_sheet_name = "ODER NVl" if "ODER NVl" in sheet_names else wb.Sheets(1).Name
+            ws = wb.Sheets(target_sheet_name)
+            max_row = ws.UsedRange.Rows.Count
+
+            ob_slots = [(14, 16), (17, 19), (20, 22), (23, 25)]
+
+            for r in range(2, max_row + 1):
+                mat_val = ws.Cells(r, 4).Value
+                if not mat_val:
+                    continue
+                mat = str(mat_val).strip().upper()
+                if mat not in disp_map or not disp_map[mat]:
+                    continue
+
+                row_station = str(ws.Cells(r, 6).Value or "").strip().upper()
+                target_order = None
+                for cand in disp_map[mat]:
+                    cand_st = str(cand.get("station") or "").strip().upper()
+                    if not cand_st or cand_st in row_station or row_station in cand_st:
+                        target_order = cand
+                        break
+                if not target_order:
+                    target_order = disp_map[mat][0]
+
+                disp_qty = float(target_order.get("allocated_qty") or target_order.get("qty") or 0.0)
+
+                chosen_slot = None
+                for ob_col, sl_col in ob_slots:
+                    cur_ob = ws.Cells(r, ob_col).Value
+                    if cur_ob is None or str(cur_ob).strip() in ["", "0", "0.0", "None"]:
+                        chosen_slot = (ob_col, sl_col)
+                        break
+                    elif str(cur_ob).strip() == str(delivery_no).strip():
+                        chosen_slot = (ob_col, sl_col)
+                        break
+
+                if not chosen_slot:
+                    chosen_slot = ob_slots[-1]
+
+                ob_col, sl_col = chosen_slot
+                ws.Cells(r, ob_col).Value = str(delivery_no)
+                ws.Cells(r, sl_col).Value = disp_qty
+
+                # Tính lại Total cấp
+                total_cap = 0.0
+                for _, sl_c in ob_slots:
+                    val = ws.Cells(r, sl_c).Value
+                    try:
+                        if val is not None and str(val).strip() not in ["", "None"]:
+                            total_cap += float(val)
+                    except Exception:
+                        pass
+
+                ws.Cells(r, 26).Value = total_cap
+
+                try:
+                    sl_order = float(ws.Cells(r, 5).Value or 0)
+                except Exception:
+                    sl_order = 0.0
+
+                gap = total_cap - sl_order
+                ws.Cells(r, 27).Value = gap
+
+                if gap >= 0:
+                    ws.Cells(r, 28).Value = "Finished"
+                    ws.Cells(r, 29).Value = "Đã cấp"
+                else:
+                    ws.Cells(r, 28).Value = "Đã ra đơn chờ cấp"
+                    ws.Cells(r, 29).Value = "Chờ cấp"
+
+                updated_count += 1
+                sync_details.append({
+                    "material": mat,
+                    "row": r,
+                    "delivery_no": delivery_no,
+                    "qty": disp_qty,
+                    "slot": f"OB{ob_slots.index(chosen_slot) + 1}",
+                    "total_cap": total_cap,
+                    "gap": gap
+                })
+
+            wb.Save()
+            return {
+                "status": "SUCCEEDED",
+                "updated_count": updated_count,
+                "tracking_file": tracking_file.name,
+                "sync_details": sync_details,
+                "delivery_no": delivery_no
+            }
+        except Exception as e:
+            return {
+                "status": "ERROR",
+                "updated_count": 0,
+                "tracking_file": tracking_file.name,
+                "message": f"Lỗi COM .xlsb: {e}"
+            }
+        finally:
+            if wb:
+                try:
+                    wb.Close(False)
+                except Exception:
+                    pass
+            if excel:
+                try:
+                    excel.Quit()
+                except Exception:
+                    pass
 
     @classmethod
     def get_wht_print_guidance(cls, doc_no: str, system_type: str = "EWM") -> Dict[str, Any]:
