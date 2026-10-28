@@ -5435,6 +5435,19 @@ class SapEngine:
                         m_f = self._find_by_id_safe("wnd[0]/usr/txtP_MAX")
                         if m_f: m_f.text = "1000"
 
+                        # Xóa trắng giới hạn Posting Date / Entry Date để không sót DOC khác ngày/tháng
+                        for d_id in [
+                            "wnd[0]/usr/ctxtS_BUDAT-LOW", "wnd[0]/usr/ctxtS_BUDAT-HIGH",
+                            "wnd[0]/usr/ctxtS_BLDAT-LOW", "wnd[0]/usr/ctxtS_BLDAT-HIGH",
+                            "wnd[0]/usr/usr/ctxtS_BUDAT-LOW", "wnd[0]/usr/usr/ctxtS_BUDAT-HIGH",
+                            "wnd[0]/usr/ctxtSO_BUDAT-LOW", "wnd[0]/usr/ctxtSO_BUDAT-HIGH",
+                            "wnd[0]/usr/ctxtP_BUDAT", "wnd[0]/usr/ctxtS_CPUDT-LOW", "wnd[0]/usr/ctxtS_CPUDT-HIGH"
+                        ]:
+                            df = self._find_by_id_safe(d_id)
+                            if df:
+                                try: df.text = ""
+                                except Exception: pass
+
                         # Điền toàn bộ danh sách DOC vào Multiple Selection
                         self._fill_multiple_selection(multi_btn_id, clean_docs)
 
@@ -5573,6 +5586,18 @@ class SapEngine:
                             if max_f:
                                 max_f.text = "500"
 
+                            # Xóa trắng giới hạn ngày
+                            for d_id in [
+                                "wnd[0]/usr/ctxtS_BUDAT-LOW", "wnd[0]/usr/ctxtS_BUDAT-HIGH",
+                                "wnd[0]/usr/ctxtS_BLDAT-LOW", "wnd[0]/usr/ctxtS_BLDAT-HIGH",
+                                "wnd[0]/usr/ctxtSO_BUDAT-LOW", "wnd[0]/usr/ctxtSO_BUDAT-HIGH",
+                                "wnd[0]/usr/ctxtP_BUDAT"
+                            ]:
+                                df = self._find_by_id_safe(d_id)
+                                if df:
+                                    try: df.text = ""
+                                    except Exception: pass
+
                             # 2. Chạy báo cáo F8 (sendVKey 8)
                             if w0:
                                 w0.sendVKey(8)
@@ -5681,6 +5706,10 @@ class SapEngine:
         for doc in clean_docs:
             titles = zfir_results.get(doc) or migo_results.get(doc, [])
             info = classify_sap_attachments(titles, ticket_no=ticket_no)
+            found_in_zfir = doc in zfir_results and bool(zfir_results[doc])
+            need_bbbg = not info["has_bbbg"]
+            need_vat = not info["has_vat"]
+            need_ht = bool(ticket_no and not info.get("has_ticket"))
             records.append({
                 "doc": doc,
                 "company_code": company_code,
@@ -5692,7 +5721,11 @@ class SapEngine:
                 "files_found": ", ".join(titles) if titles else "Không có file",
                 "bbbg_file": info["bbbg_file"],
                 "vat_file": info["vat_file"],
-                "ticket_no": ticket_no
+                "ticket_no": ticket_no,
+                "found_in_zfir": found_in_zfir,
+                "need_bbbg": need_bbbg,
+                "need_vat": need_vat,
+                "need_header_text": need_ht
             })
 
         return records

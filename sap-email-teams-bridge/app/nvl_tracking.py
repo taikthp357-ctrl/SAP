@@ -132,6 +132,8 @@ class NvlTrackingService:
 
         rows: List[List[Any]] = []
         if is_xlsb:
+            read_success = False
+            # LỚP 1: Đọc trực tiếp từ in-memory stream bằng pyxlsb (siêu tốc, không cần Excel)
             try:
                 import pyxlsb
                 with pyxlsb.open_workbook(stream) as wb:
@@ -139,12 +141,38 @@ class NvlTrackingService:
                     sheet = wb.get_sheet(s_name)
                     for row in sheet.rows():
                         rows.append([c.v for c in row])
+                read_success = True
             except NvlFilePasswordRequiredError:
                 raise
             except Exception as e:
                 if "BadZipFile" in type(e).__name__ or "not a zip file" in str(e).lower():
-                    raise NvlFilePasswordRequiredError(file_path.name)
-                raise
+                    pass
+
+            # LỚP 2: Cứu hộ an toàn bằng Excel COM trên bản copy trong %TEMP%
+            # (Tránh lock file gốc, chạy độc lập qua DispatchEx và giải phóng CoUninitialize)
+            if not read_success or not rows:
+                try:
+                    com_rows = cls._read_xlsb_via_excel_com(file_path, sheet_target, pw_list)
+                    if com_rows:
+                        rows = com_rows
+                        read_success = True
+                except NvlFilePasswordRequiredError:
+                    raise
+                except Exception as com_err:
+                    print(f"[TRACKING XLSB COM WARN] Lớp 2 Excel COM không đọc được {file_path.name}: {com_err}")
+
+            # LỚP 3: Companion .xlsx fallback nếu có file cùng tên hoặc cùng ngày
+            if not read_success or not rows:
+                companion_xlsx = file_path.with_suffix(".xlsx")
+                if companion_xlsx.is_file() and companion_xlsx != file_path:
+                    try:
+                        return cls._read_tracking_sheet_rows(companion_xlsx, sheet_target, pw_list)
+                    except Exception:
+                        pass
+                if not rows:
+                    if len(file_bytes) > 8 and file_bytes[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+                        raise NvlFilePasswordRequiredError(file_path.name)
+                    raise RuntimeError(f"Không thể đọc nội dung file .xlsb '{file_path.name}' qua pyxlsb hoặc Excel COM.")
         else:
             try:
                 wb = openpyxl.load_workbook(stream, data_only=True)
@@ -160,6 +188,114 @@ class NvlTrackingService:
                 raise
 
         return rows
+
+    @classmethod
+    def _read_xlsb_via_excel_com(
+        cls,
+        file_path: Path,
+        sheet_target: str = "ODER NVl",
+        passwords: Optional[List[str]] = None
+    ) -> List[List[Any]]:
+        """Lớp 2: Đọc file .xlsb thông qua Excel COM trên file tạm trong %TEMP%.
+        
+        Tuân thủ nghiêm ngặt 5 chốt kỹ thuật:
+        - Copy sang tempfile để không lock file gốc.
+        - Gọi CoInitialize / CoUninitialize chuẩn thread.
+        - Dùng DispatchEx("Excel.Application") ngầm độc lập (không đóng nhầm Excel người dùng).
+        - Đảm bảo wb.Close(False) và excel.Quit() trong khối finally triệt tiêu Zombie Process.
+        """
+        import tempfile
+        import shutil
+
+        # Kiểm tra tính toàn vẹn nhị phân
+        if not file_path.exists() or file_path.stat().st_size < 512:
+            return []
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(8)
+            if not (header.startswith(b"PK\x03\x04") or header.startswith(b"\xd0\xcf\x11\xe0")):
+                return []
+        except Exception:
+            return []
+
+        pw_list = passwords or cls.get_known_passwords()
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".xlsb")
+        os.close(temp_fd)
+
+        excel = None
+        wb = None
+        rows: List[List[Any]] = []
+
+        try:
+            shutil.copy2(file_path, temp_path)
+            try:
+                import pythoncom
+                import win32com.client
+            except ImportError:
+                return []
+
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+
+            try:
+                excel = win32com.client.DispatchEx("Excel.Application")
+                excel.Visible = False
+                excel.DisplayAlerts = False
+                excel.ScreenUpdating = False
+
+                opened = False
+                for pwd in pw_list:
+                    try:
+                        wb = excel.Workbooks.Open(str(Path(temp_path).resolve()), False, True, None, pwd)
+                        opened = True
+                        break
+                    except Exception:
+                        continue
+
+                if not opened or wb is None:
+                    raise NvlFilePasswordRequiredError(file_path.name)
+
+                try:
+                    sheet_names = [s.Name for s in wb.Sheets]
+                except (TypeError, AttributeError):
+                    sheet_names = [wb.Sheets(i).Name for i in range(1, getattr(wb.Sheets, 'Count', 1) + 1)]
+                target_sheet_name = sheet_target if sheet_target in sheet_names else wb.Sheets(1).Name
+                ws = wb.Sheets(target_sheet_name)
+                used_range = ws.UsedRange
+                val_tuple = used_range.Value
+                if val_tuple:
+                    if isinstance(val_tuple, (list, tuple)):
+                        for r in val_tuple:
+                            if isinstance(r, (list, tuple)):
+                                rows.append(list(r))
+                            else:
+                                rows.append([r])
+                    else:
+                        rows.append([val_tuple])
+                return rows
+            finally:
+                if wb:
+                    try:
+                        wb.Close(False)
+                    except Exception:
+                        pass
+                if excel:
+                    try:
+                        excel.Quit()
+                    except Exception:
+                        pass
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
     @classmethod
     def get_tracking_directory(cls, configured_dir: Optional[str] = None) -> Path:
@@ -688,6 +824,11 @@ class NvlTrackingService:
         passwords = cls.get_known_passwords()
 
         try:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
             excel = win32com.client.DispatchEx("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
@@ -817,6 +958,11 @@ class NvlTrackingService:
                     excel.Quit()
                 except Exception:
                     pass
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
     @classmethod
     def get_wht_print_guidance(cls, doc_no: str, system_type: str = "EWM") -> Dict[str, Any]:

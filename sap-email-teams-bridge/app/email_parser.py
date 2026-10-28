@@ -32,6 +32,7 @@ class SmartCommandParser:
             (r"\b(?:doc\s*nay\s*co\s*bbbg|doc\s*nay\s*da\s*att|doc\s*co\s*att\s*chua)\b", 96),
         ],
         "ATT_MIGO": [
+            (r"\b(?:chay\s*att|lam\s*att|up\s*att|tien\s*hanh\s*att|thuc\s*hien\s*att)\b", 98),
             (r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu)\b", 97),
             (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 95),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 95),
@@ -132,6 +133,11 @@ class SmartCommandParser:
             (r"\b(?:tinh\s*trang\s*cap\s*(?:ma|vat\s*tu)|tra\s*cuu\s*cap\s*nvl|check\s*cap\s*ma|ho\s*tro\s*em\s*may\s*ma)\b", 95),
             (r"\b(?:hoi\s*(?:cac\s*)?ma|cac\s*ma\s*nay|danh\s*sach\s*ma\s*nay)\b", 90),
             (r"\b(?:cap\s*not|cap\s*bu|xin\s*cap)\b", 92),
+            (r"\b(?:cap\s*chua|giao\s*chua|xong\s*chua|du\s*chua|da\s*cap\s*chua|da\s*giao\s*chua)\b", 98),
+            (r"\b(?:don\s*bu|cap\s*bu|xin\s*bu|no\s*ca\s*cu|bu\s*ca|odbs|khsx|oder\s*d[+-]\d+)\b", 98),
+            (r"\b(?:file\s*ca|fiel\s*ca|file\s*theo\s*doi|theo\s*doi\s*oder|sheet\s*oder)\b", 99),
+            (r"\b(?:ca\s*s[1-7]|ca\s*ngay|ca\s*dem|ca\s*1|ca\s*2)\b", 88),
+            (r"\b(?:oder|order|tien\s*do\s*cap|don\s*hang\s*cap)\b", 85),
         ],
         "TINH_TRANG_NVL": [
             (r"\b(?:tinh\s*trang\s*cap\s*(?:hang\s*)?nvl|tinh\s*trang\s*nvl|tinh\s*trang\s*cap\s*hang|tien\s*do\s*cap\s*nvl|tien\s*do\s*nvl)\b", 94),
@@ -174,6 +180,43 @@ class SmartCommandParser:
         "NHẤT", "CỦA", "HOẶC", "HOAC", "XMD", "LIMO", "BODY", "XMĐ", "XE", "MAY", "DIEN", "OB", "WHT", "POSTING", "POSTINGCHANGE", "MIGO", "NVL", "CHANGE",
         "PLAN", "PLAT", "PL", "NHAMAY", "NHA", "MAY"
     }
+
+    SLANG_MAP = {
+        "ktton": "kiem tra ton",
+        "kt ton": "kiem tra ton",
+        "checkton": "kiem tra ton",
+        "ktatt": "check att",
+        "kt att": "check att",
+        "ktdk": "check dinh kem",
+        "kt dk": "check dinh kem",
+        "ktbbbg": "check bbbg",
+        "kt bbbg": "check bbbg",
+        "ktvat": "check vat",
+        "kt vat": "check vat",
+        "fiel": "file",
+        "fie": "file",
+        "fil": "file",
+        "flie": "file",
+        "od": "oder",
+        "order": "oder",
+        "cb": "cap bu",
+        "capbu": "cap bu",
+        "donbu": "don bu",
+        "khsx": "khsx",
+        "odbs": "odbs",
+    }
+
+    @classmethod
+    def normalize_and_expand_slang(cls, text: str) -> str:
+        """TẦNG 1: Chuẩn hóa, dịch tiếng lóng kho & sửa lỗi gõ phím nhanh."""
+        norm = cls.remove_accents(text)
+        # Thay thế từ viết tắt / tiếng lóng
+        for slang, standard in cls.SLANG_MAP.items():
+            norm = re.sub(r"\b" + re.escape(slang) + r"\b", standard, norm)
+        # Bắt lỗi chính tả nhẹ (fiel ca -> file ca)
+        norm = re.sub(r"\bfie[lr]?\s+ca\b", "file ca", norm)
+        norm = re.sub(r"\borde[rm]?\b", "oder", norm)
+        return norm
 
     @staticmethod
     def remove_accents(text: str) -> str:
@@ -584,7 +627,8 @@ class SmartCommandParser:
 
         command_text = raw_m.group(1).strip() if raw_m else cleaned
         meta["rawText"] = command_text
-        norm_text = cls.remove_accents(command_text)
+        # TẦNG 1: Dịch tiếng lóng và chuẩn hóa
+        norm_text = cls.normalize_and_expand_slang(command_text)
 
         # 1. Chấm điểm Ý định (Intent Scoring)
         scores = {k: 0 for k in cls.INTENT_SCORES.keys()}
@@ -596,6 +640,33 @@ class SmartCommandParser:
                 if m:
                     scores[intent] += weight
                     matched_keywords.append(f"{intent}:'{m.group(0)}' (+{weight})")
+
+        # TẦNG 3: LUẬT PHỦ ĐỊNH (VETO RULES) - CHỐNG BẪY NGỮ CẢNH
+        has_tracking_signals = bool(re.search(
+            r"\b(?:file|fiel|theo\s*doi|cap\s*chua|giao\s*chua|xong\s*chua|du\s*chua|da\s*cap|don\s*bu|cap\s*bu|xin\s*bu|odbs|khsx|oder|ca\s*s\d+|ca\s*ngay|ca\s*dem|so\s*phieu|phieu\s*sp|no\s*ca)\b",
+            norm_text
+        ))
+        has_pure_bin_signals = bool(re.search(r"\b(?:bin|o\s*bin|ke\s*bin|scwm/post|/scwm/post|vtri|vi\s*tri\s*bin)\b", norm_text))
+        has_pure_zfir_signals = bool(re.search(r"\b(?:zfir266|check\s*att|kt\s*att|kt\s*dinh\s*kem|thieu\s*att|thieu\s*gi|chua\s*att)\b", norm_text))
+        has_att_exec_signals = bool(re.search(r"\b(?:chay\s*att|lam\s*att|att\s*migo|dinh\s*kem\s*migo|up\s*bbbg|up\s*vat|dien\s*so\s*phieu|sua\s*so\s*phieu)\b", norm_text))
+
+        # Phủ định VITRI nếu người dùng hỏi tiến độ file ca / cấp bù / oder
+        if has_tracking_signals and not has_pure_bin_signals:
+            scores["VITRI"] = -50
+
+        # Phủ định TRA_CUU_CAP_NVL nếu chỉ hỏi vị trí Bin trong kho EWM
+        if has_pure_bin_signals and not has_tracking_signals:
+            scores["TRA_CUU_CAP_NVL"] = -50
+
+        # Ưu tiên Đính kèm MIGO / ZFIR266 trên từ khóa số phiếu (không để rơi vào TRA_CUU_CAP_NVL)
+        if has_att_exec_signals or has_pure_zfir_signals:
+            scores["TRA_CUU_CAP_NVL"] = -50
+
+        # Phân biệt CHECK_ATT (tra cứu) vs ATT_MIGO (ghi dữ liệu)
+        if has_pure_zfir_signals and not has_att_exec_signals:
+            scores["ATT_MIGO"] = -50
+        elif has_att_exec_signals and not has_pure_zfir_signals:
+            scores["CHECK_ATT"] = -50
 
         best_intent = max(scores, key=scores.get)
         best_score = scores[best_intent]
@@ -912,8 +983,16 @@ class SmartCommandParser:
             return meta
 
         if best_score == 0 and materials:
-            best_intent = "VITRI"
-            matched_keywords.append("Mặc định thông minh (Có mã hàng -> Check Vị trí & GR)")
+            # TẦNG 4: FAST-FIRST CONTEXTUAL FALLBACK
+            # Nhận diện nếu câu có dấu hiệu hỏi cấp phát / file ca / đơn bù
+            is_supply_hint = bool(re.search(r"\b(?:cap|giao|xong|du|thieu|no|bu|don|oder|ca|s[1-7]|gio|line|xuong|khsx|odbs)\b", norm_text))
+            if is_supply_hint:
+                best_intent = "TRA_CUU_CAP_NVL"
+                best_score = 75
+                matched_keywords.append("Hỏi tiến độ/cấp NVL (Có mã hàng + ngữ cảnh cấp/ca/đơn)")
+            else:
+                best_intent = "VITRI"
+                matched_keywords.append("Mặc định thông minh (Có mã hàng -> Check Vị trí & GR)")
         elif best_score == 0 and bin_val:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")

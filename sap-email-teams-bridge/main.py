@@ -562,7 +562,19 @@ def run_bridge():
                     except Exception as sap_err:
                         print(f"[SAP ERROR] {req_id} | {sap_err}")
                         is_att_cmd = (cmd or "").upper() in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]
-                        err_title = "Lỗi khi đính kèm / điền HeadText" if is_att_cmd else "Lỗi khi truy xuất SAP GUI"
+                        cmd_u = (cmd or "").upper()
+                        is_att_cmd = cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]
+                        is_check_att = cmd_u in ["CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266"]
+                        is_nvl_tracking = cmd_u in ["TRA_CUU_CAP_NVL", "TINH_TRANG_NVL", "RA_DON_NVL", "SET_FOLDER", "SET_NVL_PASSWORD"]
+                        err_str = str(sap_err)
+                        if is_nvl_tracking or any(k in err_str.lower() for k in ["pyxlsb", "openpyxl", "msoffcrypto", "excel", "sheet", "theo doi oder", "file ca"]):
+                            err_title = "Lỗi xử lý File Ca / Theo dõi NVL Excel"
+                        elif is_att_cmd:
+                            err_title = "Lỗi khi đính kèm / điền HeadText MIGO"
+                        elif is_check_att or "zfir266" in err_str.lower():
+                            err_title = "Lỗi khi tra cứu đính kèm ZFIR266"
+                        else:
+                            err_title = "Lỗi khi truy xuất SAP GUI"
                         err_html = f"<p style='color:#d9534f;font-weight:bold;'>❌ {err_title}: {html.escape(str(sap_err))}</p>"
                         fail_summary = f"{err_title}: {sap_err}"
                         fail_payload, fail_data = TeamsDispatcher.prepare_safe_payload(

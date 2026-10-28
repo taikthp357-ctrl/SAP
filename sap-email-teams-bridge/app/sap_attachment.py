@@ -75,13 +75,32 @@ except ImportError:
 # =====================================================================
 
 POPUP_LOCK = threading.Lock()          # Micro-lock bảo vệ cửa sổ wnd[1] & Context Menu
-
 FAST_LANE_LOCK = threading.Lock()      # Khóa riêng cho Tab 0 (Fast Lane)
-
 BATCH_TAB_LOCKS = {i: threading.Lock() for i in range(6)}  # Khóa riêng cho từng Tab 0..5 trong Batch Pool
+FILE_DIALOG_LOCK = threading.Lock()    # Khóa đồng bộ hộp thoại chọn file Windows / GOS (chống xung đột giữa các Tab)
 
+def get_user_idle_seconds() -> float:
+    """Đo thời gian người dùng không tương tác chuột/bàn phím qua Windows GetLastInputInfo."""
+    try:
+        import ctypes
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+            return max(0.0, millis / 1000.0)
+    except Exception:
+        pass
+    return 0.0
 
-
+def is_turbo_mode(prompt_text: str = "") -> bool:
+    """Phát hiện chế độ Turbo Mode (từ khóa hoặc máy tính đang rảnh > 45s)."""
+    p_norm = str(prompt_text or "").lower()
+    turbo_words = ["turbo", "max", "5 tab", "6 tab", "nhanh", "toi da", "full tab", "het cong suat"]
+    if any(w in p_norm for w in turbo_words):
+        return True
+    return get_user_idle_seconds() >= 45.0
 
 
 def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
@@ -3081,41 +3100,24 @@ class MigoAttachmentRunner:
 
             # Điền đường dẫn và nhấn nút Open/btn[0] độc lập trên từng session
 
-            path_ctl = UI_CACHE.resolve_element(session, "gos_path", "DY_PATH", window="wnd[1]")
+            with FILE_DIALOG_LOCK:
+                path_ctl = UI_CACHE.resolve_element(session, "gos_path", "DY_PATH", window="wnd[1]")
+                if path_ctl is not None:
+                    path_ctl.Text = parent_folder
+                else:
+                    session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
 
-            if path_ctl is not None:
+                file_ctl = UI_CACHE.resolve_element(session, "gos_fname", "DY_FILENAME", window="wnd[1]")
+                if file_ctl is not None:
+                    file_ctl.Text = filename
+                else:
+                    session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
 
-                path_ctl.Text = parent_folder
-
-            else:
-
-                session.findById("wnd[1]/usr/ctxtDY_PATH").Text = parent_folder
-
-
-
-            file_ctl = UI_CACHE.resolve_element(session, "gos_fname", "DY_FILENAME", window="wnd[1]")
-
-            if file_ctl is not None:
-
-                file_ctl.Text = filename
-
-            else:
-
-                session.findById("wnd[1]/usr/ctxtDY_FILENAME").Text = filename
-
-
-
-            btn_open = UI_CACHE.resolve_element(session, "gos_btn_open", "btn[0]", window="wnd[1]")
-
-            if btn_open is not None:
-
-                btn_open.Press()
-
-            else:
-
-                session.findById("wnd[1]/tbar[0]/btn[0]").Press()
-
-
+                btn_open = UI_CACHE.resolve_element(session, "gos_btn_open", "btn[0]", window="wnd[1]")
+                if btn_open is not None:
+                    btn_open.Press()
+                else:
+                    session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
             # 3. KIỂM TRA ĐÓNG DIALOG VÀ XÁC MINH STATUSBAR:
 
@@ -4047,19 +4049,22 @@ class MigoAttachmentRunner:
 
                 # 0. KIỂM TRA ĐÍNH KÈM ĐÃ CÓ SẴN TRÊN SAP MIGO (Display Attachment / OK_REF_ATTA)
 
-                sap_titles = self.read_sap_attachment_titles(session)
+                # 0. KIỂM TRA ĐÍNH KÈM: Sử dụng cờ chi tiết ZFIR266 nếu đã có sẵn để BỎ QUA GOS popup
+                need_bb = item.get("need_bbbg")
+                need_v = item.get("need_vat")
 
-                sap_bbbg, sap_vat = self.check_existing_sap_attachments(sap_titles, ticket_no)
-
-
+                if need_bb is not None and need_v is not None:
+                    # Đã có cờ chính xác từ Phase 1 ZFIR266: không cần mở popup GOS tốn thời gian!
+                    sap_titles = []
+                    sap_bbbg = "ZFIR266" if not need_bb else None
+                    sap_vat = "ZFIR266" if not need_v else None
+                else:
+                    sap_titles = self.read_sap_attachment_titles(session)
+                    sap_bbbg, sap_vat = self.check_existing_sap_attachments(sap_titles, ticket_no)
 
                 # 1. Điền số phiếu vào Header Text nếu được yêu cầu
-
                 if fill_headtext and ticket_no:
-
                     headtext_res, headtext_msg = self.handle_migo_headtext(session, ticket_no, allow_overwrite=allow_overwrite_headtext)
-
-
 
                 ticket_nums, _ = extract_search_tokens(ticket_no)
 
@@ -4069,7 +4074,10 @@ class MigoAttachmentRunner:
 
                 b_ok = False
 
-                to_upload_bb, already_bb, _ = match_files_to_sap(bbbg_paths, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
+                if need_bb is False:
+                    to_upload_bb, already_bb = [], ["ZFIR266"]
+                else:
+                    to_upload_bb, already_bb, _ = match_files_to_sap(bbbg_paths, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
 
 
 
@@ -4137,7 +4145,10 @@ class MigoAttachmentRunner:
 
                 v_ok = False
 
-                to_upload_vat, already_vat, _ = match_files_to_sap(vat_paths, sap_titles, ticket_nums=ticket_nums, file_type="vat")
+                if need_v is False:
+                    to_upload_vat, already_vat = [], ["ZFIR266"]
+                else:
+                    to_upload_vat, already_vat, _ = match_files_to_sap(vat_paths, sap_titles, ticket_nums=ticket_nums, file_type="vat")
 
 
 
@@ -4430,106 +4441,134 @@ class MigoAttachmentRunner:
 
 
         results = []
-
         total_success = 0
-
         total_partial = 0
-
         total_missing = 0
-
-
 
         total_items = len(items)
 
-        last_progress_time = time.time()
+        # =========================================================================
+        # PHASE 1: ZFIR266 BATCH PRE-CHECK (Kiểm tra 1 shot toàn bộ DOCs trong 1.5s)
+        # =========================================================================
+        zfir_map = {}
+        if not dry_run and self.sap_engine is not None and len(items) > 0 and hasattr(self.sap_engine, "check_attachments_zfir266"):
+            try:
+                doc_list = [str(it.get("doc", "")).strip() for it in items if re.fullmatch(r"\d{10}", str(it.get("doc", "")).strip())]
+                if doc_list:
+                    print(f"[ATT RUNNER] Phase 1: Batch-check {len(doc_list)} DOCs qua ZFIR266 để bóc tách cờ thiếu chi tiết...")
+                    zfir_records = self.sap_engine.check_attachments_zfir266(
+                        doc_list,
+                        year=year or str(datetime.now().year)
+                    )
+                    for r in zfir_records:
+                        zfir_map[r["doc"]] = r
+                    print(f"[ATT RUNNER] Phase 1 hoàn tất: Đã lập bản đồ trạng thái cho {len(zfir_map)} DOC.")
+            except Exception as zfir_pre_err:
+                print(f"[ATT RUNNER WARN] Phase 1 ZFIR266 precheck không thành công, tiếp tục quy trình MIGO chuẩn: {zfir_pre_err}")
 
+        # Gắn cờ chi tiết và lọc DOC đã hoàn thành 100% (bỏ qua hoàn toàn MIGO)
+        items_to_process = []
+        already_done_results = []
+        for it in items:
+            d = str(it.get("doc", "")).strip()
+            if d in zfir_map:
+                z_info = zfir_map[d]
+                it["found_in_zfir"] = z_info.get("found_in_zfir", False)
+                it["need_bbbg"] = z_info.get("need_bbbg", True)
+                it["need_vat"] = z_info.get("need_vat", True)
+                it["need_header_text"] = z_info.get("need_header_text", True)
+
+                # Chốt an toàn 4 & 5:
+                # Nếu DOC tìm thấy trên ZFIR266 VÀ đã có đủ cả BBBG lẫn VAT (và HeadText nếu có số phiếu)
+                # -> Đánh dấu hoàn thành ngay, BỎ QUA MIGO hoàn toàn!
+                if (it["found_in_zfir"] and
+                    not it["need_bbbg"] and
+                    not it["need_vat"] and
+                    (not fill_headtext or not it.get("ticket_no") or not it["need_header_text"])):
+                    already_done_results.append({
+                        "doc": d,
+                        "ticket_no": it.get("ticket_no", ""),
+                        "headtext_status": "DONE (ZFIR266)",
+                        "headtext_msg": "Đã có sẵn trên SAP",
+                        "bbbg_file": z_info.get("bbbg_file"),
+                        "bbbg_status": "DONE (ZFIR266: Đã đủ)",
+                        "vat_file": z_info.get("vat_file"),
+                        "vat_status": "DONE (ZFIR266: Đã đủ)",
+                        "mail_file": None,
+                        "match_notes": "Đã đủ file BBBG & VAT trên SAP (ZFIR266 Precheck)",
+                        "overall_status": "DONE",
+                        "is_succ": True
+                    })
+                    continue
+            items_to_process.append(it)
+
+        if already_done_results:
+            print(f"[ATT RUNNER] Phase 1: {len(already_done_results)}/{total_items} DOC đã đủ 100% BBBG/VAT -> Bỏ qua MIGO!")
+            total_success += len(already_done_results)
+            results.extend(already_done_results)
+
+        items = items_to_process
+
+        last_progress_time = time.time()
         PROGRESS_INTERVAL_SEC = 180.0  # Cập nhật tiến độ lên Teams mỗi 3 phút
 
-
-
-        # Xác định khả năng chạy Multi-Tab (Danh sách > 5 chứng từ, có kết nối SAP và không dry_run)
-
+        # =========================================================================
+        # PHASE 2: ADAPTIVE MULTI-SESSION SAP POOL (TỰ THÍCH ỨNG TURBO / IDLE)
+        # =========================================================================
         is_multi_tab_eligible = (
-
             not dry_run
-
             and self.sap_engine is not None
-
-            and total_items > 5
-
+            and len(items) > 3
             and pythoncom is not None
-
         )
 
+        user_res_val = getattr(self.sap_engine, "user_reserved_sessions", None)
+        max_bot_val = getattr(self.sap_engine, "max_batch_tabs", None)
 
+        user_idle = get_user_idle_seconds()
+        turbo = is_turbo_mode(getattr(self, "_prompt_context", "") or "")
 
-        user_res_val = getattr(self.sap_engine, "user_reserved_sessions", 3)
+        if user_res_val is not None:
+            user_reserved = int(user_res_val)
+        elif turbo:
+            user_reserved = 0 if user_idle >= 45.0 else 1
+        else:
+            user_reserved = 1
 
-        user_reserved = user_res_val if isinstance(user_res_val, int) else 3
+        if max_bot_val is not None:
+            max_bot_tabs = int(max_bot_val)
+        elif turbo:
+            max_bot_tabs = 5
+        else:
+            max_bot_tabs = 4
 
-        max_bot_val = getattr(self.sap_engine, "max_batch_tabs", 3)
-
-        max_bot_tabs = max_bot_val if isinstance(max_bot_val, int) else 3
-
-
+        if turbo and user_res_val is None:
+            print(f"[ATT RUNNER] 🚀 KÍCH HOẠT TURBO MULTI-TAB (Idle {user_idle:.1f}s): Cho phép tới {max_bot_tabs} Tabs song song!")
 
         conn_idx = 0
-
         if isinstance(self.expected_session_identity, dict) and ("connection_index" in self.expected_session_identity or "connection_id" in self.expected_session_identity):
-
             try:
-
                 conn_idx = int(self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0)))
-
             except Exception:
-
                 conn_idx = 0
-
         elif hasattr(self.sap_engine, "connection_index"):
-
             conn_idx = int(getattr(self.sap_engine, "connection_index", 0))
 
-
-
         active_tab_indices = [0]
-
         if is_multi_tab_eligible:
-
-            user_res_val = getattr(self.sap_engine, "user_reserved_sessions", 3)
-
-            user_reserved = user_res_val if isinstance(user_res_val, int) else 3
-
-            max_bot_val = getattr(self.sap_engine, "max_batch_tabs", 3)
-
-            max_bot_tabs = max_bot_val if isinstance(max_bot_val, int) else 3
-
             target_tabs = min(6, user_reserved + max_bot_tabs)
-
             available_tabs = ensure_sap_tabs(target_tabs, connection_index=conn_idx)
-
             bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]
-
             if len(bot_tabs) >= 2:
-
                 active_tab_indices = bot_tabs[:max_bot_tabs]
-
                 tabs_str = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
-
                 print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải tự thích ứng trên {len(active_tab_indices)} tabs ({tabs_str}) (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
-
             elif len(bot_tabs) == 1:
-
                 active_tab_indices = [bot_tabs[0]]
-
                 print(f"[ATT RUNNER] SAP có Tab {active_tab_indices[0]+1} khả dụng: Chạy Batch trên Tab {active_tab_indices[0]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
-
             else:
-
-                raise RuntimeError("NO_DEDICATED_BOT_SESSION: Không có session SAP khả dụng cho bot (bảo tồn toàn bộ tab người dùng)")
-
-
-
-        # ---------------------------------------------------------------------
+                active_tab_indices = [0]
+                print(f"[ATT RUNNER WARN] Không tìm thấy tab riêng, fallback an toàn trên Session 0.")
 
         # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)
 

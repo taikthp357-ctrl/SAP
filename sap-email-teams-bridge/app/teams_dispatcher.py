@@ -767,7 +767,11 @@ class TeamsDispatcher:
                 if cmd_u in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
                     greeting = "Sếp ơi, đính kèm MIGO gặp sự cố hoặc chưa tìm thấy file đính kèm phù hợp ạ 👇"
                 elif cmd_u in ["CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266"]:
-                    greeting = "Sếp ơi, kiểm tra đính kèm ZFIR266/MIGO gặp sự cố truy xuất SAP ạ 👇"
+                    greeting = "Sếp ơi, kiểm tra đính kèm ZFIR266/MIGO gặp sự cố truy xuất SAP ạ 👇"
+
+                elif cmd_u in ["TRA_CUU_CAP_NVL", "TINH_TRANG_NVL", "RA_DON_NVL", "SET_FOLDER", "SET_NVL_PASSWORD"]:
+
+                    greeting = "Sếp ơi, tra cứu tiến độ file ca / theo dõi NVL gặp sự cố đọc file Excel ạ 👇"
                 else:
                     greeting = "Sếp ơi, lần này em chưa tra cứu được SAP ạ. Chi tiết em để bên dưới nhé."
             elif status == "PARTIAL":
