@@ -52,7 +52,8 @@ class CommandRouter:
             "TINH_TRANG_NVL", "BAO_CAO_NVL", "TIEN_DO_NVL", "TINH_TRANG_CAP_NVL", "BAO_CAO_CAP_NVL",
             "TRA_CUU_CAP_NVL", "DINH_DANH_NVL", "TRACE_NVL",
             "IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT", "IN_WHO", "IN_PHIEU", "SMART_PRINT",
-            "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"
+            "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL",
+            "SET_NVL_PASSWORD", "MAT_KHAU_NVL", "SET_PASSWORD", "PASSWORD_NVL"
         ]
         for cmd in nvl_commands:
             self.register(cmd, self.nvl_handler)

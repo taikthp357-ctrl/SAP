@@ -49,5 +49,8 @@
   "trusted_intake_senders": [],
   "enable_multi_tab": true,
   "max_batch_tabs": 2,
-  "tracking_files_dir": "C:\\Users\\taikt\\AppData\\Local\\Temp\\pytest-of-taikt\\pytest-616\\test_set_tracking_folder0"
+  "tracking_files_dir": "C:\\Users\\taikt\\AppData\\Local\\Temp\\pytest-of-taikt\\pytest-621\\test_set_tracking_folder0",
+  "tracking_excel_passwords": [
+    "Vinfast@999"
+  ]
 }

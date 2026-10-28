@@ -144,6 +144,11 @@ class SmartCommandParser:
             (r"\b(?:folder\s*theo\s*doi|thu\s*muc\s*theo\s*doi|thu\s*muc\s*nvl|folder\s*nvl|duong\s*dan\s*nvl)\b", 98),
             (r"\b(?:cau\s*hinh\s*folder|cau\s*hinh\s*thu\s*muc)\b", 95),
         ],
+        "SET_NVL_PASSWORD": [
+            (r"\b(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*(?:nvl|order|theo\s*d[oõ]i|tracking|excel)?[\s:=]+(?P<pwd>\S+)", 99),
+            (r"\b(?:set|c[aà]i|nh[aậ]p|l[uư]u)\s*(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*(?:nvl|order|theo\s*d[oõ]i|tracking|excel)?[\s:=]+(?P<pwd>\S+)", 99),
+            (r"\b(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*[:=]\s*(?P<pwd>\S+)", 95),
+        ],
         "IN_WHT": [
             (r"\b(?:in\s*wht|in\s*phieu\s*wht|in\s*lenh\s*wht|print\s*wht)\b", 96),
             (r"\b(?:tcode\s*in\s*wht|huong\s*dan\s*in\s*wht|cach\s*in\s*wht|in\s*warehouse\s*task)\b", 95),
@@ -317,6 +322,7 @@ class SmartCommandParser:
         "ATTACH_VAT_BBBG": "ATT_MIGO", "MIGO_ATT": "ATT_MIGO", "ATTACH_MIGO": "ATT_MIGO",
         "CHECK_ATT": "CHECK_ATT", "CHECK_ATT_DOC": "CHECK_ATT", "CHECK_DINH_KEM": "CHECK_ATT", "ZFIR266": "CHECK_ATT",
         "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO", "SET_FOLDER": "SET_FOLDER", "CHON_FOLDER": "SET_FOLDER", "THU_MUC_NVL": "SET_FOLDER",
+        "MAT_KHAU_NVL": "SET_NVL_PASSWORD", "SET_PASSWORD": "SET_NVL_PASSWORD", "PASSWORD_NVL": "SET_NVL_PASSWORD",
     }
     JSON_COMMANDS = frozenset(INTENT_SCORES) | {
         "PING", "BIN", "POST", "SCWM", "/SCWM/POST", "TON_KHO", "MB52", "MB51",
@@ -813,6 +819,11 @@ class SmartCommandParser:
                         batch = candidate
                         break
 
+        # Trích xuất mật khẩu NVL nếu có
+        m_pwd = re.search(r"(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*(?:nvl|order|theo\s*d[oõ]i|tracking|excel)?[\s:=]+([^\s,;]+)", command_text, re.IGNORECASE)
+        if m_pwd:
+            meta["nvlPassword"] = m_pwd.group(1).strip()
+
         # Bảo vệ: Nếu là lệnh CHECK_ATT / CHECK_ATT_DOC, không nạp folderPath để tránh nhầm với tác vụ upload
         if best_intent in ("CHECK_ATT", "CHECK_ATT_DOC"):
             folder_path = ""
@@ -838,7 +849,7 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_QUEUE")
                 or (best_intent == "ATT_MIGO")
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
-                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL", "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"))
+                or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL", "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL", "SET_NVL_PASSWORD", "MAT_KHAU_NVL"))
                 or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))
             )
         ) or (best_score == 0 and bool(bin_val))

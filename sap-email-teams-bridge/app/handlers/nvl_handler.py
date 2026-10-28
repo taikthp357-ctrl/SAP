@@ -414,6 +414,17 @@ class NvlHandler(BaseHandler):
                 sap_engine=ctx.sap
             )
 
+            if trace_res.get("status") == "PASSWORD_REQUIRED":
+                return CommandResult(
+                    status="NEED_INPUT",
+                    summary=trace_res.get("summary") or "File theo dõi ca yêu cầu mật khẩu mở file.",
+                    records=[],
+                    headers={},
+                    custom_html=trace_res.get("custom_html") or trace_res.get("summary"),
+                    audit_target=", ".join(mats[:5]),
+                    audit_message="File theo dõi NVL yêu cầu mật khẩu mở file (PASSWORD_REQUIRED)"
+                )
+
             headers = {
                 "material": "Mã NVL",
                 "model": "Model xe",
@@ -565,7 +576,6 @@ class NvlHandler(BaseHandler):
             file_list_str = ", ".join(file_names) if file_names else "Chưa có file nào"
 
             # Lưu cấu hình vào config.json trên đĩa để bền vững qua các phiên khởi động
-            import json
             config_file = Path(__file__).resolve().parent.parent.parent / "config.json"
             if config_file.exists():
                 try:
@@ -606,6 +616,69 @@ class NvlHandler(BaseHandler):
                 custom_html=custom_html,
                 audit_target=clean_folder,
                 audit_message=f"Đổi thư mục theo dõi NVL sang {clean_folder} ({len(found_files)} files)"
+            )
+
+        # -------------------------------------------------------------
+        # NHÁNH 7: CẤU HÌNH & BỔ SUNG MẬT KHẨU FILE ORDER NVL (.XLSX / .XLSB)
+        # -------------------------------------------------------------
+        elif cmd in ["SET_NVL_PASSWORD", "MAT_KHAU_NVL", "SET_PASSWORD", "PASSWORD_NVL"]:
+            new_pwd = str(ctx.meta.get("nvlPassword") or ctx.meta.get("password") or "").strip()
+            if not new_pwd:
+                raw_text = str(ctx.meta.get("rawText") or "").strip()
+                m_pwd = re.search(r"(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*(?:nvl|order|theo\s*d[oõ]i|tracking|excel)?[\s:=]+([^\s,;]+)", raw_text, re.IGNORECASE)
+                if m_pwd:
+                    new_pwd = m_pwd.group(1).strip()
+
+            if not new_pwd:
+                return CommandResult(
+                    status="NEED_INPUT",
+                    summary="Vui lòng cung cấp mật khẩu cần cài đặt theo cú pháp: `mật khẩu nvl: [mật_khẩu]`.",
+                    records=[],
+                    headers={},
+                    audit_target="SET_PASSWORD_NO_PWD",
+                    audit_message="Thiếu mật khẩu khi cấu hình mật khẩu NVL"
+                )
+
+            # Đăng ký vào runtime
+            NvlTrackingService.register_password(new_pwd)
+
+            # Lưu vào config.json
+            config_file = Path(__file__).resolve().parent.parent.parent / "config.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        cfg_data = json.load(f)
+                    current_pwds = cfg_data.get("tracking_excel_passwords", [])
+                    if new_pwd not in current_pwds:
+                        current_pwds.insert(0, new_pwd)
+                        cfg_data["tracking_excel_passwords"] = current_pwds
+                        with open(config_file, "w", encoding="utf-8") as f:
+                            json.dump(cfg_data, f, indent=2, ensure_ascii=False)
+                except Exception as save_err:
+                    print(f"[SET_NVL_PASSWORD WARN] Không thể ghi config.json: {save_err}")
+
+            custom_html = (
+                f"<div style='font-family:Segoe UI,sans-serif;background:#ffffff;border:1px solid #d0d7de;border-radius:6px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'>"
+                f"<div style='font-size:16px;font-weight:bold;color:#1a7f37;margin-bottom:8px;'>✅ ĐÃ LƯU MẬT KHẨU FILE ORDER NVL THÀNH CÔNG</div>"
+                f"<div style='background:#f6f8fa;padding:12px;border-radius:6px;border-left:4px solid #1a7f37;font-size:13px;line-height:1.6;'>"
+                f"🔑 <b>Mật khẩu:</b> <code>{new_pwd}</code><br/>"
+                f"🔒 <b>Áp dụng:</b> Tự động mở khóa file <code>.xlsx</code> và <code>.xlsb</code> trong thư mục Theo Dõi Order NVL.<br/>"
+                f"ℹ️ <i>Bot đã lưu mật khẩu vào bộ nhớ và cấu hình hệ thống. Giờ sếp có thể gửi lại câu lệnh kiểm tra đơn để Bot tự động truy xuất dữ liệu!</i>"
+                f"</div></div>"
+            )
+
+            return CommandResult(
+                status="SUCCEEDED",
+                summary=(
+                    f"✅ Đã lưu mật khẩu `{new_pwd}` cho file theo dõi Order NVL!\n"
+                    f"- Bot sẽ tự động sử dụng mật khẩu này để mở khóa các file `.xlsx` và `.xlsb` được bảo vệ.\n"
+                    f"- Sếp có thể gửi lại câu lệnh tra cứu tiến độ cấp ngay bây giờ."
+                ),
+                records=[{"password": new_pwd}],
+                headers={"password": "Mật khẩu NVL đã lưu"},
+                custom_html=custom_html,
+                audit_target=new_pwd,
+                audit_message=f"Đã lưu mật khẩu NVL: {new_pwd}"
             )
 
         raise ValueError(f"NvlHandler không hỗ trợ lệnh: {cmd}")

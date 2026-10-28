@@ -13,6 +13,8 @@ Chức năng:
 
 import os
 import re
+import io
+import json
 import glob
 import shutil
 import datetime
@@ -24,10 +26,139 @@ import openpyxl
 from app.nvl_master import NvlMasterService
 
 
+class NvlFilePasswordRequiredError(Exception):
+    """Ngoại lệ khi file theo dõi Excel (.xlsx/.xlsb) bị cài mật khẩu mở file nhưng danh sách mật khẩu đã cấu hình không thể mở khóa."""
+
+    def __init__(self, filename: str, message: str = ""):
+        self.filename = filename
+        self.message = message or f"File '{filename}' được bảo vệ bằng mật khẩu mở file. Vui lòng cung cấp mật khẩu qua lệnh 'mật khẩu nvl: <mật_khẩu>'."
+        super().__init__(self.message)
+
+
 class NvlTrackingService:
     """Dịch vụ điều phối và đồng bộ luồng theo dõi cấp NVL."""
 
     DEFAULT_TRACKING_DIR = r"G:\SAP"
+    DEFAULT_PASSWORDS = [
+        "", "1", "12", "123", "1234", "12345", "123456", "12345678",
+        "vinfast", "Vinfast", "VinFast", "Vinfast@123", "VinFast@123", "VINFAST",
+        "Vipass", "vipass", "Vipass@123", "KhoP", "khop", "KhoP@123", "KHOP",
+        "admin", "pass", "password", "3093", "1005", "VF", "vf",
+        "LIMO", "limo", "Limo", "S6", "S7", "NVL", "nvl"
+    ]
+    RUNTIME_PASSWORDS: List[str] = []
+
+    @classmethod
+    def register_password(cls, password: str) -> None:
+        """Đăng ký thêm mật khẩu giải mã Excel trong phiên chạy hiện tại."""
+        p_clean = (password or "").strip()
+        if p_clean and p_clean not in cls.RUNTIME_PASSWORDS:
+            cls.RUNTIME_PASSWORDS.insert(0, p_clean)
+
+    @classmethod
+    def get_known_passwords(cls) -> List[str]:
+        """Lấy toàn bộ danh sách mật khẩu đã biết (runtime + config.json + default)."""
+        result = list(cls.RUNTIME_PASSWORDS)
+        try:
+            config_path = Path(__file__).resolve().parent.parent / "config.json"
+            if config_path.is_file():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    cfg_pwds = cfg.get("tracking_excel_passwords", [])
+                    for p in cfg_pwds:
+                        p_str = str(p).strip()
+                        if p_str and p_str not in result:
+                            result.append(p_str)
+        except Exception:
+            pass
+        for p in cls.DEFAULT_PASSWORDS:
+            if p not in result:
+                result.append(p)
+        return result
+
+    @classmethod
+    def _read_tracking_sheet_rows(
+        cls,
+        file_path: Path,
+        sheet_target: str = "ODER NVl",
+        passwords: Optional[List[str]] = None
+    ) -> List[List[Any]]:
+        """Đọc toàn bộ các dòng của sheet theo dõi, hỗ trợ cả .xlsx và .xlsb,
+        tự động giải mã in-memory nếu file bị cài mật khẩu mở file.
+        
+        Trả về danh sách các row (mỗi row là list các giá trị cell 0-based).
+        """
+        is_xlsb = file_path.suffix.lower() == ".xlsb"
+        pw_list = passwords or cls.get_known_passwords()
+
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        stream: Optional[io.BytesIO] = None
+        # Kiểm tra OLE2 header (\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1)
+        if len(file_bytes) > 8 and file_bytes[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+            try:
+                import msoffcrypto
+                buf_in = io.BytesIO(file_bytes)
+                try:
+                    office_file = msoffcrypto.OfficeFile(buf_in)
+                    if office_file.is_encrypted():
+                        decrypted_buf = None
+                        for pwd in pw_list:
+                            try:
+                                buf_in.seek(0)
+                                temp_of = msoffcrypto.OfficeFile(buf_in)
+                                temp_of.load_key(password=pwd)
+                                out_buf = io.BytesIO()
+                                temp_of.decrypt(out_buf)
+                                out_buf.seek(0)
+                                decrypted_buf = out_buf
+                                break
+                            except Exception:
+                                continue
+                        if decrypted_buf is None:
+                            raise NvlFilePasswordRequiredError(file_path.name)
+                        stream = decrypted_buf
+                except NvlFilePasswordRequiredError:
+                    raise
+                except Exception:
+                    pass
+            except ImportError:
+                pass
+
+        if stream is None:
+            stream = io.BytesIO(file_bytes)
+
+        rows: List[List[Any]] = []
+        if is_xlsb:
+            try:
+                import pyxlsb
+                with pyxlsb.open_workbook(stream) as wb:
+                    s_name = sheet_target if sheet_target in wb.sheets else wb.sheets[0]
+                    sheet = wb.get_sheet(s_name)
+                    for row in sheet.rows():
+                        rows.append([c.v for c in row])
+            except NvlFilePasswordRequiredError:
+                raise
+            except Exception as e:
+                if "BadZipFile" in type(e).__name__ or "not a zip file" in str(e).lower():
+                    raise NvlFilePasswordRequiredError(file_path.name)
+                raise
+        else:
+            try:
+                wb = openpyxl.load_workbook(stream, data_only=True)
+                s_name = sheet_target if sheet_target in wb.sheetnames else wb.sheetnames[0]
+                ws = wb[s_name]
+                for row in ws.iter_rows(values_only=True):
+                    rows.append(list(row))
+            except NvlFilePasswordRequiredError:
+                raise
+            except Exception as e:
+                if "InvalidFileException" in type(e).__name__ or "encrypted" in str(e).lower():
+                    raise NvlFilePasswordRequiredError(file_path.name)
+                raise
+
+        return rows
 
     @classmethod
     def get_tracking_directory(cls, configured_dir: Optional[str] = None) -> Path:
@@ -55,7 +186,9 @@ class NvlTrackingService:
         """
         search_dir = cls.get_tracking_directory(directory)
         pattern = str(search_dir / "*THEO DOI ODER NVL_P_*.xlsx")
+        pattern_xlsb = str(search_dir / "*THEO DOI ODER NVL_P_*.xlsb")
         all_files = glob.glob(pattern)
+        all_files.extend(glob.glob(pattern_xlsb))
         # Hỗ trợ tự động quét thêm thư mục con theo tháng (ví dụ G:\SAP\2026_10, G:\SAP\Thang_10...)
         sub_files = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsx"))
         sub_files_xlsb = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsb"))
@@ -122,9 +255,17 @@ class NvlTrackingService:
                 }
             tracking_file = candidates[0]
 
-        wb = openpyxl.load_workbook(str(tracking_file), data_only=True)
-        sheet_name = "ODER NVl" if "ODER NVl" in wb.sheetnames else wb.sheetnames[0]
-        ws = wb[sheet_name]
+        try:
+            sheet_rows = cls._read_tracking_sheet_rows(tracking_file)
+        except NvlFilePasswordRequiredError as e:
+            return {
+                "status": "PASSWORD_REQUIRED",
+                "summary": f"🔒 <b>FILE CÓ MẬT KHẨU:</b> File theo dõi ca <code>{tracking_file.name}</code> đang được bảo vệ bằng mật khẩu mở file.<br/>👉 Vui lòng chat: <code>mật khẩu nvl: [mật_khẩu]</code> để Bot tự động mở khóa.",
+                "records": [],
+                "shortages": [],
+                "kpi": {},
+                "file": tracking_file.name
+            }
 
         model_clean = (model or "").strip().upper()
         shift_clean = (shift or "").strip().upper()
@@ -143,15 +284,19 @@ class NvlTrackingService:
         # Cache tra cứu NCC từ Master
         vendor_cache: Dict[str, str] = {}
 
-        for r in range(2, ws.max_row + 1):
-            mat_val = ws.cell(r, 4).value
+        for r_idx, r_vals in enumerate(sheet_rows):
+            if r_idx == 0:
+                continue
+            r = r_idx + 1
+
+            mat_val = r_vals[3] if len(r_vals) > 3 else None
             if not mat_val:
                 continue
 
             mat = str(mat_val).strip().upper()
-            row_model = str(ws.cell(r, 10).value or "").strip().upper()
-            row_ca_nhap = str(ws.cell(r, 11).value or "").strip().upper()
-            row_ca_chay = str(ws.cell(r, 12).value or "").strip().upper()
+            row_model = str(r_vals[9] or "").strip().upper() if len(r_vals) > 9 else ""
+            row_ca_nhap = str(r_vals[10] or "").strip().upper() if len(r_vals) > 10 else ""
+            row_ca_chay = str(r_vals[11] or "").strip().upper() if len(r_vals) > 11 else ""
 
             # Bộ lọc Model (nếu được yêu cầu)
             if model_clean and model_clean not in row_model:
@@ -163,34 +308,34 @@ class NvlTrackingService:
 
             # Bộ lọc Ngày (nếu được yêu cầu)
             if target_date:
-                date_cell = str(ws.cell(r, 32).value or ws.cell(r, 30).value or "")
+                date_cell = str((r_vals[31] if len(r_vals) > 31 else None) or (r_vals[29] if len(r_vals) > 29 else None) or "") if len(r_vals) > 29 else ""
                 if target_date not in date_cell:
                     continue
 
             # Lấy thông tin số lượng
             try:
-                sl_order = float(Decimal(str(ws.cell(r, 5).value or 0)))
+                sl_order = float(Decimal(str(r_vals[4] or 0))) if len(r_vals) > 4 else 0.0
             except Exception:
                 sl_order = 0.0
 
             try:
-                total_cap = float(Decimal(str(ws.cell(r, 26).value or 0)))
+                total_cap = float(Decimal(str(r_vals[25] or 0))) if len(r_vals) > 25 else 0.0
             except Exception:
                 total_cap = 0.0
 
             try:
-                gap_val = float(Decimal(str(ws.cell(r, 27).value or 0)))
+                gap_val = float(Decimal(str(r_vals[26] or 0))) if len(r_vals) > 26 else (total_cap - sl_order)
             except Exception:
                 gap_val = total_cap - sl_order
 
-            station = str(ws.cell(r, 6).value or "").strip()
-            ob_val = str(ws.cell(r, 13).value or ws.cell(r, 14).value or "").strip()
-            status_order = str(ws.cell(r, 28).value or "Pending").strip()
-            status_pick = str(ws.cell(r, 29).value or "Chưa Cấp").strip()
-            note_val = str(ws.cell(r, 31).value or "").strip()
+            station = str(r_vals[5] or "").strip() if len(r_vals) > 5 else ""
+            ob_val = str((r_vals[12] if len(r_vals) > 12 else None) or (r_vals[13] if len(r_vals) > 13 else None) or "").strip()
+            status_order = str(r_vals[27] or "Pending").strip() if len(r_vals) > 27 else "Pending"
+            status_pick = str(r_vals[28] or "Chưa Cấp").strip() if len(r_vals) > 28 else "Chưa Cấp"
+            note_val = str(r_vals[30] or "").strip() if len(r_vals) > 30 else ""
 
             # Lấy NCC
-            ncc_val = str(ws.cell(r, 1).value or "").strip()
+            ncc_val = str(r_vals[0] or "").strip() if len(r_vals) > 0 else ""
             if not ncc_val or ncc_val in ["0x2a", "*", "None"]:
                 if mat not in vendor_cache:
                     vendor_cache[mat] = NvlMasterService.get_vendor(mat) or "NCC Tiêu Chuẩn"
@@ -601,16 +746,29 @@ class NvlTrackingService:
                 }
             tracking_file = candidates[0]
 
-        wb = openpyxl.load_workbook(str(tracking_file), data_only=True)
-        sheet_name = "ODER NVl" if "ODER NVl" in wb.sheetnames else wb.sheetnames[0]
-        ws = wb[sheet_name]
+        try:
+            sheet_rows = cls._read_tracking_sheet_rows(tracking_file)
+        except NvlFilePasswordRequiredError as e:
+            return {
+                "status": "PASSWORD_REQUIRED",
+                "material": clean_mat,
+                "summary": f"🔒 <b>FILE CÓ MẬT KHẨU:</b> File theo dõi ca <code>{tracking_file.name}</code> đang được cài mật khẩu mở file.<br/>👉 Vui lòng chat: <code>mật khẩu nvl: [mật_khẩu]</code> để Bot tự động mở khóa và tra cứu.",
+                "is_shared": False,
+                "models": [],
+                "records": [],
+                "tracking_file": tracking_file.name
+            }
 
         # Chuẩn hóa tìm kiếm: cả mã đầy đủ và 8 số cốt lõi
         clean_mat_short = clean_mat.replace("BIW", "").replace("SUB", "").replace("AA", "").replace("AB", "").replace("AC", "").replace("HA", "")
 
         matched_rows: List[Dict[str, Any]] = []
-        for r in range(2, ws.max_row + 1):
-            row_mat_val = ws.cell(r, 4).value
+        for r_idx, r_vals in enumerate(sheet_rows):
+            if r_idx == 0:
+                continue
+            r = r_idx + 1
+
+            row_mat_val = r_vals[3] if len(r_vals) > 3 else None
             if not row_mat_val:
                 continue
             row_mat = str(row_mat_val).strip().upper()
@@ -618,29 +776,29 @@ class NvlTrackingService:
             if not is_match:
                 continue
 
-            row_model = str(ws.cell(r, 10).value or "").strip().upper()
-            row_ca_nhap = str(ws.cell(r, 11).value or "").strip().upper()
-            row_ca_chay = str(ws.cell(r, 12).value or "").strip().upper()
-            row_station = str(ws.cell(r, 6).value or "").strip()
+            row_model = str(r_vals[9] or "").strip().upper() if len(r_vals) > 9 else ""
+            row_ca_nhap = str(r_vals[10] or "").strip().upper() if len(r_vals) > 10 else ""
+            row_ca_chay = str(r_vals[11] or "").strip().upper() if len(r_vals) > 11 else ""
+            row_station = str(r_vals[5] or "").strip() if len(r_vals) > 5 else ""
 
             try:
-                sl_order = float(Decimal(str(ws.cell(r, 5).value or 0)))
+                sl_order = float(Decimal(str(r_vals[4] or 0))) if len(r_vals) > 4 else 0.0
             except Exception:
                 sl_order = 0.0
 
             try:
-                total_cap = float(Decimal(str(ws.cell(r, 26).value or 0)))
+                total_cap = float(Decimal(str(r_vals[25] or 0))) if len(r_vals) > 25 else 0.0
             except Exception:
                 total_cap = 0.0
 
             try:
-                gap = float(Decimal(str(ws.cell(r, 27).value or 0)))
+                gap = float(Decimal(str(r_vals[26] or 0))) if len(r_vals) > 26 else (total_cap - sl_order)
             except Exception:
                 gap = total_cap - sl_order
 
             collected_docs = []
-            for sp_c in [15, 18, 21, 24]:
-                s_val = str(ws.cell(r, sp_c).value or "").strip()
+            for sp_c in [14, 17, 20, 23]:
+                s_val = str(r_vals[sp_c] or "").strip() if len(r_vals) > sp_c else ""
                 if s_val.endswith(".0"):
                     s_val = s_val[:-2]
                 if s_val and s_val not in ["None", "0"]:
@@ -650,11 +808,11 @@ class NvlTrackingService:
 
             sp_display = ", ".join(collected_docs) if collected_docs else "Chưa ra đơn" 
 
-            status_order = str(ws.cell(r, 28).value or "Pending").strip()
-            status_pick = str(ws.cell(r, 29).value or "Chưa Cấp").strip()
-            note_val = str(ws.cell(r, 31).value or "").strip()
-            date_order = str(ws.cell(r, 32).value or "").strip()
-            user_order = str(ws.cell(r, 34).value or "").strip()
+            status_order = str(r_vals[27] or "Pending").strip() if len(r_vals) > 27 else "Pending"
+            status_pick = str(r_vals[28] or "Chưa Cấp").strip() if len(r_vals) > 28 else "Chưa Cấp"
+            note_val = str(r_vals[30] or "").strip() if len(r_vals) > 30 else ""
+            date_order = str(r_vals[31] or "").strip() if len(r_vals) > 31 else ""
+            user_order = str(r_vals[33] or "").strip() if len(r_vals) > 33 else ""
 
             matched_rows.append({
                 "row": r,
@@ -833,8 +991,12 @@ class NvlTrackingService:
             hint_model=hint_model
         )
 
+        status = "OK"
+        if not all_records and any(r.get("status") == "PASSWORD_REQUIRED" for r in results):
+            status = "PASSWORD_REQUIRED"
+
         return {
-            "status": "OK",
+            "status": status,
             "count": len(materials),
             "results": results,
             "records": all_records,
