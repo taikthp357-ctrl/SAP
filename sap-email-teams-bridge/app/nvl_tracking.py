@@ -40,9 +40,10 @@ class NvlTrackingService:
 
     DEFAULT_TRACKING_DIR = r"G:\SAP"
     DEFAULT_PASSWORDS = [
-        "", "1", "12", "123", "1234", "12345", "123456", "12345678",
+        "Khop", "khop", "KHOP", "KhoP", "KhoP@123",
         "vinfast", "Vinfast", "VinFast", "Vinfast@123", "VinFast@123", "VINFAST",
-        "Vipass", "vipass", "Vipass@123", "KhoP", "khop", "KhoP@123", "KHOP",
+        "Vipass", "vipass", "Vipass@123",
+        "", "1", "12", "123", "1234", "12345", "123456", "12345678",
         "admin", "pass", "password", "3093", "1005", "VF", "vf",
         "LIMO", "limo", "Limo", "S6", "S7", "NVL", "nvl"
     ]
