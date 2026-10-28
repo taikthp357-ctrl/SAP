@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "default_plant": "3093",
     "max_alv_rows": 15000,
     "keep_alive_idle_seconds": 900,
+    "enable_sap_keep_alive": True,
     "sap_number_format": "EU",
     "strict_session_safety": True,
     "auto_create_session": True,

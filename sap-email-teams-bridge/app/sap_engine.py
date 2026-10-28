@@ -90,10 +90,12 @@ class SapEngine:
         max_batch_tabs: int = 3,
         expected_system: str = "",
         expected_client: str = "",
-        expected_user: str = ""
+        expected_user: str = "",
+        enable_keep_alive: bool = True,
     ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
+        self.enable_keep_alive = enable_keep_alive
         self.connection_index = connection_index
         self.session_index = session_index
         self.strict_session_safety = strict_session_safety
@@ -103,6 +105,7 @@ class SapEngine:
         self.max_sap_sessions = max_sap_sessions
         self.max_batch_tabs = max_batch_tabs
         self.session = None
+        self.is_dedicated_session = False
         self.last_activity = time.time()
         self.last_popup_message = ""
         self.expected_identity = {"system": expected_system, "client": expected_client, "user": expected_user}
@@ -155,6 +158,7 @@ class SapEngine:
             raise SapExecutionError("Không tìm thấy phiên SAP nào đang mở")
 
         selected = None
+        is_dedicated = False
         user_reserved = getattr(self, "user_reserved_sessions", 3)
         max_sap = getattr(self, "max_sap_sessions", 6)
 
@@ -168,9 +172,11 @@ class SapEngine:
                         s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
                         if s_tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True):
                             selected = sess
+                            is_dedicated = True
                             break
                         # Tab trong dải của bot (>= user_reserved) không bận là hợp lệ để tái sử dụng
                         selected = sess
+                        is_dedicated = True
                         break
                 except Exception:
                     pass
@@ -188,6 +194,7 @@ class SapEngine:
                             time.sleep(0.25)
                             if conn.Children.Count > orig_count:
                                 selected = conn.Children(conn.Children.Count - 1)
+                                is_dedicated = True
                                 break
                     except Exception:
                         pass
@@ -202,6 +209,7 @@ class SapEngine:
                 try:
                     if not bool(getattr(sess, "Busy", False)):
                         selected = sess
+                        is_dedicated = True
                         break
                 except Exception:
                     pass
@@ -219,6 +227,7 @@ class SapEngine:
                 tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
                 if not is_busy and (tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True)):
                     selected = seed
+                    is_dedicated = False
 
             if selected is None:
                 for s_i in range(total_open):
@@ -229,6 +238,7 @@ class SapEngine:
                             s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
                             if s_tcode in ("SESSION_MANAGER", "") or not getattr(self, "strict_session_safety", True):
                                 selected = sess
+                                is_dedicated = False
                                 break
                     except Exception:
                         pass
@@ -239,6 +249,7 @@ class SapEngine:
             raise SapExecutionError("Phiên SAP cấu hình đang bận")
 
         self.session_identity = self._check_identity(selected)
+        self.is_dedicated_session = is_dedicated
         self.last_activity = time.time()
         return selected
 
@@ -262,13 +273,93 @@ class SapEngine:
             raise SapExecutionError("SAP đang bận; không gửi thêm thao tác")
         return self.session
 
-    def keep_alive(self, idle_threshold_seconds=None):
-        # No /n resets on an unattended screen. Reconnect only for actual queries.
-        if self.session is not None:
+    def keep_alive(self, idle_threshold_seconds: Optional[int] = None) -> bool:
+        """
+        Cơ chế SAP Keep-Alive Watchdog ('thở nhẹ'):
+        Định kỳ (mặc định 10 - 15 phút, tham số keep_alive_idle_seconds trong config.json),
+        nếu Bot thấy phiên SAP đang rảnh rỗi và không có tác vụ mới:
+        Tự động gửi tín hiệu 'thở nhẹ' (Ping/Refresh màn hình gốc /n) vào tab của Bot.
+        Tín hiệu này báo cho máy chủ SAP NetWeaver biết phiên vẫn đang hoạt động,
+        ngăn máy chủ kích hoạt đếm ngược ngắt kết nối tự động (rdisp/gui_auto_logout)
+        khi người dùng Lock màn hình hoặc rời vị trí.
+        """
+        if not getattr(self, "enable_keep_alive", True):
+            return False
+
+        threshold = (
+            idle_threshold_seconds
+            if idle_threshold_seconds is not None
+            else getattr(self, "keep_alive_idle_seconds", 900)
+        )
+        now = time.time()
+        if now - getattr(self, "last_activity", 0.0) < threshold:
+            return False
+
+        # 1. Nếu session chưa kết nối, thử bắt tay nếu SAP GUI đang mở sẵn
+        if self.session is None:
             try:
-                self._check_identity(self.session)
+                sap_gui_auto = win32com.client.GetObject("SAPGUI")
+                app = getattr(sap_gui_auto, "GetScriptingEngine", None)
+                if app and getattr(app, "Children", None) and app.Children.Count > getattr(self, "connection_index", 0):
+                    conn = app.Children(getattr(self, "connection_index", 0))
+                    if getattr(conn, "Children", None) and conn.Children.Count > 0:
+                        self.session = self._connect_sap()
             except Exception:
+                # SAP GUI chưa mở hoặc chưa đăng nhập; lùi thời gian kiểm tra
+                self.last_activity = now
+                return False
+
+        # 2. Kiểm tra xem session còn sống không
+        if not self._is_session_alive():
+            self.session = None
+            self.last_activity = now
+            return False
+
+        # 3. Nếu SAP đang bận xử lý (Busy = True), không can thiệp
+        if getattr(self.session, "Busy", False):
+            return False
+
+        # 4. Kiểm tra ngữ cảnh màn hình và tab:
+        try:
+            s_info = getattr(self.session, "Info", None)
+            s_tcode = str(getattr(s_info, "Transaction", "")).strip().upper() if s_info else ""
+            is_dedicated = getattr(self, "is_dedicated_session", False)
+
+            # An toàn tuyệt đối: Chỉ gửi /n khi là tab riêng của Bot hoặc đang ở màn hình SESSION_MANAGER
+            if is_dedicated or s_tcode in ("SESSION_MANAGER", ""):
+                self._dismiss_popups()
+                okcd = self._find_by_id_safe("wnd[0]/tbar[0]/okcd")
+                if okcd is not None:
+                    okcd.text = "/n"
+                    w0 = self._find_by_id_safe("wnd[0]")
+                    if w0 is not None:
+                        w0.sendVKey(0)
+                        self._wait_idle(2.0)
+                        self._dismiss_popups()
+                else:
+                    try:
+                        if hasattr(self.session, "StartTransaction"):
+                            self.session.StartTransaction("SESSION_MANAGER")
+                            self._wait_idle(2.0)
+                    except Exception:
+                        pass
+
+                self.last_activity = time.time()
+                time_str = datetime.now().strftime("%H:%M:%S")
+                print(f"[SAP KEEP-ALIVE] 🫁 Đã gửi tín hiệu 'thở nhẹ' (/n) duy trì phiên SAP ({s_tcode or 'SESSION_MANAGER'}) lúc {time_str}.")
+                return True
+            else:
+                # Phiên dùng chung với người dùng và đang ở màn hình nghiệp vụ khác -> chỉ kiểm tra identity, tuyệt đối không gửi /n
+                self._check_identity(self.session)
+                self.last_activity = time.time()
+                print(f"[SAP KEEP-ALIVE] ℹ️ Phiên dùng chung đang ở giao dịch '{s_tcode}'; giữ nguyên để bảo vệ dữ liệu người dùng.")
+                return False
+        except Exception as exc:
+            print(f"[SAP KEEP-ALIVE WARN] Lỗi trong chu kỳ thở nhẹ: {exc}")
+            if not self._is_session_alive():
                 self.session = None
+            self.last_activity = time.time()
+            return False
 
     def _wait_idle(self, timeout_sec: float = 30.0) -> bool:
         """Đợi SAP GUI hoàn tất xử lý (Busy = False) như chuẩn modSAPCore.WaitIdle."""

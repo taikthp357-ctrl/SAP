@@ -5,6 +5,7 @@
   "default_plant": "3093",
   "max_alv_rows": 500,
   "keep_alive_idle_seconds": 900,
+  "enable_sap_keep_alive": true,
   "sap_number_format": "EU",
   "strict_session_safety": true,
   "max_webhook_retries": 3,
@@ -48,5 +49,5 @@
   "trusted_intake_senders": [],
   "enable_multi_tab": true,
   "max_batch_tabs": 2,
-  "tracking_files_dir": "C:\\Users\\taikt\\AppData\\Local\\Temp\\pytest-of-taikt\\pytest-611\\test_set_tracking_folder0"
+  "tracking_files_dir": "C:\\Users\\taikt\\AppData\\Local\\Temp\\pytest-of-taikt\\pytest-616\\test_set_tracking_folder0"
 }

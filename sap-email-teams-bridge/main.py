@@ -347,6 +347,7 @@ def run_bridge():
     sap = SapEngine(
         max_alv_rows=max_rows,
         keep_alive_idle_seconds=keep_alive_idle,
+        enable_keep_alive=config.get("enable_sap_keep_alive", True),
         connection_index=config.get("sap_connection_index", 0),
         session_index=config.get("sap_session_index", 0),
         strict_session_safety=config.get("strict_session_safety", True),
