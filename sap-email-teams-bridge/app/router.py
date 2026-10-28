@@ -51,7 +51,7 @@ class CommandRouter:
             "CHECK_POSTING_CHANGE", "POSTING_CHANGE", "POSTING",
             "TINH_TRANG_NVL", "BAO_CAO_NVL", "TIEN_DO_NVL", "TINH_TRANG_CAP_NVL", "BAO_CAO_CAP_NVL",
             "TRA_CUU_CAP_NVL", "DINH_DANH_NVL", "TRACE_NVL",
-            "IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT",
+            "IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT", "IN_WHO", "IN_PHIEU", "SMART_PRINT",
             "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"
         ]
         for cmd in nvl_commands:

@@ -155,10 +155,21 @@ class MaterialResolver:
             return matched_fulls, note
 
         # 4. Nếu là số có 8 chữ số và chưa có trong file Excel, tự động suy đoán tiền tố BIW...AA
+        # 4. Tự động chuẩn hóa tiền tố xưởng (BIW / ASY / TRM) và 8 chữ số gốc
+        m_shop = re.fullmatch(r"([A-Za-z]{3})[-_\s]*(\d{8})([A-Za-z]{2})?", clean)
+        if m_shop:
+            pfx = m_shop.group(1).upper()
+            core = m_shop.group(2)
+            sfx = m_shop.group(3).upper() if m_shop.group(3) else "AA"
+            inferred = f"{pfx}{core}{sfx}"
+            wildcard = f"{pfx}{core}*"
+            note = f"Tự động chuẩn hóa tiền tố {pfx}: {clean} -> {inferred} / core: {core}"
+            return [inferred, core, wildcard], note
+
         if re.fullmatch(r"\d{8}", clean):
             inferred = f"BIW{clean}AA"
             note = f"Tự động chuẩn hóa: {clean} -> {inferred} (chưa có trong file Master)"
-            return [inferred, clean], note
+            return [inferred, clean, f"BIW{clean}*"], note
 
         # 5. Fallback: Giữ nguyên mã người dùng nhập để gửi thẳng vào SAP
         return [clean], "Mã nhập trực tiếp (không qua từ điển)"

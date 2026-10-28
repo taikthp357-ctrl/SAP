@@ -32,6 +32,7 @@ class SmartCommandParser:
             (r"\b(?:doc\s*nay\s*co\s*bbbg|doc\s*nay\s*da\s*att|doc\s*co\s*att\s*chua)\b", 96),
         ],
         "ATT_MIGO": [
+            (r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu)\b", 97),
             (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 95),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 95),
             (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 90),
@@ -119,6 +120,11 @@ class SmartCommandParser:
             (r"\b(?:tra\s*cuu\s*asn|xuat\s*xu\s*asn|tim\s*asn|zmme240|container\s*asn|bill\s*asn)\b", 88),
         ],
         "TRA_CUU_CAP_NVL": [
+            (r"\b(?:check|kiem\s*tra|tra\s*cuu|xem|coi)\s+(?:giup\s+)?(?:don\s*cap|tien\s*do\s*cap|cap\s*hang|cap\s*nvl|cap\s*line|oder\s*nvl|order\s*nvl)\b", 98),
+            (r"\b(?:check\s*don\s*cap|kiem\s*tra\s*don\s*cap|don\s*cap\s*limo|check\s*cap\s*limo|cap\s*giup\s*em|cap\s*giup\s*e|cap\s*giup\s*anh)\b", 98),
+            (r"\bcap\s+giup\s*(?:e|em|a|anh|c|chi|minh|toi|line|xuong|ma)?\b", 98),
+            (r"\bdon\s*cap\s+(?:limo|vf\s*\d+|green|s\d+|ca\s*\d+|line)\b", 98),
+            (r"\b(?:check|kiem\s*tra)\s+cap\s+(?:limo|vf\s*\d+|hang|line)\b", 96),
             (r"\b(?:cap\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*chung)\b", 98),
             (r"\b(?:cap\s*du\s*(?:chua|hay\s*thieu)|cap\s*thieu\s*(?:khsx|chay\s*not)?|ra\s*don\s*cap\s*not|cap\s*giup\s*e|cap\s*cho\s*a\s*con)\b", 96),
             (r"\b(?:cac\s*ma\s*(?:nay\s*)?(?:cua|cho)\s*(?:limo|vf\d+|xe|model))\b", 96),
@@ -688,7 +694,8 @@ class SmartCommandParser:
         att_docs = [item["doc"] for item in att_items] if att_items else re.findall(r"\b(?:49\d{8}|500\d{7}|\d{10})\b", command_text)
 
         # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
-        has_phieu_intent = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
+        has_overwrite_headtext = bool(re.search(r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu|overwrite)\b", norm_text))
+        has_phieu_intent = has_overwrite_headtext or bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
         if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC") and (has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
             best_intent = "ATT_MIGO"
             best_score = max(best_score, 35)
@@ -915,6 +922,8 @@ class SmartCommandParser:
                 if re.search(r"\b(?:year|nam)\s*[:=]?\s*(\d{4})\b", norm_text)
                 else (re.search(r"\b(202[0-9])\b", command_text).group(1) if (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and re.search(r"\b(202[0-9])\b", command_text)) else "")
             ),
+            "allow_overwrite_headtext": has_overwrite_headtext,
+            "overwrite_headtext": has_overwrite_headtext,
             "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)),
             "explicitWriteIntent": best_intent in ("ATT_MIGO", "RA_DON_NVL"),
             "executionMode": (

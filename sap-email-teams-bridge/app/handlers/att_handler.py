@@ -108,13 +108,15 @@ class AttHandler(BaseHandler):
             if not target_year:
                 target_year = str(datetime.now().year)
 
+            allow_overwrite = bool(ctx.meta.get("allow_overwrite_headtext") or ctx.meta.get("overwrite_headtext"))
             att_summary = runner.process_attachment_batch(
                 folder_path,
                 items_to_att,
                 fill_headtext=True,
                 dry_run=is_preview,
                 year=target_year,
-                progress_callback=on_att_progress
+                progress_callback=on_att_progress,
+                allow_overwrite_headtext=allow_overwrite
             )
             records = att_summary["results"]
 

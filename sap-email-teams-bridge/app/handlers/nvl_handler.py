@@ -450,8 +450,51 @@ class NvlHandler(BaseHandler):
         # -------------------------------------------------------------
         # NHÁNH 4: TRA CỨU & HƯỚNG DẪN IN PHIẾU WHT / WT TRONG SAP
         # -------------------------------------------------------------
-        elif cmd in ["IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT"]:
-            doc_no = ctx.meta.get("obNo") or ctx.meta.get("materialDocument") or ""
+        elif cmd in ["IN_WHT", "PRINT_WHT", "HUONG_DAN_IN_WHT", "IN_WHO", "IN_PHIEU"]:
+            docs_to_print = []
+            if ctx.meta.get("obNo"):
+                docs_to_print.append(str(ctx.meta["obNo"]).strip())
+            if ctx.meta.get("materialDocument"):
+                docs_to_print.append(str(ctx.meta["materialDocument"]).strip())
+            if ctx.raw_materials:
+                for m in ctx.raw_materials:
+                    c = str(m).strip()
+                    if c not in docs_to_print and (c.startswith("6") or c.startswith("101") or (c.isdigit() and len(c) >= 8)):
+                        docs_to_print.append(c)
+
+            # Nếu có SAP session kết nối và không phải chế độ xem trước -> Thực thi in tự động 2 tờ
+            if ctx.sap and not is_preview and docs_to_print:
+                from app.sap_who_printer import SapWhoPrinterService
+                printer_svc = SapWhoPrinterService()
+                try:
+                    active_sess = getattr(ctx.sap, "session", None) or getattr(ctx.sap, "active_session", None)
+                    if active_sess:
+                        res = printer_svc.execute_smart_print(session=active_sess, doc_inputs=docs_to_print, copies=2)
+                        who_list = res.get("who_printed", [])
+                        custom_html = (
+                            f"<div style='font-family:Segoe UI,sans-serif;background:#ecfdf5;border:1px solid #a7f3d0;"
+                            f"border-left:4px solid #10b981;padding:14px;border-radius:4px;color:#065f46;'>"
+                            f"<div style='font-weight:bold;font-size:14px;margin-bottom:8px;'>"
+                            f"🖨️ KẾT QUẢ IN PHIẾU KHO TỰ ĐỘNG (2 BẢN / PHIẾU)</div>"
+                            f"<div style='font-size:12px;line-height:1.6;'>"
+                            f"<p><b>Trạng thái:</b> {res.get('message', 'Đã in thành công')}</p>"
+                            f"<p><b>Danh sách phiếu WHO đã in ({len(who_list)}):</b> {', '.join(who_list) if who_list else 'Không có'}</p>"
+                            f"<p><b>Máy in cấu hình:</b> {printer_svc.default_printer}</p>"
+                            f"</div></div>"
+                        )
+                        return CommandResult(
+                            status=res["status"],
+                            summary=res["message"],
+                            records=[{"who": w, "copies": 2, "printer": printer_svc.default_printer, "status": "PRINTED"} for w in who_list],
+                            headers={"who": "Số Warehouse Order", "copies": "Số bản", "printer": "Máy in", "status": "Trạng thái"},
+                            custom_html=custom_html,
+                            audit_target=", ".join(docs_to_print),
+                            audit_message=res["message"]
+                        )
+                except Exception as ex:
+                    print(f"[SMART PRINT ERROR] Không thể thực thi in trực tiếp: {ex}")
+
+            doc_no = docs_to_print[0] if docs_to_print else ""
             if not doc_no and ctx.resolved_materials:
                 doc_no = ctx.resolved_materials[0]
 
