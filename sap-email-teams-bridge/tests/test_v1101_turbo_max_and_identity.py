@@ -104,6 +104,56 @@ class TestSapTabsAndApartmentV1101:
             mock_s0.CreateSession.assert_not_called()
             assert tabs == 3
 
+    def test_ensure_sap_tabs_polling_wait_for_async_window(self):
+        """Kiểm tra polling loop: Cửa sổ không xuất hiện ngay (cần 3 nhịp polling) vẫn được phát hiện thành công."""
+        mock_conn = MagicMock()
+        mock_s0 = MagicMock()
+        mock_s0.Busy = False
+        mock_conn.Children = MagicMock(return_value=mock_s0)
+        mock_conn.Children.Count = 1
+
+        poll_counter = 0
+
+        def fake_polling_sleep(seconds):
+            nonlocal poll_counter
+            poll_counter += 1
+            if poll_counter == 3:
+                # Tại nhịp thứ 3 (0.75s), cửa sổ SAP mới xuất hiện trong COM tree
+                mock_conn.Children.Count = 2
+
+        mock_app = MagicMock()
+        mock_app.Children = MagicMock(return_value=mock_conn)
+        mock_app.Children.Count = 1
+
+        mock_sap_gui = MagicMock()
+        mock_sap_gui.GetScriptingEngine = mock_app
+
+        with patch("app.sap_attachment.pythoncom"), \
+             patch("app.sap_attachment.win32com.client.GetObject", return_value=mock_sap_gui), \
+             patch("time.sleep", side_effect=fake_polling_sleep):
+            tabs = ensure_sap_tabs(target_tabs=2, connection_index=0)
+            assert tabs == 2
+            assert poll_counter >= 3
+
+    def test_ensure_sap_tabs_clamps_invalid_connection_index(self):
+        """Khi connection_index vượt quá số connection (ví dụ = 5 trong khi chỉ có 1 connection), tự fallback về 0."""
+        mock_conn = MagicMock()
+        mock_conn.Children.Count = 3
+
+        mock_app = MagicMock()
+        mock_app.Children = MagicMock(return_value=mock_conn)
+        mock_app.Children.Count = 1  # Chỉ có 1 connection (index 0)
+
+        mock_sap_gui = MagicMock()
+        mock_sap_gui.GetScriptingEngine = mock_app
+
+        with patch("app.sap_attachment.pythoncom"), \
+             patch("app.sap_attachment.win32com.client.GetObject", return_value=mock_sap_gui):
+            # Yêu cầu connection_index = 5
+            tabs = ensure_sap_tabs(target_tabs=3, connection_index=5)
+            # Không bị crash return 1, mà clamp về connection 0 và thấy 3 tabs
+            assert tabs == 3
+
 
 class TestTurboMaxAllocationV1101:
     """Kiểm thử phân bổ Tab Turbo Max trong process_attachment_batch."""

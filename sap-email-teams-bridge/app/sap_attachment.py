@@ -1048,6 +1048,7 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     Lưu ý: Tuyệt đối không gọi pythoncom.CoUninitialize() tại đây vì hàm này chạy đồng bộ trên thread chính,
     gọi CoUninitialize sẽ làm đứt kết nối COM của Outlook và SAP Engine trên cùng luồng.
     Hỗ trợ tạo tối đa tới 7 tabs (nếu kernel SAP cho phép), tự thích ứng giảm số tab nếu chạm trần hệ thống.
+    Áp dụng vòng lặp Polling đa nhịp (16 x 0.25s) chờ đồng bộ cửa sổ SAP mới xuất hiện trong COM tree.
     """
     if pythoncom is None or win32com is None:
         return 1
@@ -1058,25 +1059,48 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     try:
         sap_gui = win32com.client.GetObject("SAPGUI")
         app = sap_gui.GetScriptingEngine
-        if app.Children.Count == 0 or connection_index >= app.Children.Count:
+        if app.Children.Count == 0:
             return 1
+        if not (0 <= connection_index < app.Children.Count):
+            connection_index = 0
         conn = app.Children(connection_index)
         current = conn.Children.Count
         target_tabs = min(7, target_tabs)
         while current < target_tabs and current < 7:
-            try:
-                creator_session = None
-                for idx in range(conn.Children.Count):
-                    s = conn.Children(idx)
-                    if not getattr(s, "Busy", False):
+            orig_count = conn.Children.Count
+            creator_session = None
+            for idx in range(conn.Children.Count):
+                s = conn.Children(idx)
+                if not getattr(s, "Busy", False):
+                    s_info = getattr(s, "Info", None)
+                    tcode = str(getattr(s_info, "Transaction", "") or "").strip().upper() if s_info else ""
+                    if tcode in ("SESSION_MANAGER", ""):
                         creator_session = s
                         break
-                if creator_session is None and conn.Children.Count > 0:
-                    creator_session = conn.Children(0)
-                if creator_session is None:
+                    elif creator_session is None:
+                        creator_session = s
+            if creator_session is None and conn.Children.Count > 0:
+                creator_session = conn.Children(0)
+            if creator_session is None:
+                break
+            try:
+                if not hasattr(creator_session, "CreateSession"):
+                    print(f"[SAP MULTI-TAB WARN] Session không hỗ trợ CreateSession()")
                     break
                 creator_session.CreateSession()
-                time.sleep(0.8)
+                tab_spawned = False
+                for _ in range(16):
+                    time.sleep(0.25)
+                    try:
+                        conn = app.Children(connection_index)
+                    except Exception:
+                        pass
+                    if conn.Children.Count > orig_count:
+                        tab_spawned = True
+                        break
+                if not tab_spawned:
+                    print(f"[SAP MULTI-TAB WARN] Chờ mở tab {orig_count + 1} quá thời gian (hệ thống có thể đã chạm trần {orig_count} tabs).")
+                    break
                 current = conn.Children.Count
             except Exception as e:
                 print(f"[SAP MULTI-TAB WARN] Không thể mở thêm tab: {e}")
@@ -4542,7 +4566,7 @@ class MigoAttachmentRunner:
                 max_bot_tabs = min(len(items), 2)
             else:
                 max_bot_tabs = min(len(items), 6)
-            print(f"[ATT RUNNER] 🚀 KÍCH HOẠT TURBO MAX THEO YÊU CẦU: Phân bổ tới {max_bot_tabs} Tabs song song (Bảo tồn Tab 1 cho User, tối đa 6-7 Tabs SAP)!")
+            print(f"[ATT RUNNER] 🚀 YÊU CẦU TURBO MAX: Chuẩn bị phân bổ tới {max_bot_tabs} Tabs song song (Bảo tồn Tab 1 cho User)...")
         else:
             # Chạy thông thường hoặc tự kích hoạt khi máy nhàn rỗi
             if user_res_val is not None:
@@ -4579,13 +4603,13 @@ class MigoAttachmentRunner:
             if len(bot_tabs) >= 2:
                 active_tab_indices = bot_tabs[:max_bot_tabs]
                 tabs_str = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
-                print(f"[ATT RUNNER] Đã kích hoạt Multi-Tab Engine: Chia tải tự thích ứng trên {len(active_tab_indices)} tabs ({tabs_str}) (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
+                print(f"[ATT RUNNER] 🚀 ĐÃ KÍCH HOẠT TURBO MULTI-TAB THÀNH CÔNG: Chia tải trên {len(active_tab_indices)} tabs song song ({tabs_str}) (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             elif len(bot_tabs) == 1:
                 active_tab_indices = [bot_tabs[0]]
                 print(f"[ATT RUNNER] SAP có Tab {active_tab_indices[0]+1} khả dụng: Chạy Batch trên Tab {active_tab_indices[0]+1} (Bảo tồn Tab 1..{user_reserved} cho Người dùng).")
             else:
                 active_tab_indices = [0]
-                print(f"[ATT RUNNER WARN] Không tìm thấy tab riêng, fallback an toàn trên Session 0.")
+                print(f"[ATT RUNNER WARN] SAP hiện chỉ có {available_tabs} Tab, không thể tạo thêm tab mới; tiếp tục chạy an toàn trên Session 0.")
 
         # NHÁNH A: CHẠY ĐA TAB SONG SONG (MULTI-TAB BATCH POOL)
 
@@ -4639,15 +4663,19 @@ class MigoAttachmentRunner:
 
                         conn_idx = 0
 
-                        if isinstance(self.expected_session_identity, dict) and "connection_index" in self.expected_session_identity:
+                        if isinstance(self.expected_session_identity, dict):
 
                             try:
 
-                                conn_idx = int(self.expected_session_identity["connection_index"])
+                                conn_idx = int(self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0)))
 
                             except Exception:
 
                                 conn_idx = 0
+
+                        elif hasattr(self.sap_engine, "connection_index"):
+
+                            conn_idx = int(getattr(self.sap_engine, "connection_index", 0))
 
                         conn = sap_gui.GetScriptingEngine.Children(conn_idx)
 
