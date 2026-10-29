@@ -78,7 +78,7 @@ class SmartCommandParser:
             (r"\b(?:po\s*dieu\s*chuyen|don\s*dieu\s*chuyen)\b", 72),
         ],
         "LICHSU": [
-            (r"\b(?:lich\s*su|lichsu|mb51|xuat\s*nhap|nhap\s*xuat|giao\s*dich|chung\s*tu\s*nhap|gr\s*doc)\b", 70),
+            (r"\b(?:check|ki[eể]m\s*tra|tra\s*c[uứ]u|xem|coi)?\s*(?:l[iị]ch\s*s[uử]|bi[eế]n\s*[đd][oộ]ng|nh[aậ]p\s*xu[aấ]t|xuat\s*nhap|giao\s*dich|mb51)\b", 90),
             (r"\b\d+\s*(?:ngay|hom)\s*(?:gan\s*nhat|qua)?\b", 70),
         ],
         "CHECK_RES": [
@@ -93,7 +93,8 @@ class SmartCommandParser:
             (r"\b(?:check\s*bin|kiem\s*tra\s*bin|bin\s*nao|o\s*ke|tra\s*bin|bin)\b", 60),
         ],
         "LICHSU_BIN": [
-            (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|wht|scwm/mon|/scwm/mon)\b", 72),
+            (r"\b(?:lich\s*su\s*bin|lichsu\s*bin|bin\s*to\s*bin|bintobin|chuyen\s*bin|cancel\s*wht|scwm/mon|/scwm/mon)\b", 105),
+            (r"\b(?:wht\s*bin|check\s*wht|ls\s*bin|vet\s*bin|di\s*chuyen\s*bin)\b", 99),
         ],
         "CHECK_FG_OB": [
             (r"\b(?:dien\s*ob|di\s*en\s*ob|check\s*ob\s*fg|kha\s*dung\s*ob|ob\s*fg|ton\s*ob)\b", 82),
@@ -160,8 +161,8 @@ class SmartCommandParser:
             (r"\b(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*[:=]\s*(?P<pwd>\S+)", 95),
         ],
         "IN_WHT": [
-            (r"\b(?:in\s*wht|in\s*phieu\s*wht|in\s*lenh\s*wht|print\s*wht)\b", 96),
-            (r"\b(?:tcode\s*in\s*wht|huong\s*dan\s*in\s*wht|cach\s*in\s*wht|in\s*warehouse\s*task)\b", 95),
+            (r"\b(?:in\s*wht|in\s*phieu\s*wht|in\s*lenh\s*wht|print\s*wht)\b", 110),
+            (r"\b(?:tcode\s*in\s*wht|huong\s*dan\s*in\s*wht|cach\s*in\s*wht|in\s*warehouse\s*task)\b", 105),
             (r"\b(?:in\s*to|in\s*phieu\s*xuat|mb90|lt31|in\s*phieu\s*cap)\b", 90),
         ],
         "HELP": [
@@ -406,7 +407,7 @@ class SmartCommandParser:
         "ATTACH_VAT_BBBG": "ATT_MIGO", "MIGO_ATT": "ATT_MIGO", "ATTACH_MIGO": "ATT_MIGO",
         "CHECK_ATT": "CHECK_ATT", "CHECK_ATT_DOC": "CHECK_ATT", "CHECK_DINH_KEM": "CHECK_ATT", "ZFIR266": "CHECK_ATT",
         "KE_HOACH_NVL": "RA_DON_NVL", "TONKHO": "TON_KHO", "SET_FOLDER": "SET_FOLDER", "CHON_FOLDER": "SET_FOLDER", "THU_MUC_NVL": "SET_FOLDER",
-        "MAT_KHAU_NVL": "SET_NVL_PASSWORD", "SET_PASSWORD": "SET_NVL_PASSWORD", "PASSWORD_NVL": "SET_NVL_PASSWORD",
+        "MAT_KHAU_NVL": "SET_NVL_PASSWORD", "SET_PASSWORD": "SET_NVL_PASSWORD", "PASSWORD_NVL": "SET_NVL_PASSWORD", "LICH_SU_MB51": "LICHSU", "MB51_HISTORY": "LICHSU",
     }
     JSON_COMMANDS = frozenset(INTENT_SCORES) | {
         "PING", "BIN", "POST", "SCWM", "/SCWM/POST", "TON_KHO", "MB52", "MB51",
@@ -508,7 +509,9 @@ class SmartCommandParser:
         model = str(obj.get("model", "") or ("LIMO" if command == "TON_THAP" else "")).upper()
         shop = str(obj.get("shop", "") or ("XMD" if "XMD" in model else "BODY" if command == "TON_THAP" else "")).upper()
         result = {**base, "valid": True, "materials": mats, "plant": str(obj.get("plant") or default_plant).upper(),
-                  "batch": str(obj.get("batch") or "").upper(), "days": days, "dryRun": dry_run,
+                  "batch": str(obj.get("batch") or "").upper(), "days": days,
+            "dateFrom": None,
+            "dateTo": None, "dryRun": dry_run,
                   "intentReason": f"JSON Payload ({command})", "rawText": str(obj.get("rawText") or obj.get("RAW_TEXT") or ""),
                   "note": str(obj.get("note") or ""), "limit": limit, "model": model, "shop": shop,
                   "plants": obj.get("plants", ["3093", "3001"] if shop == "BODY" else ["3093", "2001", "3001"] if shop == "XMD" else []),
@@ -1080,6 +1083,14 @@ class SmartCommandParser:
                 else ("WRITE_LIVE" if best_intent in ("ATT_MIGO", "RA_DON_NVL") else "READ_ONLY")
             )
         })
+        if best_intent == "LICHSU":
+            try:
+                from app.sap_mb51_service import parse_mb51_date_range
+                d_from, d_to = parse_mb51_date_range(command_text, default_days=days)
+                meta["dateFrom"] = d_from
+                meta["dateTo"] = d_to
+            except Exception:
+                pass
         return meta
 
     @classmethod
@@ -1087,19 +1098,13 @@ class SmartCommandParser:
         """Hàm alias tương thích ngược."""
         return cls.parse(raw_body, html_body=html_body, subject="", default_plant=default_plant)
 
-
 # Alias tương thích ngược
 EmailCommandParser = SmartCommandParser
 NaturalCommandParser = SmartCommandParser
 
 
 def classify_sap_query(raw_text: str) -> dict:
-    """
-    Phan tich cau hoi tieng Viet tu nhien cua nguoi dung va tra ve:
-    - intent: Nghiep vu can goi
-    - tcode: T-Code SAP tuong ung
-    - days: So ngay tra cuu (neu co, mac dinh 7 ngay)
-    """
+    """Phân tích câu hỏi tiếng Việt tự nhiên của người dùng và trả về intent, tcode, days."""
     parsed = SmartCommandParser.parse(raw_text)
     if not parsed or not parsed.get("valid"):
         return {"intent": "UNKNOWN", "tcode": "/n", "days": 7}
@@ -1114,6 +1119,8 @@ def classify_sap_query(raw_text: str) -> dict:
         "CHECK_IB": "/nVL06I -> /nZMME240",
         "STO": "/nME2N",
         "LICHSU": "/nMB51",
+        "MB51": "/nMB51",
+        "LICH_SU_MB51": "/nMB51",
         "MB52": "/nMB52",
         "TON": "/nMB52",
         "TON_KHO": "/nMB52",

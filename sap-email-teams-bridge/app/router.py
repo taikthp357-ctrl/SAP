@@ -64,7 +64,7 @@ class CommandRouter:
             "SCWM", "/SCWM/POST", "SCWM_POST", "/SCWM/MON", "SCWM_MON",
             "TON_KHO", "TONKHO",
             "TON", "TỒN", "MB52",
-            "LICHSU", "LỊCH SỬ", "MB51",
+            "LICHSU", "LỊCH SỬ", "MB51", "LICH_SU_MB51", "MB51_HISTORY",
             "TON_THAP", "LOW_STOCK",
             "LICHSU_BIN", "MON", "WHT",
             "TIM_GR_DOC", "GR_DOC", "CHUNGTU_GR"

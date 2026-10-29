@@ -23,6 +23,8 @@ from decimal import Decimal
 from typing import Dict, Any, List, Optional, Tuple
 
 import openpyxl
+import unicodedata
+from datetime import datetime, date, timedelta
 from app.nvl_master import NvlMasterService
 
 
@@ -137,7 +139,14 @@ class NvlTrackingService:
             try:
                 import pyxlsb
                 with pyxlsb.open_workbook(stream) as wb:
-                    s_name = sheet_target if sheet_target in wb.sheets else wb.sheets[0]
+                    target_clean = re.sub(r"[^a-zA-Z0-9]", "", sheet_target).lower()
+                    matched_s = None
+                    for s in wb.sheets:
+                        sc = re.sub(r"[^a-zA-Z0-9]", "", str(s)).lower()
+                        if sc == target_clean or ("oder" in sc and "nvl" in sc) or ("order" in sc and "nvl" in sc):
+                            matched_s = s
+                            break
+                    s_name = matched_s or (sheet_target if sheet_target in wb.sheets else wb.sheets[0])
                     sheet = wb.get_sheet(s_name)
                     for row in sheet.rows():
                         rows.append([c.v for c in row])
@@ -176,7 +185,14 @@ class NvlTrackingService:
         else:
             try:
                 wb = openpyxl.load_workbook(stream, data_only=True)
-                s_name = sheet_target if sheet_target in wb.sheetnames else wb.sheetnames[0]
+                target_clean = re.sub(r"[^a-zA-Z0-9]", "", sheet_target).lower()
+                matched_s = None
+                for s in wb.sheetnames:
+                    sc = re.sub(r"[^a-zA-Z0-9]", "", str(s)).lower()
+                    if sc == target_clean or ("oder" in sc and "nvl" in sc) or ("order" in sc and "nvl" in sc):
+                        matched_s = s
+                        break
+                s_name = matched_s or (sheet_target if sheet_target in wb.sheetnames else wb.sheetnames[0])
                 ws = wb[s_name]
                 for row in ws.iter_rows(values_only=True):
                     rows.append(list(row))
@@ -308,6 +324,106 @@ class NvlTrackingService:
         parent_dir = Path(__file__).resolve().parent.parent.parent
         return parent_dir
 
+
+    @classmethod
+    def _norm_header(cls, val: Any) -> str:
+        if val is None:
+            return ""
+        s = unicodedata.normalize("NFC", str(val)).strip().lower()
+        return re.sub(r"\s+", " ", s)
+
+    @classmethod
+    def resolve_column_map(cls, rows_sample: List[List[Any]]) -> Tuple[int, Dict[str, int]]:
+        """Dò tìm dòng Header và lập bản đồ chỉ mục cột động (chống lệch cột, chống nhầm lẫn OB vs OB1)."""
+        EXACT_RULES = {
+            "mat_code": ["mã nvl", "ma nvl", "material", "mã vật tư", "ma vat tu", "mã hàng", "ma hang"],
+            "qty_order": ["sl oder", "sl order", "số lượng order", "sl yêu cầu", "sl can cap", "so luong order"],
+            "station": ["trạm", "tram", "khu vực", "khu vuc"],
+            "plant": ["plant", "xưởng", "xuong", "nhà máy"],
+            "sloc_kho": ["sloc kho", "kho xuat", "kho", "sloc"],
+            "sloc_line": ["sloc line", "kho nhan", "line"],
+            "model": ["model", "dòng xe", "dong xe"],
+            "shift_in": ["ca nhập", "ca nhap"],
+            "shift_run": ["ca chạy", "ca chay"],
+            "ob": ["ob", "số ob", "so ob"],
+            "ob1": ["ob1"],
+            "total": ["total", "total cấp", "total cap", "tổng", "tong cap"],
+            "gap": ["gap", "thiếu", "chênh lệch"],
+            "status_order": ["tình trạng cần đơn", "tt cần đơn", "tình trạng can don", "tt can don"],
+            "status_pick": ["tình trạng cấp", "tt cấp", "trạng thái cấp", "tinh trang cap", "tt cap", "tt nhặt hàng"],
+            "khsx": ["khsx", "kế hoạch sx", "ke hoach sx"],
+            "note": ["note", "ghi chú", "ghi chu"],
+            "date_order": ["ngày order", "ngày oder", "ngay order", "ngay oder"],
+        }
+
+        for r_idx, row in enumerate(rows_sample[:15]):
+            norm_cells = [cls._norm_header(c) for c in row]
+            col_map = {}
+            for field, keywords in EXACT_RULES.items():
+                # Ưu tiên 1: Khớp chính xác 100% tên cột
+                for c_idx, cell_text in enumerate(norm_cells):
+                    if cell_text in keywords and c_idx not in col_map.values():
+                        col_map[field] = c_idx
+                        break
+                # Ưu tiên 2: Khớp chứa cụm từ đặc trưng (nhưng cấm từ ngắn < 4 ký tự như 'ob' để không dính 'ob1')
+                if field not in col_map and field not in ("ob", "ob1"):
+                    for c_idx, cell_text in enumerate(norm_cells):
+                        if any(kw in cell_text for kw in keywords if len(kw) >= 4) and c_idx not in col_map.values():
+                            col_map[field] = c_idx
+                            break
+
+            # Nếu tìm thấy ít nhất 3 cột cốt lõi thì xác nhận đây là dòng Header
+            if "mat_code" in col_map and ("qty_order" in col_map or "ob" in col_map or "model" in col_map):
+                return r_idx, col_map
+
+        # Fallback về layout 20 cột mới của xưởng nếu không tìm thấy dòng tiêu đề
+        return 0, {
+            "mat_code": 2, "qty_order": 3, "station": 4, "plant": 6,
+            "sloc_kho": 7, "sloc_line": 8, "model": 9, "shift_in": 10,
+            "shift_run": 11, "ob": 12, "ob1": 13, "total": 14,
+            "status_order": 15, "status_pick": 16, "khsx": 17,
+            "note": 18, "date_order": 19,
+        }
+
+    @classmethod
+    def parse_excel_date(cls, val: Any) -> Optional[datetime.date]:
+        """Bộ chuyển đổi ngày tháng đa năng cho cả .xlsb (serial float/int), datetime, và chuỗi text."""
+        if val is None or val == "":
+            return None
+        if isinstance(val, datetime):
+            return val.date()
+        if isinstance(val, date):
+            return val
+
+        # 1. Xử lý số Serial Date của Excel (trong file .xlsb: 40000 -> 60000 tương ứng 2009 -> 2064)
+        if isinstance(val, (int, float)) and 40000 <= val <= 60000:
+            try:
+                return date(1899, 12, 30) + timedelta(days=int(val))
+            except Exception:
+                pass
+
+        s = str(val).strip()
+        # 2. Xử lý chuỗi số float/int từ xlsb dạng "46324" hoặc "46324.0"
+        if re.fullmatch(r"\d{5}(\.0+)?", s):
+            try:
+                days = int(float(s))
+                if 40000 <= days <= 60000:
+                    return date(1899, 12, 30) + timedelta(days=days)
+            except Exception:
+                pass
+
+        # 3. Chuỗi ngày tháng dạng text thông dụng: 29-Oct, 29/10/2026, 2026-10-29...
+        for fmt in ("%d-%b", "%d-%b-%y", "%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d/%m"):
+            try:
+                dt = datetime.strptime(s, fmt)
+                if dt.year == 1900:
+                    dt = dt.replace(year=datetime.now().year)
+                return dt.date()
+            except ValueError:
+                continue
+
+        return None
+
     @classmethod
     def _extract_file_date_key(cls, filename: str) -> int:
         """Trích xuất 6 chữ số ngày (YYMMDD) ở đầu tên file để ưu tiên ngày mới nhất."""
@@ -326,61 +442,83 @@ class NvlTrackingService:
         shift: Optional[str] = None,
         date_str: Optional[str] = None
     ) -> List[Path]:
-        """Tìm các file theo dõi cấp NVL (THEO DOI ODER NVL_P_*.xlsx).
+        """Tìm các file theo dõi cấp NVL (Hỗ trợ cả ODER và ORDER, .xlsx và .xlsb).
         
-        Ưu tiên:
-        1. Khớp chính xác Shift (ví dụ: *_S6.xlsx) và Date nếu có.
-        2. Sắp xếp theo thời gian sửa đổi mới nhất (mtime).
+        Ưu tiên tuyệt đối:
+        1. Tiền tố 6 số ngày YYMMDD (261029 > 261028) làm khóa ưu tiên số 1.
+        2. Khớp ca (S6/S7).
+        3. Thời gian sửa đổi file (mtime).
+        4. Loại bỏ hoàn toàn các file tạm của Excel bắt đầu bằng '~$' hoặc '.~'.
         """
         search_dir = cls.get_tracking_directory(directory)
-        pattern = str(search_dir / "*THEO DOI ODER NVL_P_*.xlsx")
-        pattern_xlsb = str(search_dir / "*THEO DOI ODER NVL_P_*.xlsb")
-        all_files = glob.glob(pattern)
-        all_files.extend(glob.glob(pattern_xlsb))
-        # Hỗ trợ tự động quét thêm thư mục con theo tháng (ví dụ G:\SAP\2026_10, G:\SAP\Thang_10...)
-        sub_files = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsx"))
-        sub_files_xlsb = glob.glob(str(search_dir / "*/*THEO DOI ODER NVL_P_*.xlsb"))
-        all_files.extend(sub_files)
-        all_files.extend(sub_files_xlsb)
-        if not all_files:
-            # Tìm đệ quy toàn bộ thư mục
-            all_files = glob.glob(str(search_dir / "**/*THEO DOI ODER NVL_P_*.xlsx"), recursive=True)
-            all_files.extend(glob.glob(str(search_dir / "**/*THEO DOI ODER NVL_P_*.xlsb"), recursive=True))
+        patterns = [
+            "*THEO DOI ODER NVL_P_*.xlsx",
+            "*THEO DOI ODER NVL_P_*.xlsb",
+            "*THEO DOI ORDER NVL_P_*.xlsx",
+            "*THEO DOI ORDER NVL_P_*.xlsb",
+            "*THEO DOI*NVL_P_*.xlsx",
+            "*THEO DOI*NVL_P_*.xlsb",
+        ]
+        all_raw = []
+        for pat in patterns:
+            all_raw.extend(glob.glob(str(search_dir / pat)))
+            all_raw.extend(glob.glob(str(search_dir / f"*/{pat}")))
+        if not all_raw:
+            for pat in patterns:
+                all_raw.extend(glob.glob(str(search_dir / f"**/{pat}"), recursive=True))
 
-        found_paths = [Path(f) for f in all_files if not os.path.basename(f).startswith("~$")]
+        seen = set()
+        clean_paths: List[Path] = []
+        for f in all_raw:
+            p = Path(f)
+            fname = p.name
+            # Khóa bẫy 3: Bỏ qua tuyệt đối file tạm của Excel và file ẩn
+            if fname.startswith("~$") or fname.startswith(".~"):
+                continue
+            if not re.search(r"THEO\s*DOI\s*O[R]?DER\s*NVL", fname, re.IGNORECASE):
+                continue
+            f_norm = str(p.resolve()).lower()
+            if f_norm not in seen:
+                seen.add(f_norm)
+                clean_paths.append(p)
 
         # Lọc theo ca nếu có (vd: S6, S7)
         if shift:
             shift_clean = shift.strip().upper()
             filtered = [
-                p for p in found_paths
+                p for p in clean_paths
                 if f"_{shift_clean}." in p.name.upper() or f"_{shift_clean}_" in p.name.upper()
             ]
             if filtered:
-                found_paths = filtered
+                clean_paths = filtered
 
         # Lọc theo ngày nếu có (vd: 261028 hoặc 2026-10-28)
         if date_str:
             clean_d = re.sub(r"[^0-9]", "", date_str)
-            if len(clean_d) == 8:
-                short_d = clean_d[2:]  # 20261028 -> 261028
-            else:
-                short_d = clean_d
-            date_filtered = [p for p in found_paths if short_d in p.name]
+            short_d = clean_d[2:] if len(clean_d) == 8 else clean_d
+            date_filtered = [p for p in clean_paths if short_d in p.name]
             if date_filtered:
-                found_paths = date_filtered
+                clean_paths = date_filtered
 
-        # Sắp xếp ưu tiên: Tiền tố ngày YYMMDD mới nhất -> mtime mới nhất
+        # Sắp xếp ưu tiên:
+        # Khóa 1: Tiền tố ngày YYMMDD mới nhất (261029 > 261028)
+        # Khóa 2: Ca ưu tiên nếu có
+        # Khóa 3: mtime mới nhất
         def _sort_key(p: Path):
             date_key = cls._extract_file_date_key(p.name)
+            shift_score = 0
+            if shift:
+                s_clean = shift.strip().upper()
+                if f"_{s_clean}." in p.name.upper() or f"_{s_clean}_" in p.name.upper():
+                    shift_score = 1
             try:
                 mtime = p.stat().st_mtime
             except Exception:
                 mtime = 0.0
-            return (date_key, mtime, p.name)
+            return (date_key, shift_score, mtime, p.name)
 
-        found_paths.sort(key=_sort_key, reverse=True)
-        return found_paths
+        clean_paths.sort(key=_sort_key, reverse=True)
+        return clean_paths
 
     @classmethod
     def get_shift_supply_status(
@@ -437,22 +575,32 @@ class NvlTrackingService:
         records: List[Dict[str, Any]] = []
         shortages: List[Dict[str, Any]] = []
 
+        # Dò tìm dòng Header và bản đồ chỉ mục cột động (Dynamic Header Resolver)
+        header_r_idx, col_map = cls.resolve_column_map(sheet_rows)
+
         # Cache tra cứu NCC từ Master
         vendor_cache: Dict[str, str] = {}
 
         for r_idx, r_vals in enumerate(sheet_rows):
-            if r_idx == 0:
+            if r_idx <= header_r_idx:
                 continue
             r = r_idx + 1
 
-            mat_val = r_vals[3] if len(r_vals) > 3 else None
+            mat_c = col_map.get("mat_code", 2)
+            mat_val = r_vals[mat_c] if len(r_vals) > mat_c else None
             if not mat_val:
                 continue
 
+            def _get(c_name: str, default: Any = "") -> Any:
+                idx = col_map.get(c_name)
+                if idx is not None and len(r_vals) > idx and r_vals[idx] is not None:
+                    return r_vals[idx]
+                return default
+
             mat = str(mat_val).strip().upper()
-            row_model = str(r_vals[9] or "").strip().upper() if len(r_vals) > 9 else ""
-            row_ca_nhap = str(r_vals[10] or "").strip().upper() if len(r_vals) > 10 else ""
-            row_ca_chay = str(r_vals[11] or "").strip().upper() if len(r_vals) > 11 else ""
+            row_model = str(_get("model")).strip().upper()
+            row_ca_nhap = str(_get("shift_in")).strip().upper()
+            row_ca_chay = str(_get("shift_run")).strip().upper()
 
             # Bộ lọc Model (nếu được yêu cầu)
             if model_clean and model_clean not in row_model:
@@ -464,31 +612,37 @@ class NvlTrackingService:
 
             # Bộ lọc Ngày (nếu được yêu cầu)
             if target_date:
-                date_cell = str((r_vals[31] if len(r_vals) > 31 else None) or (r_vals[29] if len(r_vals) > 29 else None) or "") if len(r_vals) > 29 else ""
-                if target_date not in date_cell:
+                raw_d = _get("date_order") or _get("khsx")
+                p_d = cls.parse_excel_date(raw_d)
+                d_str = p_d.strftime("%d-%b") if p_d else str(raw_d or "").strip()
+                if target_date not in d_str and (p_d is None or target_date not in p_d.strftime("%Y%m%d")):
                     continue
 
             # Lấy thông tin số lượng
             try:
-                sl_order = float(Decimal(str(r_vals[4] or 0))) if len(r_vals) > 4 else 0.0
+                sl_order = float(Decimal(str(_get("qty_order", 0) or 0)))
             except Exception:
                 sl_order = 0.0
 
             try:
-                total_cap = float(Decimal(str(r_vals[25] or 0))) if len(r_vals) > 25 else 0.0
+                total_cap = float(Decimal(str(_get("total", 0) or 0)))
             except Exception:
                 total_cap = 0.0
 
             try:
-                gap_val = float(Decimal(str(r_vals[26] or 0))) if len(r_vals) > 26 else (total_cap - sl_order)
+                gap_raw = _get("gap", None)
+                if gap_raw is not None and str(gap_raw).strip() != "":
+                    gap_val = float(Decimal(str(gap_raw)))
+                else:
+                    gap_val = total_cap - sl_order
             except Exception:
                 gap_val = total_cap - sl_order
 
-            station = str(r_vals[5] or "").strip() if len(r_vals) > 5 else ""
-            ob_val = str((r_vals[12] if len(r_vals) > 12 else None) or (r_vals[13] if len(r_vals) > 13 else None) or "").strip()
-            status_order = str(r_vals[27] or "Pending").strip() if len(r_vals) > 27 else "Pending"
-            status_pick = str(r_vals[28] or "Chưa Cấp").strip() if len(r_vals) > 28 else "Chưa Cấp"
-            note_val = str(r_vals[30] or "").strip() if len(r_vals) > 30 else ""
+            station = str(_get("station")).strip()
+            ob_val = str(_get("ob") or _get("ob1") or "").strip()
+            status_order = str(_get("status_order", "Pending")).strip() or "Pending"
+            status_pick = str(_get("status_pick", "Chưa Cấp")).strip() or "Chưa Cấp"
+            note_val = str(_get("note", "")).strip()
 
             # Lấy NCC
             ncc_val = str(r_vals[0] or "").strip() if len(r_vals) > 0 else ""
@@ -653,7 +807,7 @@ class NvlTrackingService:
 
         updated_count = 0
         sync_details: List[Dict[str, Any]] = []
-        now_str = datetime.datetime.now().strftime("%H:%M %d/%m")
+        now_str = datetime.now().strftime("%H:%M %d/%m")
 
         # Map danh sách xuất theo mã hàng
         disp_map: Dict[str, List[Dict[str, Any]]] = {}
@@ -760,7 +914,7 @@ class NvlTrackingService:
         # Lưu file an toàn kèm backup
         if updated_count > 0:
             try:
-                bak_path = str(tracking_file) + f".bak_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                bak_path = str(tracking_file) + f".bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 shutil.copy2(str(tracking_file), bak_path)
             except Exception as bak_err:
                 print(f"[SYNC BACKUP WARN] Không thể tạo backup file: {bak_err}")
@@ -1126,60 +1280,110 @@ class NvlTrackingService:
                 "tracking_file": tracking_file.name
             }
 
-        # Chuẩn hóa tìm kiếm: cả mã đầy đủ và 8 số cốt lõi
-        clean_mat_short = clean_mat.replace("BIW", "").replace("SUB", "").replace("AA", "").replace("AB", "").replace("AC", "").replace("HA", "")
+        # Dò tìm dòng Header và bản đồ chỉ mục cột động (Dynamic Header Resolver)
+        header_r_idx, col_map = cls.resolve_column_map(sheet_rows)
+
+        # Chuẩn hóa tìm kiếm: cả mã đầy đủ và các biến thể (Khóa bẫy 4)
+        m_digits = re.search(r"(\d{7,8})", clean_mat)
+        core_digits = m_digits.group(1) if m_digits else ""
+        base_mat = re.sub(r"[A-Z]{2}$", "", clean_mat) if len(clean_mat) > 10 else clean_mat
 
         matched_rows: List[Dict[str, Any]] = []
         for r_idx, r_vals in enumerate(sheet_rows):
-            if r_idx == 0:
+            if r_idx <= header_r_idx:
                 continue
             r = r_idx + 1
 
-            row_mat_val = r_vals[3] if len(r_vals) > 3 else None
+            mat_c = col_map.get("mat_code", 2)
+            row_mat_val = r_vals[mat_c] if len(r_vals) > mat_c else None
             if not row_mat_val:
                 continue
             row_mat = str(row_mat_val).strip().upper()
-            is_match = (clean_mat in row_mat) or (len(clean_mat_short) >= 6 and clean_mat_short in row_mat)
+
+            # So khớp 3 mức chống bỏ sót:
+            is_match = False
+            if clean_mat == row_mat:
+                is_match = True
+            elif len(base_mat) >= 8 and (base_mat == row_mat or row_mat.startswith(base_mat) or clean_mat.startswith(row_mat)):
+                is_match = True
+            elif core_digits and core_digits in row_mat:
+                is_match = True
+
             if not is_match:
                 continue
 
-            row_model = str(r_vals[9] or "").strip().upper() if len(r_vals) > 9 else ""
-            row_ca_nhap = str(r_vals[10] or "").strip().upper() if len(r_vals) > 10 else ""
-            row_ca_chay = str(r_vals[11] or "").strip().upper() if len(r_vals) > 11 else ""
-            row_station = str(r_vals[5] or "").strip() if len(r_vals) > 5 else ""
+            def _get(c_name: str, default: Any = "") -> Any:
+                idx = col_map.get(c_name)
+                if idx is not None and len(r_vals) > idx and r_vals[idx] is not None:
+                    return r_vals[idx]
+                return default
+
+            row_model = str(_get("model")).strip().upper()
+            row_ca_nhap = str(_get("shift_in")).strip().upper()
+            row_ca_chay = str(_get("shift_run")).strip().upper()
+            row_station = str(_get("station")).strip()
 
             try:
-                sl_order = float(Decimal(str(r_vals[4] or 0))) if len(r_vals) > 4 else 0.0
+                sl_order = float(Decimal(str(_get("qty_order", 0) or 0)))
             except Exception:
                 sl_order = 0.0
 
             try:
-                total_cap = float(Decimal(str(r_vals[25] or 0))) if len(r_vals) > 25 else 0.0
+                total_cap = float(Decimal(str(_get("total", 0) or 0)))
             except Exception:
                 total_cap = 0.0
 
             try:
-                gap = float(Decimal(str(r_vals[26] or 0))) if len(r_vals) > 26 else (total_cap - sl_order)
+                gap_raw = _get("gap", None)
+                if gap_raw is not None and str(gap_raw).strip() != "":
+                    gap = float(Decimal(str(gap_raw)))
+                else:
+                    gap = total_cap - sl_order
             except Exception:
                 gap = total_cap - sl_order
 
+            # Thu thập số OB / Phiếu (Khóa bẫy 1: OB vs OB1)
             collected_docs = []
+            for ob_key in ["ob", "ob1"]:
+                ob_idx = col_map.get(ob_key)
+                if ob_idx is not None and len(r_vals) > ob_idx:
+                    val_str = str(r_vals[ob_idx] or "").strip()
+                    val_str = re.sub(r"/+", "", val_str).strip()
+                    if val_str.endswith(".0"):
+                        val_str = val_str[:-2]
+                    if val_str and val_str not in ["None", "0"]:
+                        doc_str = f"Phiếu {val_str}" if not val_str.lower().startswith("phiếu") else val_str
+                        if doc_str not in collected_docs:
+                            collected_docs.append(doc_str)
+
+            # Thu thập thêm các cột SP_1..SP_4 trong template cũ nếu có
             for sp_c in [14, 17, 20, 23]:
-                s_val = str(r_vals[sp_c] or "").strip() if len(r_vals) > sp_c else ""
-                if s_val.endswith(".0"):
-                    s_val = s_val[:-2]
-                if s_val and s_val not in ["None", "0"]:
-                    doc_str = f"Phiếu {s_val}" if not s_val.lower().startswith("phiếu") else s_val
-                    if doc_str not in collected_docs:
-                        collected_docs.append(doc_str)
+                if sp_c not in col_map.values() and len(r_vals) > sp_c:
+                    val_str = str(r_vals[sp_c] or "").strip()
+                    if val_str.endswith(".0"):
+                        val_str = val_str[:-2]
+                    if val_str and val_str not in ["None", "0"]:
+                        doc_str = f"Phiếu {val_str}" if not val_str.lower().startswith("phiếu") else val_str
+                        if doc_str not in collected_docs:
+                            collected_docs.append(doc_str)
 
-            sp_display = ", ".join(collected_docs) if collected_docs else "Chưa ra đơn" 
+            sp_display = ", ".join(collected_docs) if collected_docs else "Chưa ra đơn"
 
-            status_order = str(r_vals[27] or "Pending").strip() if len(r_vals) > 27 else "Pending"
-            status_pick = str(r_vals[28] or "Chưa Cấp").strip() if len(r_vals) > 28 else "Chưa Cấp"
-            note_val = str(r_vals[30] or "").strip() if len(r_vals) > 30 else ""
-            date_order = str(r_vals[31] or "").strip() if len(r_vals) > 31 else ""
-            user_order = str(r_vals[33] or "").strip() if len(r_vals) > 33 else ""
+            status_order = str(_get("status_order", "Pending")).strip() or "Pending"
+            status_pick = str(_get("status_pick", "Chưa Cấp")).strip() or "Chưa Cấp"
+            note_val = str(_get("note", "")).strip()
+
+            # Khóa bẫy 2: Xử lý Serial Date trên .xlsb và chuỗi trên .xlsx
+            raw_date = _get("date_order")
+            parsed_order_d = cls.parse_excel_date(raw_date)
+            date_order = parsed_order_d.strftime("%d-%b") if parsed_order_d else str(raw_date or "").strip()
+
+            raw_khsx = _get("khsx")
+            parsed_khsx_d = cls.parse_excel_date(raw_khsx)
+            khsx_val = parsed_khsx_d.strftime("%d-%b") if parsed_khsx_d else str(raw_khsx or "").strip()
+
+            # Ngày dùng để sắp xếp timeline (ưu tiên ngày order -> KHSX)
+            sort_dt = parsed_order_d or parsed_khsx_d or date(2000, 1, 1)
 
             matched_rows.append({
                 "row": r,
@@ -1196,8 +1400,13 @@ class NvlTrackingService:
                 "status_pick": status_pick,
                 "note": note_val,
                 "date_order": date_order,
-                "user_order": user_order
+                "khsx": khsx_val,
+                "sort_dt": sort_dt,
+                "user_order": ""
             })
+
+        # Sắp xếp timeline giảm dần: Ngày mới nhất (hôm nay) lên trên cùng!
+        matched_rows.sort(key=lambda x: (x.get("sort_dt") or date(2000, 1, 1), x.get("row", 0)), reverse=True)
 
         if not matched_rows:
             return {
@@ -1431,9 +1640,17 @@ class NvlTrackingService:
             else:
                 tt_html = f"<span style='color:#cf222e;font-weight:600;'>⏳ {tt}</span>"
 
+            date_val = r.get("date_order") or r.get("khsx") or "---"
+            is_today = "29" in str(date_val) or "oct" in str(date_val).lower()
+            if is_today:
+                date_html = f"<span style='background:#dafbe1;color:#1a7f37;padding:2px 6px;border-radius:4px;font-weight:bold;'>{date_val}</span>"
+            else:
+                date_html = f"<span style='color:#57606a;'>{date_val}</span>"
+
             rows_html.append(f"""
             <tr style='background:{row_bg};border-bottom:1px solid #e1e4e8;font-size:12px;'>
                 <td style='padding:8px 10px;font-family:Consolas,monospace;font-weight:bold;color:#0969da;'>{mat}</td>
+                <td style='padding:8px 10px;text-align:center;'>{date_html}</td>
                 <td style='padding:8px 10px;text-align:center;'>{mdl_html}</td>
                 <td style='padding:8px 10px;text-align:center;font-weight:600;'>{shift}</td>
                 <td style='padding:8px 10px;color:#57606a;'>{stn}</td>

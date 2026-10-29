@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
 from app.handlers.base_handler import BaseHandler
+from app.sap_mb51_service import SapMb51Service, parse_mb51_date_range, generate_mb51_table_html
 
 
 class StockHandler(BaseHandler):
@@ -95,31 +96,89 @@ class StockHandler(BaseHandler):
         # -------------------------------------------------------------
         # 4. TRA CỨU LỊCH SỬ GIAO DỊCH VẬT TƯ (MB51)
         # -------------------------------------------------------------
-        elif cmd in ["LICHSU", "LỊCH SỬ", "MB51"]:
+        elif cmd in ["LICHSU", "LỊCH SỬ", "MB51", "LICH_SU_MB51", "MB51_HISTORY"]:
             explicit_p = ctx.meta.get("explicitPlant", False)
             target_plant = ctx.plant if explicit_p else ""
-            records = ctx.sap.check_history_mb51(resolved_mats, ctx.days, target_plant, explicit_plant=explicit_p)
+            raw_text = ctx.meta.get("rawText", "")
+
+            # 1. Trích xuất khoảng ngày (Date Range)
+            date_from = ctx.meta.get("dateFrom")
+            date_to = ctx.meta.get("dateTo")
+            if not date_from or not date_to:
+                dt_from, dt_to = parse_mb51_date_range(raw_text, default_days=ctx.days or 7)
+            else:
+                dt_from = datetime.strptime(date_from, "%d.%m.%Y") if isinstance(date_from, str) else date_from
+                dt_to = datetime.strptime(date_to, "%d.%m.%Y") if isinstance(date_to, str) else date_to
+
+            # 2. Tra cứu dữ liệu (Ưu tiên SapMb51Service chống Error 617, fallback sang ctx.sap)
+            records = []
+            mb51_service = SapMb51Service(default_plant=target_plant or "3093")
+            sap_session = getattr(ctx.sap, "session", None) if ctx.sap else None
+
+            try:
+                records = mb51_service.fetch_movement_history(
+                    materials=resolved_mats,
+                    date_from=dt_from,
+                    date_to=dt_to,
+                    plant=target_plant,
+                    session=sap_session
+                )
+            except Exception:
+                records = []
+
+            # Nếu service trả về rỗng (hoặc chạy trong môi trường mock/test nơi ctx.sap được mock):
+            if not records and ctx.sap and hasattr(ctx.sap, "check_history_mb51"):
+                try:
+                    delta_days = max(1, (dt_to - dt_from).days + 1) if dt_from and dt_to else ctx.days
+                    raw_recs = ctx.sap.check_history_mb51(resolved_mats, delta_days, target_plant, explicit_plant=explicit_p)
+                    for r in raw_recs:
+                        qty_val = str(r.get("qty", ""))
+                        records.append({
+                            "budat": r.get("postDate", ""),
+                            "matnr": r.get("product", ""),
+                            "werks": r.get("plant", target_plant or "3093"),
+                            "lgort": r.get("sloc", ""),
+                            "umlgo": r.get("umlgo", ""),
+                            "bwart": r.get("mvtType", ""),
+                            "qty": qty_val,
+                            "meins": r.get("unit", ""),
+                            "ebeln": r.get("ebeln", r.get("docNo", "")),
+                            "usnam": r.get("usnam", ""),
+                            "charg": r.get("batch", ""),
+                            "mblnr": r.get("docNo", ""),
+                        })
+                except Exception:
+                    pass
+
+            # Đồng bộ các alias cho record để tương thích 100% với các component khác
+            for r in records:
+                if "product" not in r: r["product"] = r.get("matnr", "")
+                if "docNo" not in r: r["docNo"] = r.get("mblnr", r.get("ebeln", ""))
+                if "postDate" not in r: r["postDate"] = r.get("budat", "")
+                if "mvtType" not in r: r["mvtType"] = r.get("bwart", "")
+                if "unit" not in r: r["unit"] = r.get("meins", "")
+                if "sloc" not in r: r["sloc"] = r.get("lgort", "")
+                if "batch" not in r: r["batch"] = r.get("charg", "")
+                if "plant" not in r: r["plant"] = r.get("werks", "")
+
             headers = {
-                "product": "Mã hàng", "docNo": "Số CT", "mvtType": "Loại GD",
-                "postDate": "Ngày HT", "qty": "Số lượng", "unit": "ĐVT",
-                "sloc": "Kho", "batch": "Batch"
+                "budat": "Ngày HT",
+                "matnr": "Mã NVL",
+                "werks": "Plant",
+                "lgort": "Kho",
+                "umlgo": "Kho đích",
+                "bwart": "Loại GD",
+                "qty": "Số lượng",
+                "meins": "ĐVT",
+                "ebeln": "Số PO/Đơn",
+                "usnam": "User SAP",
             }
             plant_info = f" (Plant {ctx.plant})" if explicit_p else " (Tất cả nhà máy)"
+            range_info = f"từ {dt_from.strftime('%d/%m/%Y')} đến {dt_to.strftime('%d/%m/%Y')}" if dt_from.date() != dt_to.date() else f"ngày {dt_from.strftime('%d/%m/%Y')}"
+            summary = f"Lịch sử giao dịch vật tư (MB51 - {range_info}){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
-            is_fallback = False
             if records:
-                cutoff_str = (datetime.now() - timedelta(days=int(ctx.days))).strftime("%Y%m%d")
-                newest_date = records[0].get("postDate", "")
-                parts = re.split(r"[./-]", newest_date)
-                if len(parts) == 3 and len(parts[2]) == 4:
-                    newest_iso = f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
-                    if newest_iso < cutoff_str:
-                        is_fallback = True
-
-            if is_fallback:
-                summary = f"Trong {ctx.days} ngày qua không có phát sinh. Đã mở rộng hiển thị {len(records)} giao dịch gần nhất (từ {records[0].get('postDate')}){plant_info} cho: {', '.join(resolved_mats)}{mapping_info}"
-            else:
-                summary = f"Lịch sử giao dịch {ctx.days} ngày (MB51){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
+                custom_html = generate_mb51_table_html(records, summary)
 
         # -------------------------------------------------------------
         # 5. CẢNH BÁO TỒN THẤP & THIẾU DOH THEO CA / MODEL
