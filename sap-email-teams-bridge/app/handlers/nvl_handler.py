@@ -564,30 +564,77 @@ class NvlHandler(BaseHandler):
             folder_path = str(ctx.meta.get("folderPath") or "").strip()
             if not folder_path:
                 raw_text = str(ctx.meta.get("rawText") or "").strip()
-                m = re.search(r'(?:[A-Za-z]:\\[^<>":|?*\r\n\t]+|\\[^<>":|?*\r\n\t]+)', raw_text)
+                m = re.search(r'(?:\\[^<>":|?*\r\n\t]+|[A-Za-z]:\\[^<>":|?*\r\n\t]+|\\[^<>":|?*\r\n\t]+)', raw_text)
                 if m:
                     folder_path = m.group(0).strip()
 
+            current_dir = ctx.config.get("tracking_files_dir") or NvlTrackingService.DEFAULT_TRACKING_DIR
+
+            # Trường hợp 1: Người dùng chỉ hỏi trạng thái file / folder hiện tại (file nào, check folder, etc.)
             if not folder_path:
-                current_dir = ctx.config.get("tracking_files_dir") or NvlTrackingService.DEFAULT_TRACKING_DIR
+                is_accessible = os.path.isdir(current_dir)
+                found_files = NvlTrackingService.find_tracking_files(directory=current_dir) if is_accessible else []
+                file_names = [f.name for f in found_files[:5]]
+                latest_file_name = file_names[0] if file_names else "Chưa tìm thấy file nào"
+                file_list_str = ", ".join(file_names) if file_names else "Không có file"
+
+                status_badge = (
+                    "<span style='background:#dafbe1;color:#1a7f37;padding:3px 8px;border-radius:4px;font-weight:bold;'>🟢 KẾT NỐI TỐT</span>"
+                    if is_accessible else
+                    "<span style='background:#ffebe9;color:#cf222e;padding:3px 8px;border-radius:4px;font-weight:bold;'>🔴 KHÔNG THỂ TRUY CẬP</span>"
+                )
+
+                network_warning = ""
+                if not is_accessible and current_dir.startswith(r"\\"):
+                    network_warning = (
+                        "<div style='margin-top:8px;padding:8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:4px;color:#664d03;font-size:12px;'>"
+                        "⚠️ <b>Lưu ý mạng nội bộ:</b> Thư mục mạng UNC (10.128.x.x) chỉ truy cập được khi máy tính kết nối mạng LAN VinFast hoặc qua VPN công ty.<br/>"
+                        "👉 Nếu đang làm việc ngoài mạng công ty, vui lòng chuyển về thư mục cục bộ bằng lệnh: <code>chọn folder: G:\\SAP</code>"
+                        "</div>"
+                    )
+
+                custom_html = (
+                    f"<div style='font-family:Segoe UI,sans-serif;background:#ffffff;border:1px solid #d0d7de;border-radius:6px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);'>"
+                    f"<div style='font-size:16px;font-weight:bold;color:#0969da;margin-bottom:8px;'>📁 THÔNG TIN THƯ MỤC & FILE THEO DÕI CA ĐANG TRUY XUẤT</div>"
+                    f"<div style='background:#f6f8fa;padding:12px;border-radius:6px;border-left:4px solid #0969da;font-size:13px;line-height:1.6;'>"
+                    f"📁 <b>Thư mục đang theo dõi:</b> <code>{current_dir}</code> ({status_badge})<br/>"
+                    f"📄 <b>File mới nhất đang đọc:</b> <code style='font-weight:bold;color:#0969da;'>{latest_file_name}</code><br/>"
+                    f"📊 <b>Tổng số file theo dõi:</b> <b>{len(found_files)} files</b> (*THEO DOI ODER NVL_P_*.xlsx/.xlsb)<br/>"
+                    f"📋 <b>Top 5 file ca gần nhất:</b> {file_list_str}<br/>"
+                    f"{network_warning}"
+                    f"💡 <i>Để đổi sang thư mục khác, vui lòng chat: <code>chọn folder: [đường dẫn mới]</code></i>"
+                    f"</div></div>"
+                )
+
                 return CommandResult(
-                    status="FAILED",
+                    status="SUCCEEDED",
                     summary=(
-                        f"Vui lòng cung cấp đường dẫn thư mục cần cấu hình.\n"
-                        f"📁 Thư mục hiện tại đang dùng: `{current_dir}`\n"
-                        f"👉 Cú pháp mẫu: `chọn folder: G:\\SAP\\2026_10` hoặc `thư mục nvl: D:\\THEO_DOI\\T11`"
+                        f"📁 Thư mục theo dõi NVL hiện tại: `{current_dir}`\n"
+                        f"- Trạng thái: {'Kết nối tốt' if is_accessible else 'Không thể truy cập (Cần LAN/VPN nếu là ổ mạng)'}\n"
+                        f"- File mới nhất đang đọc: `{latest_file_name}`\n"
+                        f"- Tổng số file: {len(found_files)} file\n"
+                        f"- Danh sách file gần nhất: {file_list_str}\n"
+                        f"- Cú pháp đổi thư mục: `chọn folder: [đường dẫn mới]`"
                     ),
-                    records=[],
-                    headers={},
-                    audit_target="SET_FOLDER_NO_PATH",
-                    audit_message="Thiếu đường dẫn khi cấu hình thư mục theo dõi NVL"
+                    records=[{"folder_path": current_dir, "is_accessible": is_accessible, "latest_file": latest_file_name, "file_count": len(found_files)}],
+                    headers={"folder_path": "Thư mục", "is_accessible": "Kết nối", "latest_file": "File mới nhất", "file_count": "Số lượng file"},
+                    custom_html=custom_html,
+                    audit_target=current_dir,
+                    audit_message=f"Kiểm tra trạng thái thư mục theo dõi: {current_dir} ({len(found_files)} files)"
                 )
 
             clean_folder = folder_path.strip().strip('"').strip("'")
             if not os.path.isdir(clean_folder):
+                net_hint = ""
+                if clean_folder.startswith(r"\\"):
+                    net_hint = (
+                        "\n⚠️ Lưu ý mạng nội bộ: Đường dẫn này thuộc mạng nội bộ nhà máy VinFast (10.128.x.x).\n"
+                        "Máy tính cần cắm dây mạng LAN tại công ty hoặc bật VPN VinFast để truy cập.\n"
+                        f"👉 Thư mục hiện tại vẫn được giữ nguyên là: `{current_dir}`"
+                    )
                 return CommandResult(
                     status="FAILED",
-                    summary=f"❌ Thư mục `{clean_folder}` không tồn tại trên hệ thống Windows. Vui lòng kiểm tra lại đường dẫn.",
+                    summary=f"❌ Thư mục `{clean_folder}` không tồn tại hoặc hiện không thể truy cập.{net_hint}",
                     records=[],
                     headers={},
                     audit_target=clean_folder,
@@ -598,17 +645,18 @@ class NvlHandler(BaseHandler):
             file_names = [f.name for f in found_files[:5]]
             file_list_str = ", ".join(file_names) if file_names else "Chưa có file nào"
 
-            # Lưu cấu hình vào config.json trên đĩa để bền vững qua các phiên khởi động
-            config_file = Path(__file__).resolve().parent.parent.parent / "config.json"
-            if config_file.exists():
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        cfg_data = json.load(f)
-                    cfg_data["tracking_files_dir"] = clean_folder
-                    with open(config_file, "w", encoding="utf-8") as f:
-                        json.dump(cfg_data, f, indent=2, ensure_ascii=False)
-                except Exception as save_err:
-                    print(f"[SET_FOLDER WARN] Không thể ghi config.json: {save_err}")
+            # Lưu cấu hình vào config.json trên đĩa (Bảo vệ: không ghi đè khi đang chạy pytest)
+            if not os.environ.get("PYTEST_CURRENT_TEST") and not ctx.config.get("_skip_disk_save"):
+                config_file = Path(__file__).resolve().parent.parent.parent / "config.json"
+                if config_file.exists():
+                    try:
+                        with open(config_file, "r", encoding="utf-8") as f:
+                            cfg_data = json.load(f)
+                        cfg_data["tracking_files_dir"] = clean_folder
+                        with open(config_file, "w", encoding="utf-8") as f:
+                            json.dump(cfg_data, f, indent=2, ensure_ascii=False)
+                    except Exception as save_err:
+                        print(f"[SET_FOLDER WARN] Không thể ghi config.json: {save_err}")
 
             # Cập nhật cache runtime
             ctx.config["tracking_files_dir"] = clean_folder

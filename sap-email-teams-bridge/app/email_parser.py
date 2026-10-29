@@ -149,6 +149,10 @@ class SmartCommandParser:
             (r"\b(?:chon\s*folder|chon\s*thu\s*muc|doi\s*folder|doi\s*thu\s*muc|set\s*folder|set\s*tracking\s*folder)\b", 99),
             (r"\b(?:folder\s*theo\s*doi|thu\s*muc\s*theo\s*doi|thu\s*muc\s*nvl|folder\s*nvl|duong\s*dan\s*nvl)\b", 98),
             (r"\b(?:cau\s*hinh\s*folder|cau\s*hinh\s*thu\s*muc)\b", 95),
+            (r"\b(?:dang\s*(?:dung|truy\s*xuat|doc|lay)\s*(?:file|folder|thu\s*muc)\s*nao|file\s*nao|folder\s*nao|thu\s*muc\s*nao)\b", 99),
+            (r"\b(?:check\s*(?:file|folder|thu\s*muc)|kiem\s*tra\s*(?:file|folder|thu\s*muc)|xem\s*(?:file|folder|thu\s*muc))\b", 98),
+            (r"\b(?:file\s*hien\s*tai|folder\s*hien\s*tai|thu\s*muc\s*hien\s*tai|file\s*moi\s*nhat|trang\s*thai\s*(?:file|folder|thu\s*muc))\b", 98),
+            (r"\b(?:file\s*ca\s*nao|theo\s*doi\s*file\s*nao)\b", 97),
         ],
         "SET_NVL_PASSWORD": [
             (r"\b(?:m[aậ]t\s*kh[aẩ]u|pass(?:word)?)\s*(?:nvl|order|theo\s*d[oõ]i|tracking|excel)?[\s:=]+(?P<pwd>\S+)", 99),
@@ -629,6 +633,8 @@ class SmartCommandParser:
         meta["rawText"] = command_text
         # TẦNG 1: Dịch tiếng lóng và chuẩn hóa
         norm_text = cls.normalize_and_expand_slang(command_text)
+        from app.sap_attachment import clean_folder_path, extract_folder_path_multiline, DEFAULT_MIGO_ATT_FOLDER
+        raw_folder = extract_folder_path_multiline(command_text)
 
         # 1. Chấm điểm Ý định (Intent Scoring)
         scores = {k: 0 for k in cls.INTENT_SCORES.keys()}
@@ -667,6 +673,17 @@ class SmartCommandParser:
             scores["ATT_MIGO"] = -50
         elif has_att_exec_signals and not has_pure_zfir_signals:
             scores["CHECK_ATT"] = -50
+
+        # Ưu tiên tuyệt đối SET_FOLDER khi có lệnh cấu hình/hỏi folder/file hoặc có đường dẫn thư mục
+        has_folder_intent = bool(re.search(
+            r"\b(?:chon\s*folder|chon\s*thu\s*muc|doi\s*folder|doi\s*thu\s*muc|set\s*folder|set\s*tracking\s*folder|folder\s*nvl|thu\s*muc\s*nvl|dang\s*(?:dung|truy\s*xuat|doc|lay)\s*(?:file|folder|thu\s*muc)\s*nao|file\s*nao|folder\s*nao|thu\s*muc\s*nao|check\s*(?:file|folder|thu\s*muc)|kiem\s*tra\s*(?:file|folder|thu\s*muc)|xem\s*(?:file|folder|thu\s*muc)|file\s*hien\s*tai|folder\s*hien\s*tai|thu\s*muc\s*hien\s*tai|file\s*moi\s*nhat|trang\s*thai\s*(?:file|folder|thu\s*muc)|file\s*ca\s*nao)\b",
+            norm_text
+        ))
+        has_raw_folder_path = bool(raw_folder)
+        if has_folder_intent or (has_raw_folder_path and any(k in norm_text for k in ["folder", "thu muc", "duong dan", "path", "chon", "set", "doi"])):
+            scores["SET_FOLDER"] = max(scores.get("SET_FOLDER", 0), 250)
+            scores["TRA_CUU_CAP_NVL"] = -500
+            scores["VITRI"] = -500
 
         best_intent = max(scores, key=scores.get)
         best_score = scores[best_intent]
@@ -788,8 +805,6 @@ class SmartCommandParser:
                 ob_no = wht_doc_m.group(1).strip()
 
         # Bóc tách đường dẫn thư mục và danh sách chứng từ đính kèm (nếu có lệnh ATT_MIGO)
-        from app.sap_attachment import clean_folder_path, extract_folder_path_multiline, DEFAULT_MIGO_ATT_FOLDER
-        raw_folder = extract_folder_path_multiline(command_text)
         folder_path = ""
         if raw_folder:
             folder_path = clean_folder_path(raw_folder)
@@ -905,6 +920,10 @@ class SmartCommandParser:
             if (any(ch.isdigit() for ch in clean_tk) or (has_wildcard and len(clean_tk) >= 3)) and clean_tk != plant and clean_tk != batch:
                 if clean_tk not in materials:
                     materials.append(clean_tk)
+
+        # Nếu lệnh là SET_FOLDER (chọn/xem thư mục), xóa trắng materials để tránh nhận nhầm thành phần path
+        if best_intent in ("SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"):
+            materials = []
 
         # Nếu có bảng đơn hàng NVL đa dòng, ưu tiên mã lấy từ bảng (tránh ô Trạm bị nhận nhầm thành mã)
         if nvl_table_rows and best_intent in ("RA_DON_NVL", "KE_HOACH_NVL"):

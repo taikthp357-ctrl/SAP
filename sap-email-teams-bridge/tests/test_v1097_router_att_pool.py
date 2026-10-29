@@ -279,3 +279,49 @@ def test_context_aware_error_formatting():
     # Lời chào phải chuyên biệt cho File Ca / NVL, không phải "chưa tra cứu được SAP"
     greeting = payload_nvl.get("greeting", "")
     assert "Excel" in greeting or "file ca" in greeting or "theo dõi NVL" in greeting
+
+
+# =====================================================================
+# 6. KIỂM THỬ ĐỊNH TUYẾN THƯ MỤC MẠNG UNC & TRUY VẤN FILE HIỆN TẠI
+# =====================================================================
+
+def test_router_set_folder_network_unc_path_no_material_leak():
+    """Kiểm tra đường dẫn mạng UNC có chứa chữ 'order', 'theo doi', '5.LOGISTIC' không bị nhận nhầm thành TRA_CUU_CAP_NVL."""
+    unc_cmd = r"SAP chọn folder \\10.128.10.72\fvn$\03.Khối sản xuất\01.Nhà máy VinFast Hải Phòng\04.Xưởng lắp ráp kim loại - cơ khí NMHP\01. Lắp ráp kim loại\5.LOGISTIC\III. Internal\III. Kho P part\2. Theo Doi order NVL\9. ORDER Thang 10"
+    parsed = SmartCommandParser.parse(unc_cmd)
+    assert parsed["command"] == "SET_FOLDER"
+    assert parsed["materials"] == []
+    assert "10.128.10.72" in parsed["folderPath"]
+
+
+def test_router_query_current_tracking_file_and_folder():
+    """Kiểm tra các câu hỏi tự nhiên về file đang dùng và folder đang trỏ tới."""
+    for q in [
+        "SAP đang dùng file nào",
+        "file nào",
+        "SAP check folder",
+        "kiểm tra file ca",
+        "thư mục hiện tại",
+        "SAP file mới nhất",
+        "trạng thái file nvl"
+    ]:
+        p = SmartCommandParser.parse(q)
+        assert p["command"] == "SET_FOLDER", f"Query '{q}' should route to SET_FOLDER"
+
+
+def test_tracking_files_date_prefix_priority(tmp_path):
+    """Kiểm tra thuật toán ưu tiên tiền tố ngày YYMMDD (261029 > 261028) bất kể mtime."""
+    f28 = tmp_path / "261028_THEO DOI ODER NVL_P_S6.xlsx"
+    f29 = tmp_path / "261029_THEO DOI ODER NVL_P_S6.xlsx"
+    f28.write_text("dummy28")
+    f29.write_text("dummy29")
+
+    # Giả lập f28 có mtime mới hơn f29 (ví dụ ai đó vừa mở và lưu lại file 28)
+    os.utime(f29, (1000, 1000))
+    os.utime(f28, (2000, 2000))
+
+    files = NvlTrackingService.find_tracking_files(directory=str(tmp_path))
+    assert len(files) == 2
+    # File ngày 29 bắt buộc phải đứng đầu tiên
+    assert files[0].name == "261029_THEO DOI ODER NVL_P_S6.xlsx"
+    assert files[1].name == "261028_THEO DOI ODER NVL_P_S6.xlsx"

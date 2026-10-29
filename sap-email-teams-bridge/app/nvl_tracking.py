@@ -309,6 +309,17 @@ class NvlTrackingService:
         return parent_dir
 
     @classmethod
+    def _extract_file_date_key(cls, filename: str) -> int:
+        """Trích xuất 6 chữ số ngày (YYMMDD) ở đầu tên file để ưu tiên ngày mới nhất."""
+        m = re.search(r"^(\d{6})_", filename)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+        return 0
+
+    @classmethod
     def find_tracking_files(
         cls,
         directory: Optional[str] = None,
@@ -359,8 +370,16 @@ class NvlTrackingService:
             if date_filtered:
                 found_paths = date_filtered
 
-        # Sắp xếp theo file mới nhất
-        found_paths.sort(key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+        # Sắp xếp ưu tiên: Tiền tố ngày YYMMDD mới nhất -> mtime mới nhất
+        def _sort_key(p: Path):
+            date_key = cls._extract_file_date_key(p.name)
+            try:
+                mtime = p.stat().st_mtime
+            except Exception:
+                mtime = 0.0
+            return (date_key, mtime, p.name)
+
+        found_paths.sort(key=_sort_key, reverse=True)
         return found_paths
 
     @classmethod
