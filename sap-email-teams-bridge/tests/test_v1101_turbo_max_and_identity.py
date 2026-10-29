@@ -8,7 +8,12 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from app.sap_attachment import ensure_sap_tabs, MigoAttachmentRunner
+from app.sap_attachment import (
+    ensure_sap_tabs,
+    MigoAttachmentRunner,
+    get_safe_sap_connection,
+    get_safe_sap_session,
+)
 from app.sap_engine import SapEngine, SapExecutionError
 
 
@@ -280,3 +285,79 @@ class TestSapEngineIdentityStabilityV1101:
         with patch.object(engine, "_is_session_alive", return_value=True):
             sess = engine.ensure_session()
             assert sess == mock_session
+
+
+class TestSafeSapConnectionAndSessionV1103:
+    """Kiểm thử cơ chế truy xuất an toàn connection và session chống lỗi COM 614."""
+
+    def test_get_safe_sap_connection_resolves_con_id_string(self):
+        """Khớp connection theo ID chuỗi '/con[1]' khi connection nằm ở index 0 trong app.Children."""
+        mock_con1 = MagicMock()
+        mock_con1.Id = "/app/con[1]"
+
+        mock_app = MagicMock()
+        mock_app.Children.Count = 1
+        mock_app.Children.side_effect = lambda idx: [mock_con1][idx]
+
+        # Truyền con_idx_or_id = "1" (hoặc int 1) khi Children chỉ có index 0
+        resolved = get_safe_sap_connection(mock_app, "1")
+        assert resolved == mock_con1
+
+    def test_get_safe_sap_connection_falls_back_gracefully_on_out_of_bounds(self):
+        """Khi connection_id không khớp và index vượt dải, tự fallback về connection 0 an toàn."""
+        mock_con0 = MagicMock()
+        mock_con0.Id = "/app/con[0]"
+
+        mock_app = MagicMock()
+        mock_app.Children.Count = 1
+        mock_app.Children.side_effect = lambda idx: [mock_con0][idx]
+
+        resolved = get_safe_sap_connection(mock_app, 99)
+        assert resolved == mock_con0
+
+    def test_get_safe_sap_session_resolves_target_ses_id_or_index(self):
+        """Tìm session theo ses[tab_idx] hoặc index an toàn."""
+        mock_s0 = MagicMock(); mock_s0.Id = "/app/con[1]/ses[0]"
+        mock_s1 = MagicMock(); mock_s1.Id = "/app/con[1]/ses[1]"
+        mock_s2 = MagicMock(); mock_s2.Id = "/app/con[1]/ses[2]"
+
+        mock_conn = MagicMock()
+        mock_conn.Id = "/app/con[1]"
+        mock_conn.Children.Count = 3
+        mock_conn.Children.side_effect = lambda idx: [mock_s0, mock_s1, mock_s2][idx]
+
+        mock_app = MagicMock()
+        mock_app.Children.Count = 1
+        mock_app.Children.side_effect = lambda idx: [mock_conn][idx]
+
+        mock_sap_gui = MagicMock()
+        mock_sap_gui.GetScriptingEngine = mock_app
+
+        with patch("app.sap_attachment.pythoncom"), \
+             patch("app.sap_attachment.win32com.client.GetObject", return_value=mock_sap_gui):
+            # Lấy Tab 2 (ses[2])
+            sess = get_safe_sap_session(conn_idx_or_id="1", tab_idx=2)
+            assert sess == mock_s2
+
+    def test_sap_engine_connect_falls_back_when_connection_index_out_of_bounds(self):
+        """SapEngine._connect_sap tự động fallback về connection 0 khi connection_index ngoài phạm vi."""
+        mock_con0 = MagicMock()
+        mock_con0.Children.Count = 1
+        mock_sess = MagicMock()
+        mock_sess.Busy = False
+        mock_info = MagicMock()
+        mock_info.Transaction = "SESSION_MANAGER"
+        mock_sess.Info = mock_info
+        mock_con0.Children.side_effect = lambda idx: [mock_sess][idx]
+
+        mock_app = MagicMock()
+        mock_app.Children.Count = 1
+        mock_app.Children.side_effect = lambda idx: [mock_con0][idx]
+
+        mock_sap_gui = MagicMock()
+        mock_sap_gui.GetScriptingEngine = mock_app
+
+        engine = SapEngine(connection_index=5, prefer_dedicated_session=False, strict_session_safety=False)
+        with patch("app.sap_engine.win32com.client.GetObject", return_value=mock_sap_gui),              patch.object(engine, "_check_identity", return_value={"system": "PR1", "client": "100", "user": "U"}):
+            res = engine._connect_sap()
+            assert res == mock_sess

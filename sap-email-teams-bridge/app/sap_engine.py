@@ -160,9 +160,12 @@ class SapEngine:
             app = win32com.client.GetObject("SAPGUI").GetScriptingEngine
         except Exception as exc:
             raise SapExecutionError("Mở SAP GUI và đăng nhập trước khi tra cứu") from exc
-        if not 0 <= self.connection_index < app.Children.Count:
+        if 0 <= self.connection_index < app.Children.Count:
+            conn = app.Children(self.connection_index)
+        elif app.Children.Count > 0:
+            conn = app.Children(0)
+        else:
             raise SapExecutionError("SAP connection_index không tồn tại")
-        conn = app.Children(self.connection_index)
         total_open = conn.Children.Count
         if total_open <= 0:
             raise SapExecutionError("Không tìm thấy phiên SAP nào đang mở")
@@ -312,8 +315,9 @@ class SapEngine:
             try:
                 sap_gui_auto = win32com.client.GetObject("SAPGUI")
                 app = getattr(sap_gui_auto, "GetScriptingEngine", None)
-                if app and getattr(app, "Children", None) and app.Children.Count > getattr(self, "connection_index", 0):
-                    conn = app.Children(getattr(self, "connection_index", 0))
+                if app and getattr(app, "Children", None) and app.Children.Count > 0:
+                    c_idx = getattr(self, "connection_index", 0)
+                    conn = app.Children(c_idx) if 0 <= c_idx < app.Children.Count else app.Children(0)
                     if getattr(conn, "Children", None) and conn.Children.Count > 0:
                         self.session = self._connect_sap()
             except Exception:

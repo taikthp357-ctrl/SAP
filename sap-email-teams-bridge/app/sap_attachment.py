@@ -1043,6 +1043,59 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
 
 
 
+def get_safe_sap_connection(app, conn_idx_or_id: Any = 0) -> Any:
+    """Tìm GuiConnection an toàn trong SAP GUI, hỗ trợ cả connection index lẫn chuỗi connection_id (ví dụ con[1])."""
+    if app is None or not hasattr(app, "Children") or app.Children.Count == 0:
+        return None
+    target_str = f"/con[{conn_idx_or_id}]"
+    try:
+        for i in range(app.Children.Count):
+            c = app.Children(i)
+            if target_str in str(getattr(c, "Id", "")):
+                return c
+    except Exception:
+        pass
+    try:
+        idx = int(conn_idx_or_id)
+        if 0 <= idx < app.Children.Count:
+            return app.Children(idx)
+    except Exception:
+        pass
+    try:
+        return app.Children(0)
+    except Exception:
+        return None
+
+
+def get_safe_sap_session(conn_idx_or_id: Any = 0, tab_idx: int = 0) -> Any:
+    """Lấy phiên SAP GUI session an toàn theo connection index/id và tab index."""
+    if pythoncom is None or win32com is None:
+        return None
+    try:
+        sap_gui = win32com.client.GetObject("SAPGUI")
+        app = sap_gui.GetScriptingEngine
+        conn = get_safe_sap_connection(app, conn_idx_or_id)
+        if conn is None or not hasattr(conn, "Children") or conn.Children.Count == 0:
+            return None
+        target_ses = f"/ses[{tab_idx}]"
+        try:
+            for s_i in range(conn.Children.Count):
+                s = conn.Children(s_i)
+                if target_ses in str(getattr(s, "Id", "")):
+                    return s
+        except Exception:
+            pass
+        if 0 <= tab_idx < conn.Children.Count:
+            try:
+                return conn.Children(tab_idx)
+            except Exception:
+                pass
+        return conn.Children(0)
+    except Exception as ex:
+        print(f"[SAP SESSION ERROR] Không thể lấy session con={conn_idx_or_id}, tab={tab_idx}: {ex}")
+        return None
+
+
 def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     """Đảm bảo mở sẵn đủ số Tab cần thiết (Tabs 0-2: User Reserved, Tabs 3-4: Bot Batch Pool, Tab 5: Bot Fast Lane).
     Lưu ý: Tuyệt đối không gọi pythoncom.CoUninitialize() tại đây vì hàm này chạy đồng bộ trên thread chính,
@@ -1059,11 +1112,9 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     try:
         sap_gui = win32com.client.GetObject("SAPGUI")
         app = sap_gui.GetScriptingEngine
-        if app.Children.Count == 0:
+        conn = get_safe_sap_connection(app, connection_index)
+        if conn is None:
             return 1
-        if not (0 <= connection_index < app.Children.Count):
-            connection_index = 0
-        conn = app.Children(connection_index)
         current = conn.Children.Count
         target_tabs = min(7, target_tabs)
         while current < target_tabs and current < 7:
@@ -1092,10 +1143,10 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
                 for _ in range(16):
                     time.sleep(0.25)
                     try:
-                        conn = app.Children(connection_index)
+                        conn = get_safe_sap_connection(app, connection_index) or conn
                     except Exception:
                         pass
-                    if conn.Children.Count > orig_count:
+                    if conn is not None and conn.Children.Count > orig_count:
                         tab_spawned = True
                         break
                 if not tab_spawned:
@@ -4659,29 +4710,17 @@ class MigoAttachmentRunner:
 
                     try:
 
-                        sap_gui = win32com.client.GetObject("SAPGUI")
-
                         conn_idx = 0
 
                         if isinstance(self.expected_session_identity, dict):
 
-                            try:
-
-                                conn_idx = int(self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0)))
-
-                            except Exception:
-
-                                conn_idx = 0
+                            conn_idx = self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0))
 
                         elif hasattr(self.sap_engine, "connection_index"):
 
-                            conn_idx = int(getattr(self.sap_engine, "connection_index", 0))
+                            conn_idx = getattr(self.sap_engine, "connection_index", 0)
 
-                        conn = sap_gui.GetScriptingEngine.Children(conn_idx)
-
-                        if tab_idx < conn.Children.Count:
-
-                            worker_session = conn.Children(tab_idx)
+                        worker_session = get_safe_sap_session(conn_idx, tab_idx)
 
                     except Exception as conn_err:
 
@@ -4847,9 +4886,11 @@ class MigoAttachmentRunner:
 
                     try:
 
-                        conn = win32com.client.GetObject("SAPGUI").GetScriptingEngine.Children(conn_idx)
+                        session = get_safe_sap_session(conn_idx, single_tab_idx)
 
-                        session = conn.Children(single_tab_idx)
+                        if session is None:
+
+                            session = self.sap_engine.ensure_session()
 
                     except Exception:
 
