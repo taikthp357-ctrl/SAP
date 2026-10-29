@@ -76,7 +76,7 @@ except ImportError:
 
 POPUP_LOCK = threading.Lock()          # Micro-lock bảo vệ cửa sổ wnd[1] & Context Menu
 FAST_LANE_LOCK = threading.Lock()      # Khóa riêng cho Tab 0 (Fast Lane)
-BATCH_TAB_LOCKS = {i: threading.Lock() for i in range(6)}  # Khóa riêng cho từng Tab 0..5 trong Batch Pool
+BATCH_TAB_LOCKS = {i: threading.Lock() for i in range(8)}  # Khóa riêng cho từng Tab 0..5 trong Batch Pool
 FILE_DIALOG_LOCK = threading.Lock()    # Khóa đồng bộ hộp thoại chọn file Windows / GOS (chống xung đột giữa các Tab)
 
 def get_user_idle_seconds() -> float:
@@ -1067,7 +1067,7 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
 
         current = conn.Children.Count
 
-        while current < target_tabs and current < 6:
+        while current < target_tabs and current < 7:
 
             try:
 
@@ -2002,6 +2002,8 @@ class MigoAttachmentRunner:
         self.expected_session_identity = dict(expected_session_identity or {})
 
         self._local = threading.local()
+
+        self.enable_multi_tab = True
 
 
 
@@ -4515,35 +4517,53 @@ class MigoAttachmentRunner:
         # =========================================================================
         # PHASE 2: ADAPTIVE MULTI-SESSION SAP POOL (TỰ THÍCH ỨNG TURBO / IDLE)
         # =========================================================================
+        prompt_raw = str(getattr(self, "_prompt_context", "") or "").lower()
+        explicit_turbo_words = ["turbo", "max", "5 tab", "6 tab", "nhanh", "toi da", "full tab", "het cong suat"]
+        is_explicit_turbo = any(w in prompt_raw for w in explicit_turbo_words)
+
+        user_idle = get_user_idle_seconds()
+        turbo = is_explicit_turbo or (user_idle >= 45.0)
+
+        min_items_threshold = 2 if turbo else 3
         is_multi_tab_eligible = (
             not dry_run
+            and getattr(self, 'enable_multi_tab', True)
             and self.sap_engine is not None
-            and len(items) > 3
+            and len(items) >= min_items_threshold
             and pythoncom is not None
         )
 
         user_res_val = getattr(self.sap_engine, "user_reserved_sessions", None)
         max_bot_val = getattr(self.sap_engine, "max_batch_tabs", None)
 
-        user_idle = get_user_idle_seconds()
-        turbo = is_turbo_mode(getattr(self, "_prompt_context", "") or "")
-
-        if user_res_val is not None:
-            user_reserved = int(user_res_val)
-        elif turbo:
-            user_reserved = 0 if user_idle >= 45.0 else 1
-        else:
+        if is_explicit_turbo:
+            # Lệnh người dùng chỉ định rõ MAX / TURBO: Ưu tiên tối đa tài nguyên
             user_reserved = 1
-
-        if max_bot_val is not None:
-            max_bot_tabs = int(max_bot_val)
-        elif turbo:
-            max_bot_tabs = 5
+            if "6 tab" in prompt_raw or "max" in prompt_raw:
+                max_bot_tabs = min(len(items), 6)
+            elif "5 tab" in prompt_raw:
+                max_bot_tabs = min(len(items), 5)
+            else:
+                max_bot_tabs = min(len(items), 6)
+            print(f"[ATT RUNNER] 🚀 KÍCH HOẠT TURBO MAX THEO YÊU CẦU: Phân bổ tới {max_bot_tabs} Tabs song song (Bảo tồn Tab 1 cho User)!")
         else:
-            max_bot_tabs = 4
+            # Chạy thông thường hoặc tự kích hoạt khi máy nhàn rỗi
+            if user_res_val is not None:
+                user_reserved = int(user_res_val)
+            elif turbo:
+                user_reserved = 0 if user_idle >= 45.0 else 1
+            else:
+                user_reserved = 1
 
-        if turbo and user_res_val is None:
-            print(f"[ATT RUNNER] 🚀 KÍCH HOẠT TURBO MULTI-TAB (Idle {user_idle:.1f}s): Cho phép tới {max_bot_tabs} Tabs song song!")
+            if max_bot_val is not None:
+                max_bot_tabs = int(max_bot_val)
+            elif turbo:
+                max_bot_tabs = 5
+            else:
+                max_bot_tabs = 4
+
+            if turbo and user_res_val is None:
+                print(f"[ATT RUNNER] 🚀 KÍCH HOẠT TURBO MULTI-TAB (Idle {user_idle:.1f}s): Cho phép tới {max_bot_tabs} Tabs song song!")
 
         conn_idx = 0
         if isinstance(self.expected_session_identity, dict) and ("connection_index" in self.expected_session_identity or "connection_id" in self.expected_session_identity):
@@ -4556,9 +4576,9 @@ class MigoAttachmentRunner:
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
-            target_tabs = min(6, user_reserved + max_bot_tabs)
+            target_tabs = min(7, user_reserved + max_bot_tabs)
             available_tabs = ensure_sap_tabs(target_tabs, connection_index=conn_idx)
-            bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 6]
+            bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 7]
             if len(bot_tabs) >= 2:
                 active_tab_indices = bot_tabs[:max_bot_tabs]
                 tabs_str = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
@@ -4882,11 +4902,15 @@ class MigoAttachmentRunner:
 
             "folder_error": folder_error,
 
-            "total_items": len(items),
+            "total_items": total_items,
 
             "total_success": total_success,
 
             "total_partial": total_partial,
+
+            "multi_tab_count": len(active_tab_indices),
+
+            "is_turbo": turbo,
 
             "total_missing": total_missing,
 

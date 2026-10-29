@@ -325,3 +325,99 @@ def test_tracking_files_date_prefix_priority(tmp_path):
     # File ngày 29 bắt buộc phải đứng đầu tiên
     assert files[0].name == "261029_THEO DOI ODER NVL_P_S6.xlsx"
     assert files[1].name == "261028_THEO DOI ODER NVL_P_S6.xlsx"
+# =====================================================================
+# 7. KIỂM THỬ NÂNG CẤP V1.0.99: TURBO MAX MULTI-TAB SCALING (5-6 TABS)
+# =====================================================================
+
+def make_mock_test_session(session_id="/app/con[0]/ses[1]"):
+    mock_ses = MagicMock()
+    mock_ses.Info.SystemName = "PRD"
+    mock_ses.Info.Client = "100"
+    mock_ses.Info.User = "AUTO_BOT"
+    mock_ses.Info.Transaction = "MIGO"
+    mock_ses.Id = session_id
+    mock_ses.Busy = False
+    return mock_ses
+
+
+def test_v1099_migo_turbo_max_4_docs():
+    runner = MigoAttachmentRunner()
+    runner.enable_multi_tab = True
+    runner._prompt_context = "SAP điền số phiếu max nhé"
+    mock_engine = MagicMock()
+    mock_engine.user_reserved_sessions = 3
+    mock_engine.max_batch_tabs = 2
+    runner.sap_engine = mock_engine
+
+    items = [{"doc": f"490400000{i}", "ticket_no": f"OUT_P1_{i}"} for i in range(4)]
+    assigned_tabs = set()
+    lock = threading.Lock()
+
+    def mock_process_item(session, item, *args, **kwargs):
+        with lock:
+            assigned_tabs.add(session.Id)
+        return ({"doc": item["doc"], "status": "OK", "is_succ": True}, True)
+
+    with patch("app.sap_attachment.pythoncom", MagicMock()), \
+         patch("app.sap_attachment.ensure_sap_tabs", return_value=7) as mock_ensure, \
+         patch.object(runner, "process_single_migo_item", side_effect=mock_process_item), \
+         patch.object(runner, "prepare_migo_session", return_value=True), \
+         patch.object(runner, "verify_session_identity", return_value=(True, "OK")), \
+         patch("app.sap_attachment.win32com.client.GetObject") as mock_get_obj:
+
+        mock_gui = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.Children.Count = 7
+        mock_sessions = [make_mock_test_session(f"/app/con[0]/ses[{i}]") for i in range(7)]
+        mock_conn.Children.side_effect = lambda idx: mock_sessions[idx]
+        mock_gui.GetScriptingEngine.Children.return_value = mock_conn
+        mock_get_obj.return_value = mock_gui
+
+        summary = runner.process_attachment_batch("", items, fill_headtext=True, dry_run=False, year="2026")
+
+        assert len(assigned_tabs) == 4
+        assert mock_ensure.call_args[0][0] == 5
+        assert summary.get("is_turbo") is True
+        assert summary.get("multi_tab_count") == 4
+        assert "/app/con[0]/ses[0]" not in assigned_tabs
+
+
+def test_v1099_migo_turbo_scaling_up_to_6_tabs():
+    runner = MigoAttachmentRunner()
+    runner.enable_multi_tab = True
+    runner._prompt_context = "SAP điền số phiếu 6 tab hết công suất"
+    mock_engine = MagicMock()
+    mock_engine.user_reserved_sessions = 3
+    mock_engine.max_batch_tabs = 2
+    runner.sap_engine = mock_engine
+
+    items = [{"doc": f"49040000{i:02d}", "ticket_no": f"OUT_P1_{i}"} for i in range(12)]
+    assigned_tabs = set()
+    lock = threading.Lock()
+
+    def mock_process_item(session, item, *args, **kwargs):
+        with lock:
+            assigned_tabs.add(session.Id)
+        return ({"doc": item["doc"], "status": "OK", "is_succ": True}, True)
+
+    with patch("app.sap_attachment.pythoncom", MagicMock()), \
+         patch("app.sap_attachment.ensure_sap_tabs", return_value=7) as mock_ensure, \
+         patch.object(runner, "process_single_migo_item", side_effect=mock_process_item), \
+         patch.object(runner, "prepare_migo_session", return_value=True), \
+         patch.object(runner, "verify_session_identity", return_value=(True, "OK")), \
+         patch("app.sap_attachment.win32com.client.GetObject") as mock_get_obj:
+
+        mock_gui = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.Children.Count = 7
+        mock_sessions = [make_mock_test_session(f"/app/con[0]/ses[{i}]") for i in range(7)]
+        mock_conn.Children.side_effect = lambda idx: mock_sessions[idx]
+        mock_gui.GetScriptingEngine.Children.return_value = mock_conn
+        mock_get_obj.return_value = mock_gui
+
+        summary = runner.process_attachment_batch("", items, fill_headtext=True, dry_run=False, year="2026")
+
+        assert len(assigned_tabs) == 6
+        assert mock_ensure.call_args[0][0] == 7
+        assert summary.get("multi_tab_count") == 6
+        assert "/app/con[0]/ses[0]" not in assigned_tabs

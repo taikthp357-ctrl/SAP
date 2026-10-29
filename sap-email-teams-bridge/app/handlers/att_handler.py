@@ -92,6 +92,7 @@ class AttHandler(BaseHandler):
                 )
 
             runner = MigoAttachmentRunner(sap_engine=ctx.sap, expected_session_identity=ctx.sap.session_identity if not is_preview else None)
+            runner._prompt_context = str(ctx.meta.get("rawText", "") or "")
 
             def on_att_progress(done_count, total_count, cur_doc, cur_success):
                 try:
@@ -133,6 +134,10 @@ class AttHandler(BaseHandler):
             else:
                 result_status = "FAILED"
 
+            turbo_badge = ""
+            if att_summary.get("is_turbo") and att_summary.get("multi_tab_count", 1) > 1:
+                turbo_badge = f" 🚀 [TURBO MAX: {att_summary['multi_tab_count']} Tabs song song]"
+
             if not folder_path:
                 headers = {
                     "doc": "Số DOC",
@@ -140,7 +145,7 @@ class AttHandler(BaseHandler):
                     "headtext_status": "Điền HeadText",
                     "overall_status": "Trạng thái"
                 }
-                summary = f"Điền số phiếu HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                summary = f"Điền số phiếu HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công){turbo_badge}"
             else:
                 headers = {
                     "doc": "Số DOC",
@@ -150,7 +155,7 @@ class AttHandler(BaseHandler):
                     "vat_status": "VAT",
                     "overall_status": "Trạng thái"
                 }
-                summary = f"Đính kèm VAT, BBBG & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công)"
+                summary = f"Đính kèm VAT, BBBG & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công){turbo_badge}"
 
             return CommandResult(
                 status=result_status,
