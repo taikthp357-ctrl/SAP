@@ -4102,17 +4102,17 @@ class MigoAttachmentRunner:
                 overall_status = "FILE_NOT_FOUND"
 
         else:
+            # Khởi tạo an toàn tuyệt đối trước khi mở MIGO (ngăn chặn 100% UnboundLocalError)
+            sap_bbbg = None
+            sap_vat = None
 
             loaded_ok, nav_msg = self.open_migo_document(session, doc, year, mode="CHANGE")
 
             if not loaded_ok:
-
                 bbbg_res = nav_msg
-
                 vat_res = nav_msg
-
                 overall_status = nav_msg
-
+                sanitize_migo_session(session)
             else:
 
                 # 0. KIỂM TRA ĐÍNH KÈM ĐÃ CÓ SẴN TRÊN SAP MIGO (Display Attachment / OK_REF_ATTA)
@@ -4546,13 +4546,39 @@ class MigoAttachmentRunner:
                 it["need_vat"] = z_info.get("need_vat", True)
                 it["need_header_text"] = z_info.get("need_header_text", True)
 
-                # Chốt an toàn 4 & 5:
-                # Nếu DOC tìm thấy trên ZFIR266 VÀ đã có đủ cả BBBG lẫn VAT (và HeadText nếu có số phiếu)
-                # -> Đánh dấu hoàn thành ngay, BỎ QUA MIGO hoàn toàn!
-                if (it["found_in_zfir"] and
-                    not it["need_bbbg"] and
-                    not it["need_vat"] and
-                    (not fill_headtext or not it.get("ticket_no") or not it["need_header_text"])):
+                # KIỂM TRA THÔNG MINH (SMART GATING):
+                # Chỉ gạch tên khi TẤT CẢ các file quét được trong thư mục LAN đều đã khớp 1-1 trên SAP!
+                # Nếu có file mới, file khác ký tự (_Dot2, _BS, (1)...) thì KHÔNG gạch tên, tiếp tục đẩy vào MIGO.
+                can_skip_migo = False
+                if it["found_in_zfir"]:
+                    ticket_no = it.get("ticket_no", "")
+                    ticket_nums, _ = extract_search_tokens(ticket_no)
+                    sap_titles = z_info.get("sap_titles") or []
+                    if not sap_titles and z_info.get("files_found"):
+                        raw_f = z_info.get("files_found", "")
+                        if raw_f and raw_f != "Không có file":
+                            sap_titles = [f.strip() for f in raw_f.split(",") if f.strip()]
+
+                    # So khớp với file thực tế trong thư mục LAN nếu có
+                    if has_folder:
+                        local_matches = self.match_all_files(d, ticket_no, index_data)
+                        local_bb = local_matches.get("bbbg", [])
+                        local_vat = local_matches.get("vat", [])
+
+                        to_upload_bb, _, _ = match_files_to_sap(local_bb, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
+                        to_upload_vat, _, _ = match_files_to_sap(local_vat, sap_titles, ticket_nums=ticket_nums, file_type="vat")
+
+                        # Chỉ được bỏ qua khi: Không còn bất kỳ file local nào cần upload (len(to_upload) == 0)
+                        # VÀ trên SAP thực sự đã có file BBBG/VAT nếu trong thư mục có yêu cầu
+                        has_all_local_attached = (len(to_upload_bb) == 0) and (len(to_upload_vat) == 0)
+                        has_sap_files = (not local_bb or not it["need_bbbg"]) and (not local_vat or not it["need_vat"])
+                        ht_satisfied = not fill_headtext or not ticket_no or not it["need_header_text"]
+                        can_skip_migo = has_all_local_attached and has_sap_files and ht_satisfied
+                    else:
+                        # Không yêu cầu đính kèm thư mục, chỉ cần thỏa mãn cờ ZFIR và HeadText
+                        can_skip_migo = not it["need_bbbg"] and not it["need_vat"] and (not fill_headtext or not ticket_no or not it["need_header_text"])
+
+                if can_skip_migo:
                     already_done_results.append({
                         "doc": d,
                         "ticket_no": it.get("ticket_no", ""),
@@ -4584,8 +4610,10 @@ class MigoAttachmentRunner:
         # PHASE 2: ADAPTIVE MULTI-SESSION SAP POOL (TỰ THÍCH ỨNG TURBO / IDLE)
         # =========================================================================
         prompt_raw = str(getattr(self, "_prompt_context", "") or "").lower()
-        explicit_turbo_words = ["turbo", "max", "5 tab", "6 tab", "nhanh", "toi da", "full tab", "het cong suat"]
-        is_explicit_turbo = any(w in prompt_raw for w in explicit_turbo_words)
+        tab_match = re.search(r"\b([1-7])\s*tabs?\b", prompt_raw)
+        has_tab_request = tab_match is not None
+        explicit_turbo_words = ["turbo", "max", "nhanh", "toi da", "full tab", "het cong suat"]
+        is_explicit_turbo = has_tab_request or any(w in prompt_raw for w in explicit_turbo_words)
 
         user_idle = get_user_idle_seconds()
         turbo = is_explicit_turbo or (user_idle >= 45.0)
@@ -4602,8 +4630,12 @@ class MigoAttachmentRunner:
         user_res_val = getattr(self.sap_engine, "user_reserved_sessions", None)
         max_bot_val = getattr(self.sap_engine, "max_batch_tabs", None)
 
-        if is_explicit_turbo:
-            # Lệnh người dùng chỉ định rõ MAX / TURBO: Ưu tiên tối đa tài nguyên
+        if has_tab_request:
+            req_tabs = int(tab_match.group(1))
+            user_reserved = 1
+            max_bot_tabs = min(len(items), req_tabs)
+            print(f"[ATT RUNNER] 🚀 YÊU CẦU ĐẶC BIỆT {req_tabs} TABS: Phân bổ tới {max_bot_tabs} Tabs song song (Bảo tồn Tab 1 cho User)...")
+        elif is_explicit_turbo:
             user_reserved = 1
             if "6 tab" in prompt_raw or "max" in prompt_raw:
                 max_bot_tabs = min(len(items), 6)
@@ -4619,7 +4651,7 @@ class MigoAttachmentRunner:
                 max_bot_tabs = min(len(items), 6)
             print(f"[ATT RUNNER] 🚀 YÊU CẦU TURBO MAX: Chuẩn bị phân bổ tới {max_bot_tabs} Tabs song song (Bảo tồn Tab 1 cho User)...")
         else:
-            # Chạy thông thường hoặc tự kích hoạt khi máy nhàn rỗi
+            # Chạy thông thường hoặc tự kích hoạt khi máy nhàn rỗi (tôn trọng cấu hình engine nếu có)
             if user_res_val is not None:
                 user_reserved = int(user_res_val)
             elif turbo:

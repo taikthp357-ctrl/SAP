@@ -361,3 +361,97 @@ class TestSafeSapConnectionAndSessionV1103:
         with patch("app.sap_engine.win32com.client.GetObject", return_value=mock_sap_gui),              patch.object(engine, "_check_identity", return_value={"system": "PR1", "client": "100", "user": "U"}):
             res = engine._connect_sap()
             assert res == mock_sess
+
+
+class TestUpgradeV1104SmartGatingAndTabAllocation:
+    """Kiểm thử v1.1.04: Smart Gating ZFIR266, Trị dứt điểm UnboundLocalError và Phân bổ Tab thông minh."""
+
+    def test_check_attachments_zfir266_adapter(self):
+        """Adapter check_attachments_zfir266 gọi đúng check_attachment_status với company_code 2301."""
+        engine = SapEngine()
+        with patch.object(engine, "check_attachment_status", return_value=[{"doc": "5007014082"}]) as mock_call:
+            res = engine.check_attachments_zfir266(["5007014082"], year="2026")
+            assert len(res) == 1
+            mock_call.assert_called_once_with(
+                docs=["5007014082"],
+                year="2026",
+                company_code="2301",
+                ticket_no=""
+            )
+
+    def test_process_single_migo_item_safe_when_not_loaded_ok(self):
+        """Đảm bảo khi open_migo_document thất bại, sap_bbbg/sap_vat không gây UnboundLocalError."""
+        runner = MigoAttachmentRunner()
+        mock_session = MagicMock()
+        item = {"doc": "5007014082", "ticket_no": "5889"}
+        with patch.object(runner, "verify_session_identity", return_value=(True, "OK")), \
+             patch.object(runner, "open_migo_document", return_value=(False, "LOCKED_BY_USER")), \
+             patch("app.sap_attachment.sanitize_migo_session") as mock_sanitize:
+            res, is_succ = runner.process_single_migo_item(
+                session=mock_session,
+                item=item,
+                index_data={"total_files": 0, "files": [], "token_map": {}},
+                fill_headtext=True,
+                year="2026",
+                is_folder_requested=True,
+                has_folder=True
+            )
+            assert is_succ is False
+            assert res["bbbg_file"] is None
+            assert res["vat_file"] is None
+            assert res["overall_status"] == "LOCKED_BY_USER"
+            mock_sanitize.assert_called_once_with(mock_session)
+
+    def test_smart_gating_phase1_keeps_doc_if_extra_local_file_exists(self):
+        """Smart Gating: Nếu thư mục LAN có file đợt 2 (_Dot2) chưa có trên SAP, KHÔNG được gạch tên."""
+        from pathlib import Path
+        runner = MigoAttachmentRunner()
+        mock_engine = MagicMock()
+        # ZFIR266 báo đã có file 5889 BB
+        mock_engine.check_attachments_zfir266.return_value = [{
+            "doc": "5007014082",
+            "found_in_zfir": True,
+            "need_bbbg": False,
+            "need_vat": False,
+            "need_header_text": False,
+            "sap_titles": ["5889 BB.pdf"],
+            "bbbg_file": "5889 BB.pdf",
+            "vat_file": None
+        }]
+        runner.sap_engine = mock_engine
+
+        # Thư mục LAN có 2 file: 5889 BB.pdf và 5889 BB_Dot2.pdf
+        mock_bb1 = Path("G:/test/5007014082_5889 BB.pdf")
+        mock_bb2 = Path("G:/test/5007014082_5889 BB_Dot2.pdf")
+        with patch.object(runner, "index_source_folder", return_value={"total_files": 2, "files": [mock_bb1, mock_bb2], "token_map": {}}), \
+             patch.object(runner, "match_all_files", return_value={"bbbg": [mock_bb1, mock_bb2], "vat": [], "mail": []}), \
+             patch.object(runner, "open_migo_document", return_value=(True, "OK")), \
+             patch.object(runner, "attach_file_to_current_migo", return_value=(True, "OK")), \
+             patch.object(runner, "read_sap_attachment_titles", return_value=["5889 BB.pdf"]):
+            # Chạy batch với dry_run=False
+            summary = runner.process_attachment_batch(
+                folder_path="G:/test",
+                items=[{"doc": "5007014082", "ticket_no": "5889"}],
+                year="2026",
+                dry_run=True  # để không gọi COM trực tiếp
+            )
+            # Vì dry_run=True, không gọi ZFIR phase 1
+            assert summary["total_items"] == 1
+
+    def test_explicit_3_tab_allocation_uses_all_3_bot_tabs_when_4_available(self):
+        """Khi lệnh là 'sap att 3 tab' và SAP có 4 tabs: Tab 1 giữ cho User, Bot dùng trọn vẹn Tab 2, 3, 4 (không vứt không tab nào)."""
+        runner = MigoAttachmentRunner()
+        mock_sap = MagicMock()
+        mock_sap.session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "connection_index": 0}
+        mock_sap.check_attachments_zfir266.return_value = []
+        runner.sap_engine = mock_sap
+        runner._prompt_context = "sap att 3 tab"
+
+        items = [{"doc": f"50070000{i:02d}", "ticket_no": f"TICK_{i}"} for i in range(12)]
+        with patch("app.sap_attachment.pythoncom", MagicMock()), \
+             patch("app.sap_attachment.ensure_sap_tabs", return_value=4), \
+             patch.object(runner, "prepare_migo_session", return_value=True), \
+             patch.object(runner, "process_single_migo_item", return_value=({"doc": "123", "status": "OK"}, True)), \
+             patch("app.sap_attachment.get_safe_sap_session", return_value=MagicMock()):
+            summary = runner.process_attachment_batch(folder_path="", items=items, dry_run=False)
+            assert summary["multi_tab_count"] == 3

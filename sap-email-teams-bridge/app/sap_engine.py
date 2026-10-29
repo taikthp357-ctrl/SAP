@@ -5375,6 +5375,26 @@ class SapEngine:
         finally:
             self._reset_to_session_manager()
 
+    def check_attachments_zfir266(
+        self,
+        docs: List[str],
+        year: str = "",
+        company_code: str = "2301",
+        ticket_no: str = ""
+    ) -> List[Dict[str, Any]]:
+        """
+        Adapter chuẩn hóa cho Phase 1 ATT_MIGO Pre-check.
+        Khớp nối an toàn giữa hasattr(self.sap_engine, 'check_attachments_zfir266')
+        và hàm thực thi gốc check_attachment_status.
+        """
+        target_company = company_code or getattr(self, "company_code", "2301")
+        return self.check_attachment_status(
+            docs=docs,
+            year=year,
+            company_code=target_company,
+            ticket_no=ticket_no
+        )
+
     def check_attachment_status(
         self,
         docs: List[str],
@@ -5729,6 +5749,7 @@ class SapEngine:
             records.append({
                 "doc": doc,
                 "company_code": company_code,
+                "sap_titles": list(titles),
                 "year": year,
                 "bbbg_status": "CÓ" if info["has_bbbg"] else "CHƯA",
                 "vat_status": "CÓ" if info["has_vat"] else "CHƯA",
