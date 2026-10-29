@@ -113,21 +113,27 @@ class SapEngine:
 
     @staticmethod
     def _identity(session):
-        info = getattr(session, "Info", None)
-        conn_id = ""
-        sess_id = str(getattr(session, "Id", "")).strip()
-        if "/con[" in sess_id:
-            try:
-                conn_id = sess_id.split("/con[")[1].split("]")[0]
-            except Exception:
-                conn_id = ""
-        identity = {
-            "system": str(getattr(info, "SystemName", "") or "").strip(),
-            "client": str(getattr(info, "Client", "") or "").strip(),
-            "user": str(getattr(info, "User", "") or "").strip(),
-            "session_id": sess_id,
-            "connection_id": conn_id,
-        }
+        identity = {}
+        for attempt in range(3):
+            info = getattr(session, "Info", None)
+            conn_id = ""
+            sess_id = str(getattr(session, "Id", "")).strip()
+            if "/con[" in sess_id:
+                try:
+                    conn_id = sess_id.split("/con[")[1].split("]")[0]
+                except Exception:
+                    conn_id = ""
+            identity = {
+                "system": str(getattr(info, "SystemName", "") or "").strip(),
+                "client": str(getattr(info, "Client", "") or "").strip(),
+                "user": str(getattr(info, "User", "") or "").strip(),
+                "session_id": sess_id,
+                "connection_id": conn_id,
+            }
+            if all(identity.get(k) for k in ("system", "client", "user", "session_id")):
+                return identity
+            if attempt < 2:
+                time.sleep(0.2)
         for k in ("system", "client", "user", "session_id"):
             if not identity.get(k):
                 raise SapExecutionError(f"Không xác minh được {k} của phiên SAP")
@@ -137,11 +143,15 @@ class SapEngine:
         current = self._identity(session)
         expected = getattr(self, "expected_identity", {}) or {}
         for key in ("system", "client", "user", "session_id", "connection_id"):
-            if expected.get(key) and str(current.get(key, "")).upper() != str(expected[key]).upper():
+            if expected.get(key) and str(current.get(key, "")).strip().upper() != str(expected[key]).strip().upper():
                 raise SapExecutionError(f"SAP {key} không khớp cấu hình (mong đợi: {expected.get(key)}, thực tế: {current.get(key)})")
         prior = getattr(self, "session_identity", None)
-        if prior and any(current.get(k) != prior.get(k) for k in ("system", "client", "user", "connection_id") if prior.get(k)):
-            raise SapExecutionError("Danh tính phiên SAP thay đổi; dừng để kiểm tra")
+        if prior:
+            for k in ("system", "client", "user"):
+                if prior.get(k) and str(current.get(k, "")).strip().upper() != str(prior.get(k, "")).strip().upper():
+                    raise SapExecutionError(f"Danh tính phiên SAP thay đổi ({k}: {prior.get(k)} -> {current.get(k)}); dừng để kiểm tra")
+            if prior.get("connection_id") and current.get("connection_id") and str(current.get("connection_id")).strip() != str(prior.get("connection_id")).strip():
+                print(f"[SAP WARN] Connection ID thay đổi từ {prior.get('connection_id')} sang {current.get('connection_id')}, tiếp tục vì System/Client/User trùng khớp.")
         return current
 
     def _connect_sap(self):
@@ -267,8 +277,10 @@ class SapEngine:
         if not self._is_session_alive():
             self.session = self._connect_sap()
         identity = self._check_identity(self.session)
-        if getattr(self, "session_identity", None) and any(identity.get(k) != self.session_identity.get(k) for k in ("system", "client", "user", "connection_id") if self.session_identity.get(k)):
-            raise SapExecutionError("Session SAP không còn thuộc phiên Bridge đã chọn")
+        if getattr(self, "session_identity", None):
+            for k in ("system", "client", "user"):
+                if self.session_identity.get(k) and str(identity.get(k, "")).strip().upper() != str(self.session_identity.get(k, "")).strip().upper():
+                    raise SapExecutionError("Session SAP không còn thuộc phiên Bridge đã chọn")
         if getattr(self.session, "Busy", False) is True:
             raise SapExecutionError("SAP đang bận; không gửi thêm thao tác")
         return self.session
