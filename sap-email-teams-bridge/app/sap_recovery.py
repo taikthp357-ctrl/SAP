@@ -71,8 +71,35 @@ def is_saplogon_running() -> bool:
 def is_sap_gui_hung(timeout_sec: float = 3.0) -> bool:
     """
     Kiểm tra xem SAP GUI (saplogon.exe / sapfront.exe) có đang ở trạng thái 'Not Responding' (đơ cứng) hay không.
-    Sử dụng lệnh truy vấn cấp OS Windows tasklist, không bị block luồng COM.
+    Sử dụng cả Win32 IsHungAppWindow API cấp OS (phản hồi tức thì 0.01s) và fallback lệnh tasklist.
     """
+    # 1. Quét nhanh qua Windows Win32 API: IsHungAppWindow & Window Title
+    try:
+        if win32gui is not None:
+            hung_found = False
+            def _enum_win_cb(hwnd, _):
+                nonlocal hung_found
+                if hung_found or not win32gui.IsWindowVisible(hwnd):
+                    return
+                title = str(win32gui.GetWindowText(hwnd) or "").lower()
+                cls = str(win32gui.GetClassName(hwnd) or "").lower()
+                if "sap" in title or "migo" in title or "sap" in cls:
+                    if "(not responding)" in title or "not responding" in title:
+                        hung_found = True
+                        return
+                    try:
+                        if ctypes.windll.user32.IsHungAppWindow(hwnd):
+                            hung_found = True
+                            return
+                    except Exception:
+                        pass
+            win32gui.EnumWindows(_enum_win_cb, None)
+            if hung_found:
+                return True
+    except Exception:
+        pass
+
+    # 2. Fallback kiểm tra qua lệnh tasklist STATUS eq NOT RESPONDING
     try:
         output = subprocess.check_output(
             ["tasklist", "/FI", "STATUS eq NOT RESPONDING", "/FO", "CSV", "/NH"],

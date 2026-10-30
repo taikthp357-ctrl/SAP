@@ -2559,19 +2559,24 @@ class MigoAttachmentRunner:
 
             return titles
 
-        # 1. Mở cửa sổ Attachment list thông minh (OK_REF_ATTA / GOS Shell / Menu / Function Code)
+        # 1. Mở cửa sổ Attachment list an toàn qua Micro-Lock (ngăn chặn 100% đơ cứng Context Menu Win32)
+        has_opened = False
+        popup = None
+        lock_held = False
+        try:
+            lock_held = POPUP_LOCK.acquire(timeout=3.0)
+            has_opened = smart_open_gos_view_attachment(session)
+            if has_opened:
+                popup = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
+        finally:
+            if lock_held:
+                POPUP_LOCK.release()
 
-        has_opened = smart_open_gos_view_attachment(session)
-
-        if not has_opened:
-
+        if not has_opened or popup is None:
             return []
 
-        # 2. Đọc popup Attachment list (wnd[1]) - ĐÃ THÁO BỎ HOÀN TOÀN POPUP_LOCK để các Session chạy song song 100%
-
+        # 2. Đọc popup Attachment list (wnd[1]) - Đọc song song 100% ngoài vùng lock
         try:
-
-            popup = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
 
             if popup is not None:
 
@@ -4381,10 +4386,31 @@ class MigoAttachmentRunner:
                     for t_idx in active_tab_indices
                 ]
                 max_batch_wait = max(180.0, len(items) * 30.0)
-                done, not_done = wait(futures, timeout=max_batch_wait)
-                if not_done:
-                    print(f"[ATT RUNNER WARN] Có {len(not_done)} tab bị treo quá thời gian cho phép ({max_batch_wait:.0f}s). Dừng chờ và thu hồi kết quả!")
-                    stop_event.set()
+                t_start = time.time()
+                from app.sap_recovery import is_sap_gui_hung, is_sap_gui_alive, kill_hung_sap_processes
+
+                # VÒNG LẶP GIÁM SÁT THỜI GIAN THỰC (ACTIVE REAL-TIME WATCHDOG):
+                # Phát hiện tức thì cửa sổ "MIGO (Not Responding)" trong 1.0 giây và cưỡng chế giải phóng!
+                while time.time() - t_start < max_batch_wait:
+                    if all(f.done() for f in futures):
+                        break
+
+                    # 1. Kiểm tra nếu SAP GUI bị đơ cứng "(Not Responding)"
+                    if is_sap_gui_hung():
+                        print("[ATT RUNNER WATCHDOG] 🚨 PHÁT HIỆN CỬA SỔ SAP GUI BỊ TREO CỨNG '(Not Responding)'! Kích hoạt cưỡng chế giải phóng...")
+                        stop_event.set()
+                        kill_hung_sap_processes(timeout_sec=3.0)
+                        break
+
+                    # 2. Kiểm tra nếu SAP GUI bị văng hoặc tắt hẳn
+                    if not is_sap_gui_alive():
+                        print("[ATT RUNNER WATCHDOG] 🚨 PHÁT HIỆN SAP GUI BỊ VĂNG / MẤT KẾT NỐI KHỎI HỆ THỐNG! Dừng chờ mẻ...")
+                        stop_event.set()
+                        break
+
+                    time.sleep(1.0)
+
+                stop_event.set()
 
                 # TỰ HỒI SINH GIỮA MẺ (INTRA-BATCH SELF-HEALING): Cứu vãn các chứng từ còn tồn khi tất cả các tab bị sập
                 unprocessed_items = []
