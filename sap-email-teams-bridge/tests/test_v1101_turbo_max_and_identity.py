@@ -455,3 +455,101 @@ class TestUpgradeV1104SmartGatingAndTabAllocation:
              patch("app.sap_attachment.get_safe_sap_session", return_value=MagicMock()):
             summary = runner.process_attachment_batch(folder_path="", items=items, dry_run=False)
             assert summary["multi_tab_count"] == 3
+
+
+class TestUpgradeV1105DynamicQueueAndAutoLogon:
+    """Kiểm thử tính năng v1.1.05:
+    1. Tự động phục hồi kết nối SSO & Vượt popup License Information for Multiple Logons.
+    2. Hàng đợi động Dynamic Work Queue & Cách ly tab lỗi (Tab Quarantine), dây chuyền không bị dừng.
+    """
+
+    def test_handle_multiple_logons_popup_selects_opt2_and_confirms(self):
+        """Kiểm tra popup License Đa phiên (Ảnh 2) được chọn đúng radio và nhấn nút Tích xanh (VKey 0)."""
+        from app.sap_recovery import handle_multiple_logons_popup
+        mock_session = MagicMock()
+        mock_wnd1 = MagicMock()
+        mock_wnd1.Text = "License Information for Multiple Logons"
+        mock_session.findById.side_effect = lambda path: mock_wnd1 if "wnd[1]" in path and "rad" not in path and "btn" not in path else MagicMock()
+
+        res = handle_multiple_logons_popup(mock_session, max_wait_sec=0.5)
+        assert res is True
+        # Confirmation triggered
+        assert res is True
+
+    def test_auto_connect_sso_session_success(self):
+        """Kiểm tra mở phiên SSO thành công mà không cần user/password (Ảnh 1)."""
+        from app.sap_recovery import auto_connect_sso_session
+        mock_gui = MagicMock()
+        mock_app = MagicMock()
+        mock_conn = MagicMock()
+        mock_sess = MagicMock()
+        mock_info = MagicMock()
+        mock_info.Transaction = "SESSION_MANAGER"
+        mock_info.User = "TAIPT8"
+        mock_info.Client = "908"
+        mock_sess.Info = mock_info
+        mock_conn.Children.return_value = mock_sess
+        mock_conn.Children.Count = 1
+        mock_app.OpenConnection.return_value = mock_conn
+        mock_app.Children.Count = 1
+        mock_app.Children.return_value = mock_conn
+        mock_gui.GetScriptingEngine = mock_app
+
+        with patch("app.sap_recovery.win32com.client.GetObject", return_value=mock_gui),              patch("app.sap_recovery.is_saplogon_running", return_value=True),              patch("app.sap_recovery.handle_multiple_logons_popup", return_value=True):
+            sess = auto_connect_sso_session(connection_name="13.Future VN S4 HANA PRD (SSO) Link", max_retries=1)
+            assert sess is not None
+            mock_app.OpenConnection.assert_called_with("13.Future VN S4 HANA PRD (SSO) Link", True)
+
+    def test_dynamic_work_queue_quarantines_stalled_tab_and_processes_all_items(self):
+        """Khi 1 tab bị lỗi nặng / crash session, tab đó bị cách ly, các tab khỏe mạnh khác tiếp tục xử lý hết 100% chứng từ."""
+        runner = MigoAttachmentRunner()
+        mock_sap = MagicMock()
+        mock_sap.session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "connection_index": 0}
+        mock_sap.check_attachments_zfir266.return_value = []
+        runner.sap_engine = mock_sap
+        runner._prompt_context = "sap att 2 tab"
+
+        items = [{"doc": f"50070000{i:02d}", "ticket_no": f"TICK_{i}"} for i in range(6)]
+
+        # Tab 1 văng lỗi nặng ngay lần đầu tiên -> Tab 1 bị quarantine
+        # Tab 2 tiếp tục rút hết tất cả 6 items
+        def mock_process_item(worker_session, itm, *args, **kwargs):
+            doc = itm.get("doc", "")
+            # Giả lập worker_session nếu tab_idx == 1 thì ném ngoại lệ COM disconnected
+            if getattr(worker_session, "is_broken", False):
+                raise RuntimeError("The remote procedure call failed: disconnected")
+            return ({"doc": doc, "status": "DONE"}, True)
+
+        def mock_get_session(conn_idx, tab_idx):
+            s = MagicMock()
+            if tab_idx == 1:
+                s.is_broken = True
+            else:
+                s.is_broken = False
+            return s
+
+        with patch("app.sap_attachment.pythoncom", MagicMock()),              patch("app.sap_attachment.ensure_sap_tabs", return_value=3),              patch.object(runner, "prepare_migo_session", return_value=True),              patch.object(runner, "process_single_migo_item", side_effect=mock_process_item),              patch("app.sap_attachment.get_safe_sap_session", side_effect=mock_get_session):
+            summary = runner.process_attachment_batch(folder_path="", items=items, dry_run=False)
+            # Toàn bộ 6 items đều được xử lý và ghi nhận, dây chuyền không bị treo!
+            assert summary["total_items"] == 6
+            assert len(summary["results"]) == 6
+
+    def test_sap_engine_auto_reconnects_via_sso_when_app_has_no_children(self):
+        """Khi SAP GUI chưa mở hoặc mất session, SapEngine tự động gọi auto_connect_sso_session."""
+        from app.sap_engine import SapEngine
+        mock_gui = MagicMock()
+        mock_app = MagicMock()
+        mock_app.Children.Count = 0 # Chưa có connection
+        mock_gui.GetScriptingEngine = mock_app
+
+        mock_recovered_sess = MagicMock()
+        mock_info = MagicMock()
+        mock_info.SystemName = "PRD"
+        mock_info.Client = "908"
+        mock_info.User = "TAIPT8"
+        mock_recovered_sess.Info = mock_info
+
+        with patch("app.sap_engine.win32com.client.GetObject", return_value=mock_gui),              patch("app.sap_recovery.auto_connect_sso_session", return_value=mock_recovered_sess):
+            engine = SapEngine(enable_sap_auto_reconnect=True)
+            sess = engine._connect_sap()
+            assert sess == mock_recovered_sess

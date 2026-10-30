@@ -92,10 +92,14 @@ class SapEngine:
         expected_client: str = "",
         expected_user: str = "",
         enable_keep_alive: bool = True,
+        enable_sap_auto_reconnect: bool = True,
+        sap_connection_name: str = "13.Future VN S4 HANA PRD (SSO) Link",
     ):
         self.max_alv_rows = max_alv_rows
         self.keep_alive_idle_seconds = keep_alive_idle_seconds
         self.enable_keep_alive = enable_keep_alive
+        self.enable_sap_auto_reconnect = enable_sap_auto_reconnect
+        self.sap_connection_name = sap_connection_name
         self.connection_index = connection_index
         self.session_index = session_index
         self.strict_session_safety = strict_session_safety
@@ -155,17 +159,56 @@ class SapEngine:
         return current
 
     def _connect_sap(self):
-        """Kết nối tới phiên SAP GUI an toàn, ưu tiên dải tab dành riêng cho Bot (tab 4, 5, 6)."""
+        """Kết nối tới phiên SAP GUI an toàn, ưu tiên dải tab dành riêng cho Bot (tab 4, 5, 6).
+        Tự động kích hoạt cơ chế mở lại phiên SSO (Ảnh 1) và vượt popup Đa phiên (Ảnh 2) nếu chưa có phiên.
+        """
+        app = None
         try:
             app = win32com.client.GetObject("SAPGUI").GetScriptingEngine
-        except Exception as exc:
-            raise SapExecutionError("Mở SAP GUI và đăng nhập trước khi tra cứu") from exc
+        except Exception:
+            app = None
+
+        if app is None or not hasattr(app, "Children") or app.Children.Count == 0:
+            if getattr(self, "enable_sap_auto_reconnect", True):
+                try:
+                    from app.sap_recovery import auto_connect_sso_session
+                    print(f"[SAP ENGINE] 🚀 Tự động mở kết nối SSO: '{getattr(self, 'sap_connection_name', '13.Future VN S4 HANA PRD (SSO) Link')}'...")
+                    sso_sess = auto_connect_sso_session(connection_name=getattr(self, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link"))
+                    if sso_sess is not None:
+                        try:
+                            app = win32com.client.GetObject("SAPGUI").GetScriptingEngine
+                        except Exception:
+                            pass
+                        if app is None or not hasattr(app, "Children") or app.Children.Count == 0:
+                            self.session_identity = self._check_identity(sso_sess)
+                            self.is_dedicated_session = False
+                            self.last_activity = time.time()
+                            return sso_sess
+                except Exception as rec_e:
+                    print(f"[SAP ENGINE WARN] Thử kết nối SSO thất bại: {rec_e}")
+
+        if app is None:
+            raise SapExecutionError("Mở SAP GUI và đăng nhập trước khi tra cứu")
+
+        conn = None
         if 0 <= self.connection_index < app.Children.Count:
             conn = app.Children(self.connection_index)
         elif app.Children.Count > 0:
             conn = app.Children(0)
-        else:
-            raise SapExecutionError("SAP connection_index không tồn tại")
+
+        if conn is None or not hasattr(conn, "Children") or conn.Children.Count == 0:
+            if getattr(self, "enable_sap_auto_reconnect", True):
+                try:
+                    from app.sap_recovery import auto_connect_sso_session
+                    sso_sess = auto_connect_sso_session(connection_name=getattr(self, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link"))
+                    if sso_sess is not None:
+                        self.session_identity = self._check_identity(sso_sess)
+                        self.is_dedicated_session = False
+                        self.last_activity = time.time()
+                        return sso_sess
+                except Exception as rec_e:
+                    print(f"[SAP ENGINE WARN] Thử kết nối SSO thất bại: {rec_e}")
+            raise SapExecutionError("Không tìm thấy phiên SAP nào đang mở")
         total_open = conn.Children.Count
         if total_open <= 0:
             raise SapExecutionError("Không tìm thấy phiên SAP nào đang mở")

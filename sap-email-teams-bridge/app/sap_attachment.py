@@ -40,7 +40,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set, Callable
 
 import threading
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 
 from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
 
@@ -4699,189 +4699,191 @@ class MigoAttachmentRunner:
         # ---------------------------------------------------------------------
 
         if len(active_tab_indices) > 1:
-
             self._multi_tab_mode = True
 
-            tab_chunks = {t_idx: [] for t_idx in active_tab_indices}
-
+            # WORK-STEALING DYNAMIC SCHEDULER & FAULT QUARANTINE (CHỐNG TREO DÂY CHUYỀN)
+            from collections import deque
+            tab_queues = {t_idx: deque() for t_idx in active_tab_indices}
             for i, itm in enumerate(items):
-
                 target_tab = active_tab_indices[i % len(active_tab_indices)]
-
-                tab_chunks[target_tab].append((i, itm))
-
-
+                tab_queues[target_tab].append((i, itm))
 
             processed_count = 0
-
             success_count = 0
-
             prog_lock = threading.Lock()
-
+            queue_lock = threading.Lock()
             indexed_results = []
+            stop_event = threading.Event()
+            healthy_tabs = set(active_tab_indices)
 
-
-
-            def _tab_worker(tab_idx: int, chunk: List[Tuple[int, Dict[str, str]]]):
-
+            def _tab_worker(tab_idx: int):
                 nonlocal processed_count, success_count, last_progress_time
-
                 if pythoncom is not None:
-
                     pythoncom.CoInitialize()
 
-                worker_results = []
-
                 tab_lock = BATCH_TAB_LOCKS.get(tab_idx, threading.Lock())
-
-
-
                 with tab_lock:
-
                     worker_session = None
-
                     try:
-
                         conn_idx = 0
-
                         if isinstance(self.expected_session_identity, dict):
-
                             conn_idx = self.expected_session_identity.get("connection_index", self.expected_session_identity.get("connection_id", 0))
-
                         elif hasattr(self.sap_engine, "connection_index"):
-
                             conn_idx = getattr(self.sap_engine, "connection_index", 0)
-
                         worker_session = get_safe_sap_session(conn_idx, tab_idx)
-
                     except Exception as conn_err:
-
                         print(f"[ATT RUNNER Tab {tab_idx}] Lỗi kết nối session: {conn_err}")
 
-
-
                     if worker_session is not None:
-
                         self.prepare_migo_session(worker_session, mode="CHANGE")
+                    else:
+                        print(f"[ATT RUNNER Tab {tab_idx} QUARANTINE] ⚠️ Không thể lấy session cho Tab {tab_idx+1}. Bỏ qua tab này để các tab khác tiếp tục gánh tải!")
+                        with queue_lock:
+                            healthy_tabs.discard(tab_idx)
+                        if pythoncom is not None:
+                            pythoncom.CoUninitialize()
+                        return
 
-
-
+                    consecutive_tab_errors = 0
+                    idle_spins = 0
                     try:
+                        while not stop_event.is_set():
+                            item_tuple = None
+                            with queue_lock:
+                                if tab_queues.get(tab_idx):
+                                    item_tuple = tab_queues[tab_idx].popleft()
+                                    idle_spins = 0
+                                else:
+                                    # CHỈ RÚT VIỆC TỪ CÁC TAB BỊ LỖI / BỊ TREO / ĐÃ BỊ CÁCH LY (QUARANTINED TABS)
+                                    dead_tabs = [t for t in tab_queues if t not in healthy_tabs and tab_queues[t]]
+                                    if dead_tabs:
+                                        target_steal = dead_tabs[0]
+                                        item_tuple = tab_queues[target_steal].popleft()
+                                        idle_spins = 0
+                                        print(f"[ATT RUNNER Tab {tab_idx}] ⚡ Cứu viện tab lỗi: Rút việc từ Tab {target_steal+1} (còn {len(tab_queues[target_steal])} việc)!")
 
-                        for orig_idx, itm in chunk:
+                            if item_tuple is None:
+                                # Kiểm tra xem còn tab nào khác đang dở việc không
+                                has_remaining = False
+                                with queue_lock:
+                                    if any(len(q) > 0 for q in tab_queues.values()):
+                                        has_remaining = True
+                                if has_remaining and idle_spins < 60:
+                                    idle_spins += 1
+                                    time.sleep(0.05)
+                                    continue
+                                break
 
+                            orig_idx, itm = item_tuple
                             doc_str = str(itm.get("doc", "")).strip()
+                            is_tab_fatal = False
 
                             try:
-
                                 res_dict, is_s = self.process_single_migo_item(
-
                                     worker_session, itm, index_data, fill_headtext, year,
-
                                     is_folder_requested, has_folder, folder_error, dry_run=False,
-
                                     allow_overwrite_headtext=allow_overwrite_headtext
-
                                 )
-
+                                consecutive_tab_errors = 0
                             except Exception as item_err:
-
+                                err_msg = str(item_err)
                                 print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
 
-                                sanitize_migo_session(worker_session)
+                                fatal_indicators = [
+                                    "-2147352567", "-2147417848", "-2147023170",
+                                    "the enumerator of the collection",
+                                    "the server threw an exception",
+                                    "the remote procedure call failed",
+                                    "disconnected", "connection broken", "session closed"
+                                ]
+                                if any(ind in err_msg.lower() for ind in fatal_indicators) or consecutive_tab_errors >= 3:
+                                    is_tab_fatal = True
+
+                                if is_tab_fatal:
+                                    with queue_lock:
+                                        healthy_tabs.discard(tab_idx)
+                                        remain = len(healthy_tabs)
+                                    print(f"[ATT RUNNER Tab {tab_idx} QUARANTINE] ⚠️ Tab {tab_idx+1} gặp sự cố nghiêm trọng ({err_msg}). Tiến hành cô lập và loại bỏ tab này!")
+                                    print(f"[ATT RUNNER] 🔄 Dây chuyền tiếp tục vận hành với {remain} tab còn lại; các chứng từ tồn sẽ được các tab khỏe rút việc xử lý tiếp.")
+                                else:
+                                    consecutive_tab_errors += 1
+                                    sanitize_migo_session(worker_session)
 
                                 res_dict = {
-
                                     "doc": doc_str,
-
                                     "ticket_no": str(itm.get("ticket_no", "")).strip(),
-
                                     "headtext_status": "EXCEPTION",
-
-                                    "headtext_msg": str(item_err),
-
+                                    "headtext_msg": err_msg,
                                     "bbbg_status": "ERROR",
-
                                     "vat_status": "ERROR",
-
                                     "mail_status": "ERROR",
-
                                     "overall_status": "ERROR",
-
                                     "match_notes": f"Tab {tab_idx} exception: {item_err}"
-
                                 }
-
                                 is_s = False
 
-
-
-                            worker_results.append((orig_idx, res_dict, is_s))
-
-
-
                             with prog_lock:
-
+                                indexed_results.append((orig_idx, res_dict, is_s))
                                 processed_count += 1
-
-                                is_item_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE" 
-
+                                is_item_succ = is_s or res_dict.get("is_succ") is True or res_dict.get("overall_status") == "DONE"
                                 if is_item_succ:
-
                                     success_count += 1
-
                                 now = time.time()
-
                                 if progress_callback and (now - last_progress_time >= PROGRESS_INTERVAL_SEC):
-
                                     last_progress_time = now
-
                                     try:
-
                                         progress_callback(processed_count, total_items, doc_str, success_count)
-
                                     except Exception:
-
                                         pass
 
+                            if is_tab_fatal:
+                                break
+
                     finally:
-
-                        # Đưa tab về /n hoặc F3 sạch sẽ sau khi hoàn tất batch
-
-                        reset_session_to_main_menu(worker_session)
-
-
+                        if not is_tab_fatal:
+                            reset_session_to_main_menu(worker_session)
 
                 if pythoncom is not None:
-
                     pythoncom.CoUninitialize()
-
-                return worker_results
-
-
+                return
 
             with ThreadPoolExecutor(max_workers=len(active_tab_indices)) as executor:
-
                 futures = [
-
-                    executor.submit(_tab_worker, t_idx, tab_chunks[t_idx])
-
+                    executor.submit(_tab_worker, t_idx)
                     for t_idx in active_tab_indices
-
                 ]
+                max_batch_wait = max(180.0, len(items) * 30.0)
+                done, not_done = wait(futures, timeout=max_batch_wait)
+                if not_done:
+                    print(f"[ATT RUNNER WARN] Có {len(not_done)} tab bị treo quá thời gian cho phép ({max_batch_wait:.0f}s). Dừng chờ và thu hồi kết quả!")
+                    stop_event.set()
 
-                for fut in as_completed(futures):
-
-                    indexed_results.extend(fut.result())
-
-
-
-            # Khôi phục đúng thứ tự ban đầu của danh sách
+                # VÉT SẠCH 100% CÁC CHỨNG TỪ TỒN ĐỌNG (NẾU CÓ) ĐỂ KHÔNG BAO GIỜ BỊ THẤT THOÁT
+                with queue_lock:
+                    for t_q in tab_queues.values():
+                        while t_q:
+                            o_idx, rem_itm = t_q.popleft()
+                            doc_rem = str(rem_itm.get("doc", "")).strip()
+                            with prog_lock:
+                                indexed_results.append((
+                                    o_idx,
+                                    {
+                                        "doc": doc_rem,
+                                        "ticket_no": str(rem_itm.get("ticket_no", "")).strip(),
+                                        "headtext_status": "TIMEOUT",
+                                        "headtext_msg": "Quá thời gian chờ hoặc tab bị sự cố ngắt đột ngột",
+                                        "bbbg_status": "TIMEOUT",
+                                        "vat_status": "TIMEOUT",
+                                        "mail_status": "TIMEOUT",
+                                        "overall_status": "TIMEOUT",
+                                        "match_notes": "Batch recovery drain"
+                                    },
+                                    False
+                                ))
+                                processed_count += 1
 
             indexed_results.sort(key=lambda x: x[0])
-
             for _, r_dict, is_s in indexed_results:
-
                 results.append(r_dict)
 
                 st = str(r_dict.get("overall_status", "")).upper()
