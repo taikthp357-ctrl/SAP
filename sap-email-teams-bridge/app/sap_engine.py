@@ -309,9 +309,24 @@ class SapEngine:
         self.last_activity = time.time()
         return selected
 
+    def recover_hung_session(self):
+        """Tự động cưỡng chế diệt SAP bị đơ và kết nối lại qua SSO."""
+        from app.sap_recovery import recover_hung_sap_session
+        conn_name = getattr(self, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link")
+        new_sess = recover_hung_sap_session(connection_name=conn_name)
+        if new_sess is not None:
+            self.session = new_sess
+            self.session_identity = self._check_identity(new_sess)
+            self.is_dedicated_session = False
+            self.last_activity = time.time()
+        return new_sess
+
     def _is_session_alive(self) -> bool:
         """Kiểm tra xem session SAP còn phản hồi trong bộ nhớ RAM hay không."""
         try:
+            from app.sap_recovery import is_sap_gui_hung
+            if is_sap_gui_hung():
+                return False
             if self.session is None:
                 return False
             _ = self.session.findById("wnd[0]").Text
@@ -320,7 +335,10 @@ class SapEngine:
             return False
 
     def ensure_session(self):
-        if not self._is_session_alive():
+        from app.sap_recovery import is_sap_gui_hung
+        if is_sap_gui_hung():
+            self.session = self.recover_hung_session()
+        elif not self._is_session_alive():
             self.session = self._connect_sap()
         identity = self._check_identity(self.session)
         if getattr(self, "session_identity", None):
@@ -343,6 +361,12 @@ class SapEngine:
         """
         if not getattr(self, "enable_keep_alive", True):
             return False
+
+        from app.sap_recovery import is_sap_gui_hung
+        if is_sap_gui_hung():
+            print("[SAP KEEP-ALIVE 24/7] ⚠️ Phát hiện SAP GUI bị đơ cứng trong đêm! Tự động khởi động lại SSO...")
+            self.session = self.recover_hung_session()
+            return self.session is not None
 
         threshold = (
             idle_threshold_seconds

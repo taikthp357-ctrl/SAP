@@ -553,3 +553,74 @@ class TestUpgradeV1105DynamicQueueAndAutoLogon:
             engine = SapEngine(enable_sap_auto_reconnect=True)
             sess = engine._connect_sap()
             assert sess == mock_recovered_sess
+
+    def test_prevent_windows_sleep_sets_execution_state(self):
+        """Kiểm tra tính năng chống Windows Sleep khi chạy qua đêm 24/7."""
+        from app.sap_recovery import prevent_windows_sleep
+        with patch("ctypes.windll.kernel32.SetThreadExecutionState", return_value=0x80000000) as mock_set:
+            res = prevent_windows_sleep(True)
+            assert res is True
+            assert mock_set.called
+
+    def test_is_sap_gui_hung_detects_not_responding(self):
+        """Phát hiện tiến trình SAP GUI bị treo cứng (Not Responding) qua OS tasklist."""
+        from app.sap_recovery import is_sap_gui_hung
+        hung_output = '\"saplogon.exe\",\"1234\",\"Console\",\"1\",\"50,000 K\",\"Not Responding\"\n'
+        with patch("subprocess.check_output", return_value=hung_output):
+            assert is_sap_gui_hung() is True
+
+        normal_output = '\"saplogon.exe\",\"1234\",\"Console\",\"1\",\"50,000 K\",\"Unknown\"\n'
+        with patch("subprocess.check_output", return_value=normal_output):
+            assert is_sap_gui_hung() is False
+
+    def test_recover_hung_sap_session_kills_and_reconnects(self):
+        """Cưỡng chế dọn dẹp SAP bị đơ và kết nối lại phiên SSO mới."""
+        from app.sap_recovery import recover_hung_sap_session
+        mock_new_sess = MagicMock()
+        with patch("app.sap_recovery.kill_hung_sap_processes", return_value=True) as mock_kill,              patch("app.sap_recovery.auto_connect_sso_session", return_value=mock_new_sess) as mock_sso,              patch("time.sleep", return_value=None):
+            sess = recover_hung_sap_session(connection_name="13.Future VN S4 HANA PRD (SSO) Link")
+            assert sess == mock_new_sess
+            mock_kill.assert_called_once()
+            mock_sso.assert_called_once()
+
+    def test_sap_engine_recovers_hung_session_in_keep_alive(self):
+        """Khi Keep-Alive phát hiện SAP bị đơ cứng ban đêm, tự động kích hoạt recover_hung_session."""
+        from app.sap_engine import SapEngine
+        engine = SapEngine(enable_keep_alive=True)
+        engine.last_activity = 0.0 # Quá hạn idle
+
+        mock_recovered = MagicMock()
+        with patch("app.sap_recovery.is_sap_gui_hung", return_value=True),              patch.object(engine, "recover_hung_session", return_value=mock_recovered) as mock_rec:
+            res = engine.keep_alive()
+            assert res is True
+            mock_rec.assert_called_once()
+
+    def test_intra_batch_self_healing_rescues_all_remaining_items(self):
+        """Khi tất cả các tab bị sập giữa chừng, cơ chế Intra-batch Self-Healing tự động mở lại SSO và hoàn tất mẻ hàng."""
+        runner = MigoAttachmentRunner()
+        mock_sap = MagicMock()
+        mock_sap.session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "connection_index": 0}
+        mock_sap.check_attachments_zfir266.return_value = []
+        runner.sap_engine = mock_sap
+        runner._prompt_context = "sap att 2 tab"
+
+        items = [{"doc": f"50070000{i:02d}", "ticket_no": f"TICK_{i}"} for i in range(4)]
+
+        # Tab 1 và Tab 2 đều bị sập ngay lập tức -> còn 4 items chưa xong
+        def mock_process_item_fatal(worker_session, itm, *args, **kwargs):
+            if getattr(worker_session, "is_healed", False):
+                return ({"doc": itm.get("doc"), "status": "DONE"}, True)
+            raise RuntimeError("The remote procedure call failed: disconnected")
+
+        def mock_get_session(conn_idx, tab_idx):
+            s = MagicMock()
+            s.is_healed = False
+            return s
+
+        healed_session = MagicMock()
+        healed_session.is_healed = True
+
+        with patch("app.sap_attachment.pythoncom", MagicMock()),              patch("app.sap_attachment.ensure_sap_tabs", return_value=3),              patch.object(runner, "prepare_migo_session", return_value=True),              patch.object(runner, "process_single_migo_item", side_effect=mock_process_item_fatal),              patch("app.sap_attachment.get_safe_sap_session", side_effect=mock_get_session),              patch("app.sap_recovery.is_sap_gui_hung", return_value=False),              patch("app.sap_recovery.auto_connect_sso_session", return_value=healed_session):
+            summary = runner.process_attachment_batch(folder_path="", items=items, dry_run=False)
+            assert summary["total_items"] == 4
+            assert len(summary["results"]) == 4

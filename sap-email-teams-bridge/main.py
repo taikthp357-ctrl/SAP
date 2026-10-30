@@ -726,6 +726,13 @@ def run_bridge():
 
     )
 
+    try:
+        from app.sap_recovery import prevent_windows_sleep
+        if prevent_windows_sleep(True):
+            print("[SLEEP GUARD] 🛡️ Đã kích hoạt bảo vệ Windows Awake: Ngăn máy Sleep/Standby khi chạy qua đêm 24/7.")
+    except Exception as ex:
+        print(f"[SLEEP GUARD WARN] {ex}")
+
     print(f"[READY] Đang lắng nghe thư mới trong '{bot_folder.Name}'...")
 
 
@@ -761,6 +768,14 @@ def run_bridge():
             # Deliver durable results before touching SAP or requesting new work.
 
             deliver_outbox(state_mgr, max_retries)
+
+            try:
+                from app.sap_recovery import is_sap_gui_hung
+                if is_sap_gui_hung():
+                    print("[WATCHDOG 24/7] ⚠️ Phát hiện SAP GUI bị đơ cứng (Not Responding)! Đang tự động giải phóng và kết nối lại qua SSO...")
+                    sap.recover_hung_session()
+            except Exception:
+                pass
 
             sap.keep_alive()
 

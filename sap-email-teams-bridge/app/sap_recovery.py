@@ -2,18 +2,18 @@
 """
 Module sap_recovery.py: Tự động phục hồi, mở lại kết nối SAP qua SSO và vượt Popup Đa phiên.
 Hỗ trợ:
-1. Tự động khởi chạy saplogon.exe nếu chưa chạy.
-2. Tự động mở Connection chỉ định (mặc định: '13.Future VN S4 HANA PRD (SSO) Link') không cần user/password (Windows Domain SSO).
-3. Tự động phát hiện và vượt qua popup 'License Information for Multiple Logons':
-   - Tích chọn: 'Continue with this logon and end any other logons in the system' (radMULTI_LOGON_OPT2/OPT1)
-   - Nhấn nút Tích xanh (VKey 0 / btn[0] / Enter).
-4. Tự động phát hiện và xử lý SAP GUI bị treo cứng (Hard Hang) qua Win32 API.
+1. Chống Sleep Windows khi chạy qua đêm (SetThreadExecutionState Awake Mode).
+2. Tự động kiểm tra phát hiện SAP GUI bị đơ cứng (Not Responding) qua OS tasklist.
+3. Tự động cưỡng chế giải phóng (taskkill) và mở lại phiên SAP SSO mới không cần gõ mật khẩu.
+4. Tự động phát hiện và vượt qua popup 'License Information for Multiple Logons' (radMULTI_LOGON_OPT2 + Enter).
+5. Tự động khôi phục mẻ chứng từ đang dở dang (Intra-batch Self-Healing).
 """
 
 import os
 import sys
 import time
 import subprocess
+import ctypes
 from typing import Optional, Any, Tuple
 
 try:
@@ -34,6 +34,26 @@ DEFAULT_SAPLOGON_PATHS = [
 ]
 
 
+def prevent_windows_sleep(enable: bool = True) -> bool:
+    """
+    Giữ cho Windows luôn ở trạng thái thức (Awake) khi chạy Bot xuyên đêm 24/7.
+    Cho phép tắt màn hình để tiết kiệm điện nhưng CPU và Card Mạng luôn hoạt động 100%.
+    """
+    try:
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ES_AWAYMODE_REQUIRED = 0x00000002
+        if enable:
+            flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+        else:
+            flags = ES_CONTINUOUS
+        res = ctypes.windll.kernel32.SetThreadExecutionState(flags)
+        return res != 0
+    except Exception as ex:
+        print(f"[WINDOWS SLEEP GUARD WARN] {ex}")
+        return False
+
+
 def is_saplogon_running() -> bool:
     """Kiểm tra xem tiến trình saplogon.exe có đang chạy trong Windows không."""
     try:
@@ -44,6 +64,26 @@ def is_saplogon_running() -> bool:
             timeout=3.0,
         )
         return "saplogon.exe" in output.lower()
+    except Exception:
+        return False
+
+
+def is_sap_gui_hung(timeout_sec: float = 3.0) -> bool:
+    """
+    Kiểm tra xem SAP GUI (saplogon.exe / sapfront.exe) có đang ở trạng thái 'Not Responding' (đơ cứng) hay không.
+    Sử dụng lệnh truy vấn cấp OS Windows tasklist, không bị block luồng COM.
+    """
+    try:
+        output = subprocess.check_output(
+            ["tasklist", "/FI", "STATUS eq NOT RESPONDING", "/FO", "CSV", "/NH"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            timeout=timeout_sec,
+        )
+        out_lower = output.lower()
+        if ("saplogon.exe" in out_lower or "sapfront.exe" in out_lower) and "not responding" in out_lower:
+            return True
+        return False
     except Exception:
         return False
 
@@ -88,21 +128,26 @@ def launch_saplogon_if_needed(custom_path: Optional[str] = None) -> bool:
 
 
 def kill_hung_sap_processes(timeout_sec: float = 3.0) -> bool:
-    """Dọn dẹp cưỡng chế saplogon.exe khi bị treo cứng."""
+    """Dọn dẹp cưỡng chế saplogon.exe và sapfront.exe khi bị treo cứng hoặc cần khởi động lại."""
+    success = False
     try:
-        print("[SAP RECOVERY] ⚠️ Đang giải phóng tiến trình saplogon.exe bị treo...")
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "saplogon.exe", "/T"],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            timeout=timeout_sec,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        print("[SAP RECOVERY] ⚠️ Đang giải phóng tiến trình saplogon.exe / sapfront.exe...")
+        for proc in ("saplogon.exe", "sapfront.exe"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", proc, "/T"],
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    timeout=timeout_sec,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
         time.sleep(1.5)
-        return True
+        success = True
     except Exception as ex:
         print(f"[SAP RECOVERY WARN] Không thể kill saplogon: {ex}")
-        return False
+    return success
 
 
 def handle_multiple_logons_popup(session, max_wait_sec: float = 2.5) -> bool:
@@ -119,7 +164,6 @@ def handle_multiple_logons_popup(session, max_wait_sec: float = 2.5) -> bool:
 
     while time.time() - t0 < max_wait_sec:
         try:
-            # Kiểm tra wnd[1] hoặc wnd[0] có popup License
             for wnd_id in ("wnd[1]", "wnd[0]"):
                 wnd = None
                 try:
@@ -233,7 +277,6 @@ def auto_connect_sso_session(
             # 3. Mở kết nối SSO
             conn = None
             try:
-                # OpenConnection(name, Sync=True)
                 conn = app.OpenConnection(connection_name, True)
             except Exception as conn_err:
                 print(f"[SAP RECOVERY WARN] OpenConnection '{connection_name}' văng lỗi: {conn_err}")
@@ -273,3 +316,21 @@ def auto_connect_sso_session(
             time.sleep(1.0)
 
     return None
+
+
+def recover_hung_sap_session(
+    connection_name: str = DEFAULT_SAP_CONNECTION,
+    custom_saplogon_path: Optional[str] = None
+) -> Optional[Any]:
+    """
+    Cưỡng chế dọn dẹp tiến trình SAP bị treo (taskkill) và mở lại kết nối SSO mới hoàn toàn.
+    """
+    print("[SAP RECOVERY] ⚠️ Cưỡng chế giải phóng SAP GUI bị đơ cứng và kết nối lại qua SSO...")
+    kill_hung_sap_processes(timeout_sec=4.0)
+    time.sleep(2.0)
+    return auto_connect_sso_session(
+        connection_name=connection_name,
+        custom_saplogon_path=custom_saplogon_path,
+        timeout_sec=20.0,
+        max_retries=3
+    )

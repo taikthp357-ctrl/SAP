@@ -4858,29 +4858,80 @@ class MigoAttachmentRunner:
                     print(f"[ATT RUNNER WARN] Có {len(not_done)} tab bị treo quá thời gian cho phép ({max_batch_wait:.0f}s). Dừng chờ và thu hồi kết quả!")
                     stop_event.set()
 
-                # VÉT SẠCH 100% CÁC CHỨNG TỪ TỒN ĐỌNG (NẾU CÓ) ĐỂ KHÔNG BAO GIỜ BỊ THẤT THOÁT
+                # TỰ HỒI SINH GIỮA MẺ (INTRA-BATCH SELF-HEALING): Cứu vãn các chứng từ còn tồn khi tất cả các tab bị sập
+                unprocessed_items = []
                 with queue_lock:
                     for t_q in tab_queues.values():
                         while t_q:
-                            o_idx, rem_itm = t_q.popleft()
+                            unprocessed_items.append(t_q.popleft())
+
+                if unprocessed_items:
+                    print(f"[ATT RUNNER SELF-HEAL] ⚠️ Còn {len(unprocessed_items)} chứng từ chưa hoàn tất do sự cố sập tab! Kích hoạt quy trình TỰ HỒI SINH GIỮA MẺ...")
+                    heal_session = None
+                    try:
+                        from app.sap_recovery import is_sap_gui_hung, recover_hung_sap_session, auto_connect_sso_session
+                        conn_name = getattr(self.sap_engine, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link") if self.sap_engine else "13.Future VN S4 HANA PRD (SSO) Link"
+                        if is_sap_gui_hung():
+                            print("[ATT RUNNER SELF-HEAL] Phát hiện SAP GUI bị đơ cứng! Cưỡng chế kill và mở lại phiên SSO mới...")
+                            heal_session = recover_hung_sap_session(connection_name=conn_name)
+                        else:
+                            heal_session = auto_connect_sso_session(connection_name=conn_name)
+                    except Exception as heal_conn_err:
+                        print(f"[ATT RUNNER SELF-HEAL WARN] Lỗi khi kết nối lại SSO: {heal_conn_err}")
+                        heal_session = None
+
+                    if heal_session is not None:
+                        print(f"[ATT RUNNER SELF-HEAL] ✅ Kết nối lại SSO thành công! Tiếp tục xử lý {len(unprocessed_items)} chứng từ tồn đọng...")
+                        self.prepare_migo_session(heal_session, mode="CHANGE")
+                        for o_idx, rem_itm in unprocessed_items:
                             doc_rem = str(rem_itm.get("doc", "")).strip()
+                            try:
+                                h_dict, h_succ = self.process_single_migo_item(
+                                    heal_session, rem_itm, index_data, fill_headtext, year,
+                                    is_folder_requested, has_folder, folder_error, dry_run=False,
+                                    allow_overwrite_headtext=allow_overwrite_headtext
+                                )
+                            except Exception as h_err:
+                                h_dict = {
+                                    "doc": doc_rem,
+                                    "ticket_no": str(rem_itm.get("ticket_no", "")).strip(),
+                                    "headtext_status": "EXCEPTION",
+                                    "headtext_msg": str(h_err),
+                                    "bbbg_status": "ERROR",
+                                    "vat_status": "ERROR",
+                                    "mail_status": "ERROR",
+                                    "overall_status": "ERROR",
+                                    "match_notes": f"Self-heal recovery error: {h_err}"
+                                }
+                                h_succ = False
                             with prog_lock:
-                                indexed_results.append((
-                                    o_idx,
-                                    {
-                                        "doc": doc_rem,
-                                        "ticket_no": str(rem_itm.get("ticket_no", "")).strip(),
-                                        "headtext_status": "TIMEOUT",
-                                        "headtext_msg": "Quá thời gian chờ hoặc tab bị sự cố ngắt đột ngột",
-                                        "bbbg_status": "TIMEOUT",
-                                        "vat_status": "TIMEOUT",
-                                        "mail_status": "TIMEOUT",
-                                        "overall_status": "TIMEOUT",
-                                        "match_notes": "Batch recovery drain"
-                                    },
-                                    False
-                                ))
+                                indexed_results.append((o_idx, h_dict, h_succ))
                                 processed_count += 1
+                                if h_succ or h_dict.get("is_succ") is True or h_dict.get("overall_status") == "DONE":
+                                    success_count += 1
+                            time.sleep(0.05)
+                        unprocessed_items.clear()
+
+                # Vét nốt những item thực sự không thể phục hồi (nếu SSO không mở được)
+                for o_idx, rem_itm in unprocessed_items:
+                    doc_rem = str(rem_itm.get("doc", "")).strip()
+                    with prog_lock:
+                        indexed_results.append((
+                            o_idx,
+                            {
+                                "doc": doc_rem,
+                                "ticket_no": str(rem_itm.get("ticket_no", "")).strip(),
+                                "headtext_status": "TIMEOUT",
+                                "headtext_msg": "Quá thời gian chờ hoặc tab bị sự cố ngắt đột ngột",
+                                "bbbg_status": "TIMEOUT",
+                                "vat_status": "TIMEOUT",
+                                "mail_status": "TIMEOUT",
+                                "overall_status": "TIMEOUT",
+                                "match_notes": "Batch recovery drain"
+                            },
+                            False
+                        ))
+                        processed_count += 1
 
             indexed_results.sort(key=lambda x: x[0])
             for _, r_dict, is_s in indexed_results:
