@@ -20,8 +20,8 @@ from app.sap_engine import SapEngine, SapExecutionError
 class TestSapTabsAndApartmentV1101:
     """Kiểm thử quản lý Tab SAP và căn hộ COM trong v1.1.01."""
 
-    def test_ensure_sap_tabs_caps_at_7_and_does_not_uninitialize_com(self):
-        """Đảm bảo ensure_sap_tabs chặn trần ở 7 tabs và KHÔNG gọi CoUninitialize trên thread chính."""
+    def test_ensure_sap_tabs_caps_at_6_and_does_not_uninitialize_com(self):
+        """Đảm bảo ensure_sap_tabs chặn trần ở 6 tabs và KHÔNG gọi CoUninitialize trên thread chính."""
         mock_conn = MagicMock()
         mock_s0 = MagicMock()
         mock_s0.Busy = False
@@ -164,7 +164,7 @@ class TestTurboMaxAllocationV1101:
     """Kiểm thử phân bổ Tab Turbo Max trong process_attachment_batch."""
 
     def test_turbo_max_allocates_up_to_6_bot_tabs_when_7_tabs_available(self):
-        """Lệnh 'att max' với 10 items khi có 7 tabs sẽ dùng 6 bot tabs (Tab 2..7) và bảo tồn Tab 1 cho User."""
+        """Lệnh 'att max' với 10 items khi người dùng nhàn rỗi (idle >= 45s) sẽ dùng cả 6 bot tabs (Tab 1..6)."""
         mock_sap = MagicMock()
         mock_sap.session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "connection_index": 0}
         mock_sap.check_attachments_zfir266.return_value = []
@@ -175,7 +175,8 @@ class TestTurboMaxAllocationV1101:
         items = [{"doc": f"50071{i:05d}", "ticket_no": f"TICK{i}"} for i in range(10)]
 
         with patch("app.sap_attachment.ensure_sap_tabs", return_value=7) as mock_ensure, \
-             patch("app.sap_attachment.get_user_idle_seconds", return_value=10.0), \
+             patch("app.sap_attachment.get_safe_sap_session", return_value=MagicMock()), \
+             patch("app.sap_attachment.get_user_idle_seconds", return_value=60.0), \
              patch.object(runner, "prepare_migo_session", return_value=True), \
              patch.object(runner, "process_single_migo_item") as mock_item:
 
@@ -188,7 +189,7 @@ class TestTurboMaxAllocationV1101:
             assert summary["is_turbo"] is True
 
     def test_turbo_max_adapts_to_5_bot_tabs_when_6_tabs_available(self):
-        """Lệnh 'att max' khi hệ thống chỉ có 6 tabs sẽ dùng 5 bot tabs (Tab 2..6) và bảo tồn Tab 1 cho User."""
+        """Lệnh 'att max' khi người dùng đang hoạt động (idle < 45s) sẽ dùng 5 bot tabs (Tab 2..6) và bảo tồn Tab 1 cho User."""
         mock_sap = MagicMock()
         mock_sap.session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "connection_index": 0}
         mock_sap.check_attachments_zfir266.return_value = []
@@ -199,6 +200,7 @@ class TestTurboMaxAllocationV1101:
         items = [{"doc": f"50071{i:05d}", "ticket_no": f"TICK{i}"} for i in range(10)]
 
         with patch("app.sap_attachment.ensure_sap_tabs", return_value=6) as mock_ensure, \
+             patch("app.sap_attachment.get_safe_sap_session", return_value=MagicMock()), \
              patch("app.sap_attachment.get_user_idle_seconds", return_value=10.0), \
              patch.object(runner, "prepare_migo_session", return_value=True), \
              patch.object(runner, "process_single_migo_item") as mock_item:

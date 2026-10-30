@@ -340,17 +340,7 @@ def reset_session_to_main_menu(session):
 
                 if w0:
 
-                    for _ in range(3):
-
-                        w0.SendVKey(3)  # F3
-
-                        time.sleep(0.1)
-
-                        cur_t = str(getattr(getattr(session, "Info", None), "Transaction", "") or "").upper()
-
-                        if cur_t in ("SESSION_MANAGER", ""):
-
-                            break
+                    pass
 
         except Exception:
 
@@ -4257,6 +4247,8 @@ class MigoAttachmentRunner:
                 if pythoncom is not None:
                     pythoncom.CoInitialize()
 
+                if tab_idx > 0:
+                    time.sleep(min(1.0, (tab_idx % 6) * 0.15))
                 tab_lock = BATCH_TAB_LOCKS.get(tab_idx, threading.Lock())
                 with tab_lock:
                     worker_session = None
@@ -4326,13 +4318,13 @@ class MigoAttachmentRunner:
                                 print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
 
                                 fatal_indicators = [
-                                    "-2147352567", "-2147417848", "-2147023170",
+                                    "-2147417848", "-2147023170",
                                     "the enumerator of the collection",
                                     "the server threw an exception",
                                     "the remote procedure call failed",
                                     "disconnected", "connection broken", "session closed"
                                 ]
-                                if any(ind in err_msg.lower() for ind in fatal_indicators) or consecutive_tab_errors >= 3:
+                                if any(ind in err_msg.lower() for ind in fatal_indicators) or consecutive_tab_errors >= 5:
                                     is_tab_fatal = True
 
                                 if is_tab_fatal:
@@ -4405,10 +4397,10 @@ class MigoAttachmentRunner:
                     print(f"[ATT RUNNER SELF-HEAL] ⚠️ Còn {len(unprocessed_items)} chứng từ chưa hoàn tất do sự cố sập tab! Kích hoạt quy trình TỰ HỒI SINH GIỮA MẺ...")
                     heal_session = None
                     try:
-                        from app.sap_recovery import is_sap_gui_hung, recover_hung_sap_session, auto_connect_sso_session
+                        from app.sap_recovery import is_sap_gui_hung, is_sap_gui_alive, recover_hung_sap_session, auto_connect_sso_session
                         conn_name = getattr(self.sap_engine, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link") if self.sap_engine else "13.Future VN S4 HANA PRD (SSO) Link"
-                        if is_sap_gui_hung():
-                            print("[ATT RUNNER SELF-HEAL] Phát hiện SAP GUI bị đơ cứng! Cưỡng chế kill và mở lại phiên SSO mới...")
+                        if not is_sap_gui_alive():
+                            print("[ATT RUNNER SELF-HEAL] Phát hiện SAP GUI bị văng, crash hoặc đơ cứng! Cưỡng chế giải phóng và mở lại phiên SSO mới...")
                             heal_session = recover_hung_sap_session(connection_name=conn_name)
                         else:
                             heal_session = auto_connect_sso_session(connection_name=conn_name)

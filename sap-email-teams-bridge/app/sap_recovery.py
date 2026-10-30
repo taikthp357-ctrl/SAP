@@ -88,6 +88,32 @@ def is_sap_gui_hung(timeout_sec: float = 3.0) -> bool:
         return False
 
 
+def is_sap_gui_alive() -> bool:
+    """
+    Kiểm tra xem SAP GUI có đang chạy và còn kết nối Scripting Engine hợp lệ không.
+    Trả về False nếu SAP bị văng, crash, bị tắt, hoặc bị đơ cứng.
+    """
+    if not is_saplogon_running():
+        return False
+    if is_sap_gui_hung():
+        return False
+    try:
+        if pythoncom is not None:
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+        if win32com is None:
+            return True
+        sap_gui = win32com.client.GetObject("SAPGUI")
+        app = getattr(sap_gui, "GetScriptingEngine", None)
+        if app is None or not hasattr(app, "Children") or app.Children.Count == 0:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def launch_saplogon_if_needed(custom_path: Optional[str] = None) -> bool:
     """Khởi chạy saplogon.exe nếu chưa chạy và chờ ứng dụng sẵn sàng."""
     if is_saplogon_running():
