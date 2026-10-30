@@ -624,3 +624,47 @@ class TestUpgradeV1105DynamicQueueAndAutoLogon:
             summary = runner.process_attachment_batch(folder_path="", items=items, dry_run=False)
             assert summary["total_items"] == 4
             assert len(summary["results"]) == 4
+
+    def test_open_migo_document_retries_and_succeeds_on_ui_lag(self):
+        """Khi lần 1 gặp độ trễ giao diện (NAV_ERROR / E_PENDING / 613), Bot tự động làm mới và thử lại lần 2 thành công."""
+        runner = MigoAttachmentRunner()
+        mock_session = MagicMock()
+
+        # Lần 1 ném ngoại lệ COM 613, Lần 2 thành công
+        call_count = 0
+        def mock_do_open(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return (False, "NAV_ERROR: (-2147352567, 'Exception occurred.', (613, 'SAP Frontend Server', 'The method got an invalid argument.'))")
+            return (True, "LOADED_VERIFIED")
+
+        with patch.object(runner, "_do_open_migo_document", side_effect=mock_do_open),              patch("app.sap_attachment.sanitize_migo_session"),              patch.object(runner, "prepare_migo_session", return_value=True),              patch("time.sleep"):
+            ok, msg = runner.open_migo_document(mock_session, "5007001234", "2026")
+            assert ok is True
+            assert msg == "LOADED_VERIFIED"
+            assert call_count == 2
+
+    def test_verify_session_identity_waits_for_busy_before_failing(self):
+        """Khi session đang Busy, verify_session_identity kiên nhẫn chờ sap_wait_idle thay vì vội vàng trả về SESSION_BUSY."""
+        runner = MigoAttachmentRunner()
+        runner.expected_session_identity = {"system": "PRD", "client": "100", "user": "TAIPH3", "allow_any_tab": True}
+        mock_session = MagicMock()
+        mock_info = MagicMock()
+        mock_info.SystemName = "PRD"
+        mock_info.Client = "100"
+        mock_info.User = "TAIPH3"
+        mock_info.Transaction = "MIGO"
+        mock_session.Info = mock_info
+        mock_session.Id = "/app/con[0]/ses[0]"
+        mock_session.Busy = True
+
+        with patch("app.sap_attachment.sap_wait_idle") as mock_wait:
+            def clear_busy(session, max_wait_sec):
+                session.Busy = False
+            mock_wait.side_effect = clear_busy
+
+            ok, reason = runner.verify_session_identity(mock_session, require_migo=True)
+            assert ok is True
+            assert reason == "SESSION_VERIFIED"
+            assert mock_wait.called

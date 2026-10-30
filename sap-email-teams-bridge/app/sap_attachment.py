@@ -4,8 +4,6 @@
 
 đồng thời tự động điền số phiếu vào trường Header Text (txtGOHEAD-BKTXT) trên SAP MIGO.
 
-
-
 Kế thừa và tối ưu hóa vượt bậc từ bộ công cụ 261002_MIGO_ATT_V3_4_3 & 260801 Tools Attach Mail:
 
 1. Tự động điền số phiếu (HeadText GOHEAD-BKTXT): Kiểm tra, điền mới và lưu an toàn qua phím SendVKey(11) (Ctrl+S).
@@ -21,8 +19,6 @@ Kế thừa và tối ưu hóa vượt bậc từ bộ công cụ 261002_MIGO_AT
 6. Báo cáo trực quan tương thích 100% với định dạng thông báo Teams/Email (Ảnh 2).
 
 """
-
-
 
 import os
 
@@ -44,8 +40,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 
 from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
 
-
-
 try:
 
     import pythoncom
@@ -61,8 +55,6 @@ except ImportError:
     win32com = None
 
     pywintypes = None
-
-
 
 # =====================================================================
 
@@ -102,7 +94,6 @@ def is_turbo_mode(prompt_text: str = "") -> bool:
         return True
     return get_user_idle_seconds() >= 45.0
 
-
 def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
 
     """Bọc lệnh gọi COM: Tự động lùi lại 50ms rồi thử lại nếu gặp RPC_E_CALL_REJECTED."""
@@ -133,10 +124,6 @@ def sap_com_retry(func, *args, retries=4, delay=0.05, **kwargs):
 
             raise e
 
-
-
-
-
 def safe_find_by_id(session, path: str):
 
     """Tìm control an toàn, tương thích cả SAP GUI COM và MagicMock 1-arg."""
@@ -158,10 +145,6 @@ def safe_find_by_id(session, path: str):
         except Exception:
 
             return None
-
-
-
-
 
 def dismiss_any_modal_popup(session, max_depth: int = 2) -> bool:
 
@@ -227,10 +210,6 @@ def dismiss_any_modal_popup(session, max_depth: int = 2) -> bool:
 
     return dismissed
 
-
-
-
-
 def sanitize_migo_session(session):
 
     """Dọn sạch mọi popup kẹt (wnd[2], wnd[1]) và đưa session về màn hình /nMIGO sạch sẽ."""
@@ -291,10 +270,6 @@ def sanitize_migo_session(session):
 
         pass
 
-
-
-
-
 def reset_session_to_main_menu(session):
 
     """Đưa session SAP về màn hình chính (/n hoặc F3) sau khi hoàn tất batch chứng từ."""
@@ -331,8 +306,6 @@ def reset_session_to_main_menu(session):
 
                 pass
 
-
-
         okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
 
         if okcd:
@@ -352,8 +325,6 @@ def reset_session_to_main_menu(session):
                 w0.SendVKey(0)
 
             sap_wait_idle(session, 2.0)
-
-
 
         # Nếu chưa thoát MIGO về SESSION_MANAGER, gửi thêm F3 (SendVKey 3)
 
@@ -389,10 +360,6 @@ def reset_session_to_main_menu(session):
 
         print(f"[TEARDOWN WARN] Lỗi dọn dẹp session về /n: {e}")
 
-
-
-
-
 def sap_wait_idle(session, max_wait_sec: float = 5.0) -> None:
 
     """Chờ SAP GUI hoàn tất xử lý (session.Busy == False) tương tự WaitIdle trong VBA."""
@@ -410,10 +377,6 @@ def sap_wait_idle(session, max_wait_sec: float = 5.0) -> None:
             break
 
         time.sleep(0.05)
-
-
-
-
 
 RECORDED_MIGO_IDS = {
 
@@ -483,10 +446,6 @@ RECORDED_MIGO_IDS = {
 
 }
 
-
-
-
-
 def find_control_recursive(root, target_name: str, depth: int = 0, max_depth: int = 15):
 
     """Tìm kiếm đệ quy một control theo thuộc tính Name trong cây SAP GUI."""
@@ -537,10 +496,6 @@ def find_control_recursive(root, target_name: str, depth: int = 0, max_depth: in
 
     return None
 
-
-
-
-
 def smart_find(session, element_name: str, element_type: Optional[str] = None, window: str = "wnd[0]"):
 
     """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
@@ -567,8 +522,6 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
 
         pass
 
-
-
     try:
 
         w0 = safe_find_by_id(session, window)
@@ -577,13 +530,9 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
 
             return None
 
-
-
         usr = safe_find_by_id(session, f"{window}/usr")
 
         search_roots = [usr, w0] if usr is not None else [w0]
-
-
 
         for root in search_roots:
 
@@ -633,8 +582,6 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
 
                             pass
 
-
-
         if element_name in RECORDED_MIGO_IDS:
 
             for cid in RECORDED_MIGO_IDS[element_name]:
@@ -657,8 +604,6 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
 
                     pass
 
-
-
         found = find_control_recursive(w0, element_name)
 
         if found is not None:
@@ -674,10 +619,6 @@ def smart_find(session, element_name: str, element_type: Optional[str] = None, w
     except Exception:
 
         return None
-
-
-
-
 
 def wait_for_wnd1(session, appear: bool = True, timeout: float = 2.0, poll: float = 0.04):
 
@@ -733,10 +674,6 @@ def wait_for_wnd1(session, appear: bool = True, timeout: float = 2.0, poll: floa
 
     return None if appear else False
 
-
-
-
-
 def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
 
     """Tự động mở cửa sổ đính kèm file (hoặc tạo link URL) ở cả High Speed lẫn Low Speed."""
@@ -765,8 +702,6 @@ def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
 
             pass
 
-
-
     # 2. Thử menu System -> Services for Object -> Create Attachment / Link
 
     try:
@@ -784,8 +719,6 @@ def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
     except Exception:
 
         pass
-
-
 
     # 3. Gửi thẳng Function Code vào ô okcd
 
@@ -809,13 +742,7 @@ def smart_open_gos_create_attachment(session, mode: str = "FILE") -> bool:
 
         pass
 
-
-
     return False
-
-
-
-
 
 def smart_open_gos_view_attachment(session, allow_gos_fallback: bool = True) -> bool:
 
@@ -867,8 +794,6 @@ def smart_open_gos_view_attachment(session, allow_gos_fallback: bool = True) -> 
 
             return False
 
-
-
     # 2. Thử GOS shell %GOS_VIEW_ATTA (Hỗ trợ cả MIGO lẫn các giao dịch khác)
 
     gos_shell = safe_find_by_id(session, "wnd[0]/titl/shellcont/shell")
@@ -887,8 +812,6 @@ def smart_open_gos_view_attachment(session, allow_gos_fallback: bool = True) -> 
 
             pass
 
-
-
     # 3. Thử menu System -> Services for Object -> Attachment List
 
     try:
@@ -904,8 +827,6 @@ def smart_open_gos_view_attachment(session, allow_gos_fallback: bool = True) -> 
     except Exception:
 
         pass
-
-
 
     # 4. Gửi Function Code vào ô okcd
 
@@ -929,13 +850,7 @@ def smart_open_gos_view_attachment(session, allow_gos_fallback: bool = True) -> 
 
         pass
 
-
-
     return False
-
-
-
-
 
 def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: float = 3.0):
 
@@ -987,8 +902,6 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
 
             pass
 
-
-
         # Tầng 2: Tìm kiếm theo các ID đã ghi nhận từ bản mẫu chuẩn VBA
 
         if name in RECORDED_MIGO_IDS:
@@ -1006,8 +919,6 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
                 except Exception:
 
                     pass
-
-
 
         # Tầng 3: Quét đệ quy toàn bộ cây control của wnd[0]
 
@@ -1027,21 +938,13 @@ def wait_control(session, name: str, kind: str = "GuiTextField", timeout_sec: fl
 
             pass
 
-
-
         if time.time() - start >= timeout_sec:
 
             break
 
         time.sleep(0.1)
 
-
-
     return None
-
-
-
-
 
 def get_safe_sap_connection(app, conn_idx_or_id: Any = 0) -> Any:
     """Tìm GuiConnection an toàn trong SAP GUI, hỗ trợ cả connection index lẫn chuỗi connection_id (ví dụ con[1])."""
@@ -1065,7 +968,6 @@ def get_safe_sap_connection(app, conn_idx_or_id: Any = 0) -> Any:
         return app.Children(0)
     except Exception:
         return None
-
 
 def get_safe_sap_session(conn_idx_or_id: Any = 0, tab_idx: int = 0) -> Any:
     """Lấy phiên SAP GUI session an toàn theo connection index/id và tab index."""
@@ -1094,7 +996,6 @@ def get_safe_sap_session(conn_idx_or_id: Any = 0, tab_idx: int = 0) -> Any:
     except Exception as ex:
         print(f"[SAP SESSION ERROR] Không thể lấy session con={conn_idx_or_id}, tab={tab_idx}: {ex}")
         return None
-
 
 def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
     """Đảm bảo mở sẵn đủ số Tab cần thiết (Tabs 0-2: User Reserved, Tabs 3-4: Bot Batch Pool, Tab 5: Bot Fast Lane).
@@ -1161,10 +1062,6 @@ def ensure_sap_tabs(target_tabs: int = 5, connection_index: int = 0) -> int:
         print(f"[SAP MULTI-TAB ERROR] {ex}")
         return 1
 
-
-
-
-
 DEFAULT_MIGO_ATT_FOLDER = (
 
     r"\\10.128.10.72\fvn$\03.Khối sản xuất\01.Nhà máy VinFast Hải Phòng"
@@ -1176,10 +1073,6 @@ DEFAULT_MIGO_ATT_FOLDER = (
     r"\240101_FT-P\260802_ File ATT BBGH"
 
 )
-
-
-
-
 
 def clean_folder_path(raw_path: str) -> str:
 
@@ -1212,10 +1105,6 @@ def clean_folder_path(raw_path: str) -> str:
         return DEFAULT_MIGO_ATT_FOLDER
 
     return p
-
-
-
-
 
 def extract_folder_path_multiline(text: str) -> str:
 
@@ -1269,13 +1158,9 @@ def extract_folder_path_multiline(text: str) -> str:
 
             break
 
-
-
     if not segments:
 
         return ""
-
-
 
     full = segments[0]
 
@@ -1290,10 +1175,6 @@ def extract_folder_path_multiline(text: str) -> str:
             full = full + " " + seg
 
     return full
-
-
-
-
 
 def normalize_text(text: str) -> str:
 
@@ -1311,10 +1192,6 @@ def normalize_text(text: str) -> str:
 
     return ascii_text.lower().strip()
 
-
-
-
-
 # Regex phát hiện loại file chứng từ
 
 BBBG_REGEX = re.compile(r"(?:^|[^a-z0-9])(bbbg|bbgh|bbg|bb|bien[ _-]*ban)(?:$|[^a-z0-9])", re.I)
@@ -1323,15 +1200,9 @@ VAT_REGEX = re.compile(r"(?:^|[^a-z0-9])(vat|invoice|inv|hoa[ _-]*don|hdgtgt|hd[
 
 MAIL_REGEX = re.compile(r"(?:^|[^a-z0-9])(mail|email|thu|xac[ _-]*nhan|trao[ _-]*doi|order)(?:$|[^a-z0-9])", re.I)
 
-
-
-
-
 def extract_search_tokens(text: str) -> Tuple[List[str], str]:
 
     """Bóc tách các token tìm kiếm từ số phiếu hoặc số chứng từ.
-
-    
 
     Ví dụ: 'Thành Đạt in 6157' -> nums: ['6157'], compact: 'thanhdatin6157'
 
@@ -1347,10 +1218,6 @@ def extract_search_tokens(text: str) -> Tuple[List[str], str]:
 
     return nums, compact
 
-
-
-
-
 def format_status_label(ticket_no: str, is_success: bool) -> str:
 
     """Định dạng chuỗi trạng thái thành công/thất bại: 'DONE' nếu thành công, 'FILE_NOT_FOUND' nếu thiếu file."""
@@ -1360,10 +1227,6 @@ def format_status_label(ticket_no: str, is_success: bool) -> str:
         return "FILE_NOT_FOUND"
 
     return "DONE"
-
-
-
-
 
 def deduplicate_files_by_content(file_paths: List[Path]) -> List[Path]:
 
@@ -1419,10 +1282,6 @@ def deduplicate_files_by_content(file_paths: List[Path]) -> List[Path]:
 
     return unique_files
 
-
-
-
-
 def match_files_to_sap(
 
     local_files: List[Path],
@@ -1445,8 +1304,6 @@ def match_files_to_sap(
 
     - Pass 3: Khớp cùng số phiếu + cùng loại file + cùng chỉ mục phụ (extra_digits).
 
-
-
     Mỗi tiêu đề trên SAP chỉ được claim bởi tối đa 1 file local.
 
     Trả về: (to_upload, already_on_sap, unclaimed_sap_titles)
@@ -1461,15 +1318,11 @@ def match_files_to_sap(
 
         return list(local_files), [], []
 
-
-
     unclaimed_sap = list(sap_titles)
 
     to_upload: List[Path] = []
 
     already_on_sap: List[Tuple[Path, str]] = []
-
-
 
     def get_info(s: str):
 
@@ -1492,8 +1345,6 @@ def match_files_to_sap(
         extra_digits = re.findall(r"\d+", cleaned)
 
         return stem, norm, compact, nums, extra_digits
-
-
 
     # Pass 1: Khớp chính xác stem hoặc full name
 
@@ -1525,8 +1376,6 @@ def match_files_to_sap(
 
             remaining_local.append(p)
 
-
-
     # Pass 2: Khớp compact (ví dụ 'vat_5122' khớp 'vat 5122')
 
     remaining_pass2: List[Path] = []
@@ -1556,8 +1405,6 @@ def match_files_to_sap(
         else:
 
             remaining_pass2.append(p)
-
-
 
     # Pass 3: Khớp theo số phiếu + loại file + extra_digits
 
@@ -1589,8 +1436,6 @@ def match_files_to_sap(
 
                 type_match = True
 
-
-
             if type_match and (p_nums and p_nums == t_nums) and (p_extra == t_extra):
 
                 matched_idx = i
@@ -1607,19 +1452,11 @@ def match_files_to_sap(
 
             to_upload.append(p)
 
-
-
     return to_upload, already_on_sap, unclaimed_sap
-
-
-
-
 
 def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
     """Bóc tách danh sách chứng từ và số phiếu từ nội dung email hoặc tin nhắn Teams.
-
-    
 
     Hỗ trợ mọi trường hợp:
 
@@ -1637,8 +1474,6 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
         return []
 
-
-
     # 1. Làm sạch tag HTML nếu có
 
     clean_text = re.sub(r"</?(?:tr|div|p|br\s*/?|li)>", "\n", str(text), flags=re.I)
@@ -1647,15 +1482,11 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
     clean_text = re.sub(r"<[^>]+>", " ", clean_text)
 
-
-
     # 2. Xóa các đường dẫn UNC hoặc thư mục cục bộ để số trong đường dẫn không bị nhận nhầm thành số DOC
 
     clean_text = re.sub(r"(?:\\\\[^\r\n\"\'<>|]+|[A-Za-z]:\\[^\r\n\"\'<>|]+)", " ", clean_text)
 
     clean_text = re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", " ", clean_text)
-
-
 
     # 3. Quét tất cả các số chứng từ 10 số (bắt đầu bằng 49, 500 hoặc 10 chữ số)
 
@@ -1665,13 +1496,9 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
         return []
 
-
-
     items = []
 
     seen_docs = set()
-
-
 
     for idx, m in enumerate(doc_matches):
 
@@ -1682,8 +1509,6 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
             continue
 
         seen_docs.add(doc)
-
-
 
         start_pos = m.end()
 
@@ -1711,8 +1536,6 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
                 raw_cand = raw_cand[:sig_match.start()]
 
-
-
         # Outlook / Power Automate thường tự động ngắt dòng ở cột 76-80 ký tự (hard wrap)
 
         # Nối tất cả các dòng bị ngắt giữa doc[i] và doc[i+1] thành một chuỗi liên tục
@@ -1733,17 +1556,9 @@ def parse_attachment_items_from_text(text: str) -> List[Dict[str, str]]:
 
             ).strip(" :-\t,|\\/")
 
-
-
         items.append({"doc": doc, "ticket_no": clean_ticket})
 
-
-
     return items
-
-
-
-
 
 def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str, Any]:
 
@@ -1775,27 +1590,19 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
 
         }
 
-
-
     bbbg_list = []
 
     vat_list = []
 
     other_list = []
 
-
-
     search_nums, search_compact = extract_search_tokens(ticket_no) if ticket_no else ([], "")
-
-
 
     for title in titles:
 
         norm = normalize_text(title)
 
         title_nums, title_compact = extract_search_tokens(title)
-
-
 
         is_ticket_match = True
 
@@ -1817,13 +1624,9 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
 
                 is_ticket_match = True
 
-
-
         is_bb = bool(BBBG_REGEX.search(norm))
 
         is_vat = bool(VAT_REGEX.search(norm))
-
-
 
         if is_bb and (is_ticket_match or not bbbg_list):
 
@@ -1837,13 +1640,9 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
 
             other_list.append(title)
 
-
-
     has_bb = len(bbbg_list) > 0
 
     has_vat = len(vat_list) > 0
-
-
 
     if has_bb and has_vat:
 
@@ -1877,8 +1676,6 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
 
         color = "blue"
 
-
-
     return {
 
         "total_files": len(titles),
@@ -1902,10 +1699,6 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
         "badge_color": color
 
     }
-
-
-
-
 
 def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
@@ -1971,8 +1764,6 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
             return smart_find(session, name, "GuiComboBox")
 
-
-
         # 1. Kiểm tra Action: Nếu đã đúng target_action thì BỎ QUA luôn
 
         cmb_action = _find_combo("GODYNPRO-ACTION")
@@ -1987,8 +1778,6 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
                 cur_act = val.strip()
 
-
-
         if cur_act and cur_act != target_action:
 
             print(f"[MIGO AUTO-SWITCH] ComboBox Action đang ở '{cur_act}' (cần '{target_action}'). Đang chuyển...")
@@ -1997,13 +1786,13 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
                 cmb_action.Key = target_action
 
-                time.sleep(0.5)  # Chờ SAP vẽ lại màn hình sau khi đổi Action
+                sap_wait_idle(session, 5.0)
+
+                time.sleep(0.3)  # Chờ SAP vẽ lại màn hình sau khi đổi Action
 
             except Exception as act_err:
 
                 print(f"[MIGO AUTO-SWITCH WARN] Lỗi gán Action: {act_err}")
-
-
 
         # 2. Phải tìm lại từ đầu cho RefDoc (vì màn hình vừa redraw xong, COM object cũ đã bị hủy)
 
@@ -2019,8 +1808,6 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
                 cur_ref = val.strip()
 
-
-
         # Nếu đã là target_refdoc rồi thì TUYỆT ĐỐI KHÔNG gán lại!
 
         if cur_ref and cur_ref != target_refdoc:
@@ -2031,13 +1818,13 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
                 cmb_refdoc.Key = target_refdoc
 
-                time.sleep(0.5)  # Chờ SAP vẽ lại màn hình sau khi đổi RefDoc
+                sap_wait_idle(session, 5.0)
+
+                time.sleep(0.3)  # Chờ SAP vẽ lại màn hình sau khi đổi RefDoc
 
             except Exception as ref_err:
 
                 print(f"[MIGO AUTO-SWITCH WARN] Lỗi gán RefDoc: {ref_err}")
-
-
 
         return True
 
@@ -2047,15 +1834,9 @@ def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
 
         return False
 
-
-
-
-
 class MigoAttachmentRunner:
 
     """Điều khiển tự động hóa điền số phiếu và đính kèm BBBG / VAT / Email vào SAP MIGO qua GOS."""
-
-
 
     def __init__(self, sap_engine=None, expected_session_identity=None):
 
@@ -2071,15 +1852,11 @@ class MigoAttachmentRunner:
 
         self.enable_multi_tab = True
 
-
-
     @property
 
     def session_identity(self):
 
         return self.expected_session_identity
-
-
 
     @session_identity.setter
 
@@ -2087,23 +1864,17 @@ class MigoAttachmentRunner:
 
         self.expected_session_identity = dict(val or {})
 
-
-
     @property
 
     def _active_document(self):
 
         return getattr(self._local, "active_document", None)
 
-
-
     @_active_document.setter
 
     def _active_document(self, val):
 
         self._local.active_document = val
-
-
 
     def verify_session_identity(self, session, require_migo=False):
 
@@ -2139,8 +1910,6 @@ class MigoAttachmentRunner:
 
                 return False, "SESSION_IDENTITY_MISMATCH"
 
-
-
             # Kiểm tra session_id và session_index (bỏ qua khi chạy multi-tab engine hoặc allow_any_tab)
 
             allow_any_tab = self.expected_session_identity.get("allow_any_tab", False) or getattr(self, "_multi_tab_mode", False)
@@ -2175,8 +1944,6 @@ class MigoAttachmentRunner:
 
                             return False, "SESSION_IDENTITY_MISMATCH"
 
-
-
                 # Kiểm tra session_index nếu có
 
                 exp_sess_idx = self.expected_session_identity.get("session_index")
@@ -2202,8 +1969,6 @@ class MigoAttachmentRunner:
                     if act_idx is None or int(act_idx) != int(exp_sess_idx):
 
                         return False, "SESSION_IDENTITY_MISMATCH"
-
-
 
             # Kiểm tra connection_index hoặc connection_id nếu có
 
@@ -2233,11 +1998,13 @@ class MigoAttachmentRunner:
 
                     return False, "SESSION_IDENTITY_MISMATCH"
 
-
-
             if getattr(session, "Busy", False):
 
-                return False, "SESSION_BUSY"
+                sap_wait_idle(session, max_wait_sec=4.0)
+
+                if getattr(session, "Busy", False):
+
+                    return False, "SESSION_BUSY"
 
             if require_migo:
 
@@ -2253,8 +2020,6 @@ class MigoAttachmentRunner:
 
             return False, "SESSION_IDENTITY_UNAVAILABLE"
 
-
-
     @staticmethod
 
     def _failed_item(doc, ticket, status, message):
@@ -2268,8 +2033,6 @@ class MigoAttachmentRunner:
                 "bbbg_file": None, "vat_file": None, "mail_file": None,
 
                 "overall_status": status, "match_notes": message, "is_succ": False}, False
-
-
 
     @staticmethod
 
@@ -2291,17 +2054,11 @@ class MigoAttachmentRunner:
 
             raise FileNotFoundError(f"Thư mục nguồn không tồn tại hoặc không thể truy cập: {folder_path}")
 
-
-
         files_indexed: List[Dict[str, Any]] = []
 
         token_to_files: Dict[str, List[int]] = {}
 
-
-
         valid_exts = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx", ".docx", ".tif", ".tiff", ".msg", ".eml"}
-
-
 
         def scan_dir(dir_path: Path, depth: int = 0):
 
@@ -2325,21 +2082,15 @@ class MigoAttachmentRunner:
 
                                 ext = fpath.suffix.lower()
 
-
-
                                 is_bbbg = bool(BBBG_REGEX.search(norm_name))
 
                                 is_vat = bool(VAT_REGEX.search(norm_name))
 
                                 is_mail = ext in {".msg", ".eml"} or bool(MAIL_REGEX.search(norm_name))
 
-
-
                                 nums = re.findall(r"\d{3,10}", norm_name)
 
                                 compact = re.sub(r"[^a-z0-9]+", "", norm_name)
-
-
 
                                 file_idx = len(files_indexed)
 
@@ -2363,13 +2114,9 @@ class MigoAttachmentRunner:
 
                                 })
 
-
-
                                 for num in nums:
 
                                     token_to_files.setdefault(num, []).append(file_idx)
-
-
 
                             elif entry.is_dir() and recursive:
 
@@ -2382,8 +2129,6 @@ class MigoAttachmentRunner:
             except Exception as e:
 
                 print(f"[INDEX WARN] Không thể quét thư mục '{dir_path}': {e}")
-
-
 
         scan_dir(folder, depth=0)
 
@@ -2399,8 +2144,6 @@ class MigoAttachmentRunner:
 
         }
 
-
-
     @classmethod
 
     def match_all_files(cls, doc: str, ticket_no: str, index: Dict[str, Any]) -> Dict[str, List[Path]]:
@@ -2411,23 +2154,15 @@ class MigoAttachmentRunner:
 
         token_map = index.get("token_map", {})
 
-
-
         doc_clean = str(doc).strip()
 
         ticket_clean = str(ticket_no).strip()
-
-
 
         doc_nums, doc_compact = extract_search_tokens(doc_clean)
 
         ticket_nums, ticket_compact = extract_search_tokens(ticket_clean)
 
-
-
         search_nums = set(doc_nums + ticket_nums)
-
-
 
         cand_indices: Set[int] = set()
 
@@ -2436,8 +2171,6 @@ class MigoAttachmentRunner:
             if num in token_map:
 
                 cand_indices.update(token_map[num])
-
-
 
         if not cand_indices:
 
@@ -2449,29 +2182,19 @@ class MigoAttachmentRunner:
 
                         cand_indices.add(idx)
 
-
-
         cand_list = [files[i] for i in cand_indices]
-
-
 
         # 1. Tìm các file BBBG
 
         bbbg_files = [f["path"] for f in cand_list if f["is_bbbg"]]
 
-
-
         # 2. Tìm các file VAT
 
         vat_files = [f["path"] for f in cand_list if f["is_vat"]]
 
-
-
         # 3. Tìm các file Mail
 
         mail_files = [f["path"] for f in cand_list if f["is_mail"]]
-
-
 
         # Fallback VAT: Nếu không có file nào mang từ khóa VAT rõ ràng,
 
@@ -2485,8 +2208,6 @@ class MigoAttachmentRunner:
 
                 vat_files = fallback
 
-
-
         return {
 
             "bbbg": deduplicate_files_by_content(bbbg_files),
@@ -2496,8 +2217,6 @@ class MigoAttachmentRunner:
             "mail": deduplicate_files_by_content(mail_files)
 
         }
-
-
 
     @classmethod
 
@@ -2513,8 +2232,6 @@ class MigoAttachmentRunner:
 
         mail_match = all_matches["mail"][0] if all_matches["mail"] else None
 
-
-
         notes = []
 
         if all_matches["bbbg"]:
@@ -2525,8 +2242,6 @@ class MigoAttachmentRunner:
 
             notes.append("BBBG: FILE_NOT_FOUND")
 
-
-
         if all_matches["vat"]:
 
             notes.append(f"VAT: {len(all_matches['vat'])} file ({', '.join(p.name for p in all_matches['vat'][:2])})")
@@ -2535,17 +2250,11 @@ class MigoAttachmentRunner:
 
             notes.append("VAT: FILE_NOT_FOUND")
 
-
-
         if mail_match:
 
             notes.append(f"Mail: {mail_match.name}")
 
-
-
         return bbbg_match, vat_match, mail_match, " | ".join(notes)
-
-
 
     def handle_migo_headtext(self, session, ticket_no: str, allow_overwrite: bool = False) -> Tuple[str, str]:
 
@@ -2565,11 +2274,7 @@ class MigoAttachmentRunner:
 
             return "SKIP_NO_TICKET", "Không có số phiếu cần điền"
 
-
-
         ticket_clean = str(ticket_no).strip()
-
-
 
         try:
 
@@ -2584,8 +2289,6 @@ class MigoAttachmentRunner:
             except Exception:
 
                 pass
-
-
 
             # 2. Tìm trường GOHEAD-BKTXT
 
@@ -2615,13 +2318,9 @@ class MigoAttachmentRunner:
 
                 head_field = wait_control(session, "GOHEAD-BKTXT", "GuiTextField", timeout_sec=2.0)
 
-
-
             if head_field is None:
 
                 return "HEADTEXT_NOT_FOUND", "Không tìm thấy trường GOHEAD-BKTXT trên MIGO"
-
-
 
             current_text = ""
 
@@ -2641,8 +2340,6 @@ class MigoAttachmentRunner:
 
                     pass
 
-
-
             # Trường hợp 1: Đã có sẵn HeadText -> Kiểm tra trùng khớp hay khác biệt (A01 Review Guard)
 
             if current_text:
@@ -2654,8 +2351,6 @@ class MigoAttachmentRunner:
                 curr_compact = re.sub(r"[^A-Za-z0-9]+", "", current_text).upper()
 
                 tick_compact = re.sub(r"[^A-Za-z0-9]+", "", ticket_clean).upper()
-
-
 
                 # So khớp token chính xác (exact token match hoặc regex ranh giới từ \b)
 
@@ -2686,8 +2381,6 @@ class MigoAttachmentRunner:
 
                     return "HEADTEXT_REVIEW", f"Header Text hiện có ('{current_text}') khác với số phiếu yêu cầu ('{ticket_clean}'). Cần Review thủ công, không ghi đè ngầm."
 
-
-
             # Trường hợp 2: Điền số phiếu và bấm Lưu (Save / vKey 11) chuẩn theo Change_doc
 
             try:
@@ -2704,8 +2397,6 @@ class MigoAttachmentRunner:
 
                     pass
 
-
-
             w0 = safe_find_by_id(session, "wnd[0]")
 
             if w0:
@@ -2717,8 +2408,6 @@ class MigoAttachmentRunner:
             time.sleep(0.05)
 
             dismiss_any_modal_popup(session)
-
-
 
             # Kiểm tra kết quả trên sbar
 
@@ -2762,8 +2451,6 @@ class MigoAttachmentRunner:
 
                 return "HEADTEXT_UNCERTAIN", f"SAP chưa xác nhận lưu: {s_msg}"
 
-
-
             # Readback kiểm tra HeadText thực tế sau khi lưu
 
             try:
@@ -2788,8 +2475,6 @@ class MigoAttachmentRunner:
 
                 print(f"[ATT READBACK WARN] Không thể readback HeadText: {rb_ex}")
 
-
-
             # Khi SAP đã xác nhận lưu thành công (sbar MessageType 'S'), chứng từ đã được ghi vào SAP.
 
             # Giữ nguyên MIGO ở chế độ CHANGE (A12) cho các chứng từ tiếp theo trong batch,
@@ -2804,15 +2489,11 @@ class MigoAttachmentRunner:
 
             return "HEADTEXT_EXCEPTION", f"Lỗi xử lý HeadText: {e}"
 
-
-
     @staticmethod
 
     def check_existing_sap_attachments(titles: List[str], ticket_no: str) -> Tuple[Optional[str], Optional[str]]:
 
         """Kiểm tra danh sách tiêu đề file đính kèm đã có trên SAP MIGO (từ popup Attachment list).
-
-        
 
         Đối chiếu với số phiếu đã cho:
 
@@ -2828,23 +2509,17 @@ class MigoAttachmentRunner:
 
             return None, None
 
-
-
         search_nums, search_compact = extract_search_tokens(ticket_no)
 
         bbbg_found = None
 
         vat_found = None
 
-
-
         for title in titles:
 
             norm = normalize_text(title)
 
             title_nums, title_compact = extract_search_tokens(title)
-
-
 
             # Kiểm tra xem title trên SAP có chứa số phiếu của chứng từ này không
 
@@ -2864,8 +2539,6 @@ class MigoAttachmentRunner:
 
                 is_ticket_match = True
 
-
-
             if is_ticket_match:
 
                 if not bbbg_found and BBBG_REGEX.search(norm):
@@ -2876,11 +2549,7 @@ class MigoAttachmentRunner:
 
                     vat_found = title
 
-
-
         return bbbg_found, vat_found
-
-
 
     @staticmethod
 
@@ -2889,8 +2558,6 @@ class MigoAttachmentRunner:
         """Phân loại trạng thái file đính kèm BBBG / VAT trên SAP cho một chứng từ DOC."""
 
         return classify_sap_attachments(titles, ticket_no=ticket_no)
-
-
 
     def read_sap_attachment_titles(self, session) -> List[str]:
 
@@ -2902,8 +2569,6 @@ class MigoAttachmentRunner:
 
             return titles
 
-
-
         # 1. Mở cửa sổ Attachment list thông minh (OK_REF_ATTA / GOS Shell / Menu / Function Code)
 
         has_opened = smart_open_gos_view_attachment(session)
@@ -2911,8 +2576,6 @@ class MigoAttachmentRunner:
         if not has_opened:
 
             return []
-
-
 
         # 2. Đọc popup Attachment list (wnd[1]) - ĐÃ THÁO BỎ HOÀN TOÀN POPUP_LOCK để các Session chạy song song 100%
 
@@ -2949,8 +2612,6 @@ class MigoAttachmentRunner:
                     except Exception:
 
                         pass
-
-
 
                 if grid is None:
 
@@ -2989,8 +2650,6 @@ class MigoAttachmentRunner:
                         return None
 
                     grid = find_grid(popup)
-
-
 
                 if grid:
 
@@ -3074,8 +2733,6 @@ class MigoAttachmentRunner:
 
                         print(f"[SAP ATT LIST WARN] Lỗi đọc grid/tree: {e}")
 
-
-
                 # 3. Đóng popup wnd[1]
 
                 try:
@@ -3092,19 +2749,13 @@ class MigoAttachmentRunner:
 
                         pass
 
-
-
                 wait_for_wnd1(session, appear=False, timeout=1.0, poll=0.04)
 
         except Exception as ex:
 
             print(f"[SAP ATT LIST ERROR] {ex}")
 
-
-
         return titles
-
-
 
     def attach_file_to_current_migo(self, session, file_path: Path) -> Tuple[bool, str]:
 
@@ -3122,13 +2773,9 @@ class MigoAttachmentRunner:
 
             return False, f"FILE_NOT_FOUND: {abs_path}"
 
-
-
         parent_folder = str(abs_path.parent)
 
         filename = abs_path.name
-
-
 
         try:
 
@@ -3156,15 +2803,11 @@ class MigoAttachmentRunner:
 
                     POPUP_LOCK.release()
 
-
-
             # 2. NGOÀI VÙNG LOCK: Các Tab điền dữ liệu và bấm nút song song 100%!
 
             if not wnd1:
 
                 return False, "Không mở được hộp thoại đính kèm file (wnd[1])"
-
-
 
             # Điền đường dẫn và nhấn nút Open/btn[0] độc lập trên từng session
 
@@ -3197,8 +2840,6 @@ class MigoAttachmentRunner:
 
                 return False, "FAILED_POPUP_STUCK: Hộp thoại đính kèm không đóng sau khi nhấn nút tải"
 
-
-
             # Điều kiện 2: Kiểm tra session.findById("wnd[0]/sbar").MessageType != 'E'/'A'
 
             sbar = session.findById("wnd[0]/sbar")
@@ -3207,15 +2848,11 @@ class MigoAttachmentRunner:
 
             msg_type = getattr(sbar, "MessageType", "")
 
-
-
             text = str(msg).upper()
 
             if msg_type in ("E", "A") or any(k in text for k in ["NOT CREATED", "NOT SAVED", "FAILED", "ERROR", "CANCELLED", "CANCELED", "KHONG THANH CONG"]):
 
                 return False, f"SAP_ERROR: {msg}"
-
-
 
             # Điều kiện 3: Xác minh vật lý qua readback danh sách attachment trên SAP
 
@@ -3228,8 +2865,6 @@ class MigoAttachmentRunner:
             target_norm = normalize_text(target_stem)
 
             target_clean = re.sub(r"[^a-z0-9]+", "", target_stem)
-
-
 
             matched = False
 
@@ -3244,8 +2879,6 @@ class MigoAttachmentRunner:
                 t_norm = normalize_text(t_str)
 
                 t_clean = re.sub(r"[^a-z0-9]+", "", t_stem)
-
-
 
                 if (
 
@@ -3271,13 +2904,9 @@ class MigoAttachmentRunner:
 
                     break
 
-
-
             if matched:
 
                 return True, f"DONE_SAP_READBACK: {filename}"
-
-
 
             # FAST-PATH SBAR CONFIRMATION (FALLBACK KHI READBACK CHƯA THẤY DO OK_REF_ATTA CHƯA RELOAD HOẶC GUITREE):
 
@@ -3293,17 +2922,11 @@ class MigoAttachmentRunner:
 
                 return True, f"DONE_SAP_SBAR: {filename}"
 
-
-
             return False, f"ATTACHMENT_UNCERTAIN: Chưa đọc lại đúng tên file '{filename}' trong Attachment list trên SAP"
-
-
 
         except Exception as e:
 
             return False, f"GOS_EXCEPTION: {e}"
-
-
 
     def attach_url_to_current_migo(self, session, link_title: str, link_address: str) -> Tuple[bool, str]:
 
@@ -3314,8 +2937,6 @@ class MigoAttachmentRunner:
         if not identity_ok or self._active_document is None:
 
             return False, identity_status if not identity_ok else "DOCUMENT_NOT_VERIFIED"
-
-
 
         try:
 
@@ -3331,15 +2952,11 @@ class MigoAttachmentRunner:
 
                 wnd1 = wait_for_wnd1(session, appear=True, timeout=1.5, poll=0.04)
 
-
-
             # 2. Ngoài vùng lock: Các Tab điền dữ liệu song song 100%
 
             if not wnd1:
 
                 return False, "Không mở được hộp thoại Create link to web page (wnd[1])"
-
-
 
             try:
 
@@ -3353,8 +2970,6 @@ class MigoAttachmentRunner:
 
                     title_field.Text = str(link_title).strip()
 
-
-
                 url_field = smart_find(session, "URL", "GuiTextField", window="wnd[1]")
 
                 if url_field is None:
@@ -3367,23 +2982,17 @@ class MigoAttachmentRunner:
 
                 url_field.Text = str(link_address).strip()
 
-
-
                 session.findById("wnd[1]/tbar[0]/btn[0]").Press()
 
             except Exception as fill_err:
 
                 return False, f"URL_FILL_ERROR: {fill_err}"
 
-
-
             wnd1_closed = wait_for_wnd1(session, appear=False, timeout=2.0, poll=0.04)
 
             if not wnd1_closed:
 
                 return False, "FAILED_POPUP_STUCK: Hộp thoại URL không đóng sau khi nhấn nút xác nhận"
-
-
 
             sbar = session.findById("wnd[0]/sbar")
 
@@ -3400,8 +3009,6 @@ class MigoAttachmentRunner:
         except Exception as e:
 
             return False, f"ATTACH_URL_EXCEPTION: {e}"
-
-
 
     def prepare_migo_session(self, session, mode: str = "CHANGE") -> bool:
 
@@ -3427,8 +3034,6 @@ class MigoAttachmentRunner:
 
                 pass
 
-
-
             # Đóng các popup kẹt nếu có
 
             for w_idx in (2, 1):
@@ -3450,8 +3055,6 @@ class MigoAttachmentRunner:
                 except Exception:
 
                     pass
-
-
 
             okcd = safe_find_by_id(session, "wnd[0]/tbar[0]/okcd")
 
@@ -3475,8 +3078,6 @@ class MigoAttachmentRunner:
 
                 time.sleep(0.05)
 
-
-
 # Đặt Action = A12 (Change) hoặc A04 (Display) và RefDoc = R02
 
             target_act = "A12" if mode == "CHANGE" else "A04"
@@ -3491,15 +3092,9 @@ class MigoAttachmentRunner:
 
             return False
 
+    def _do_open_migo_document(self, session, doc: str, year: str = "", mode: str = "CHANGE", force_reload: bool = False) -> Tuple[bool, str]:
 
-
-    def open_migo_document(self, session, doc: str, year: str = "", mode: str = "CHANGE", force_reload: bool = False) -> Tuple[bool, str]:
-
-        """Nạp chứng từ MIGO theo chuẩn luồng Change_doc:
-
-        Điền số DOC vào GODYNPRO-MAT_DOC và gửi Enter (SendVKey 0).
-
-        """
+        """Thao tác nạp chứng từ MIGO đơn lẻ kèm cơ chế chống lag giao diện và bắt lỗi COM E_PENDING / 613."""
 
         self._active_document = None
 
@@ -3535,189 +3130,182 @@ class MigoAttachmentRunner:
 
                 ensure_migo_mode(session, target_action=target_act, target_refdoc="R02")
 
-
-
             dismiss_any_modal_popup(session)
 
             # 1. Tìm ô nhập số chứng từ GODYNPRO-MAT_DOC
-
             doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
-
-
             # Nếu chưa thấy hoặc ô đang bị khóa do chứng từ trước chưa thoát
-
             if doc_fld is None or not getattr(doc_fld, "Changeable", True):
-
                 w0 = safe_find_by_id(session, "wnd[0]")
-
                 if w0:
-
                     try:
-
                         w0.SendVKey(12)  # Esc (Cancel) để hủy/thoát chứng từ cũ thay vì F3
-
                         time.sleep(0.05)
-
                         dismiss_any_modal_popup(session)
-
                     except Exception:
-
                         pass
-
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
-
-
 
             # Nếu sau Esc vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
-
             if doc_fld is None or not getattr(doc_fld, "Changeable", True):
-
                 if not self.prepare_migo_session(session, mode=mode):
-
                     return False, "SESSION_PREPARE_FAILED"
-
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
 
-
-
             if doc_fld is None:
-
                 return False, "CONTROL_NOT_FOUND: Không tìm thấy ô nhập số chứng từ GODYNPRO-MAT_DOC trên MIGO"
 
+            # 2. Điền số chứng từ vào ô vàng (Bọc Retry Guard chống COM E_PENDING / 613)
+            doc_assigned = False
+            for _ in range(5):
+                try:
+                    try:
+                        doc_fld.SetFocus()
+                    except Exception:
+                        pass
+                    doc_fld.Text = str(doc).strip()
+                    doc_assigned = True
+                    break
+                except Exception as fld_err:
+                    err_s = str(fld_err)
+                    if "-2147483638" in err_s or "613" in err_s or "pending" in err_s.lower() or "not yet available" in err_s.lower():
+                        time.sleep(0.2)
+                        sap_wait_idle(session, 1.0)
+                        continue
+                    try:
+                        doc_fld.text = str(doc).strip()
+                        doc_assigned = True
+                        break
+                    except Exception:
+                        time.sleep(0.2)
 
-
-            # 2. Điền số chứng từ vào ô vàng
-
-            try:
-
-                doc_fld.SetFocus()
-
-            except Exception:
-
-                pass
-
-            try:
-
-                doc_fld.Text = str(doc).strip()
-
-            except Exception:
-
-                doc_fld.text = str(doc).strip()
-
-
-
-            year_fld = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+            # Tìm ô năm với vòng lặp chờ tối đa 2 giây
+            year_fld = None
+            for _ in range(8):
+                year_fld = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+                if year_fld is not None:
+                    break
+                time.sleep(0.15)
+                sap_wait_idle(session, 1.0)
 
             if year_fld is None:
-
                 return False, "YEAR_CONTROL_NOT_FOUND"
 
-            year_fld.Text = str(year)
+            for _ in range(5):
+                try:
+                    year_fld.Text = str(year).strip()
+                    break
+                except Exception as yr_err:
+                    err_s = str(yr_err)
+                    if "-2147483638" in err_s or "613" in err_s or "pending" in err_s.lower() or "not yet available" in err_s.lower():
+                        time.sleep(0.2)
+                        sap_wait_idle(session, 1.0)
+                        continue
+                    try:
+                        year_fld.text = str(year).strip()
+                        break
+                    except Exception:
+                        time.sleep(0.2)
 
             # 3. Enter nạp chứng từ
-
             w0 = safe_find_by_id(session, "wnd[0]")
-
             if w0:
-
                 w0.SendVKey(0)
 
-            sap_wait_idle(session, 2.0)
-
-            time.sleep(0.05)
-
-
+            # Nâng thời gian chờ từ 2.0s lên 5.0s để Server kịp nạp chứng từ nặng
+            sap_wait_idle(session, 5.0)
+            time.sleep(0.1)
 
             # 4. Kiểm tra thông báo trên thanh trạng thái sbar
-
             sbar = safe_find_by_id(session, "wnd[0]/sbar")
-
             if sbar:
-
                 s_type = ""
-
                 s_msg = ""
-
                 for prop in ("MessageType", "messageType"):
-
                     v = getattr(sbar, prop, None)
-
                     if isinstance(v, str):
-
                         s_type = v.strip()
-
                         break
-
                 for prop in ("Text", "text"):
-
                     v = getattr(sbar, prop, None)
-
                     if isinstance(v, str):
-
                         s_msg = v.strip()
-
                         break
-
                 if s_type in ("E", "A"):
-
                     if w0:
-
                         try:
-
                             w0.SendVKey(12)  # Esc thoát chứng từ khi báo lỗi
-
                         except Exception:
-
                             pass
-
                     return False, f"DOC_NOT_FOUND: {s_msg}"
 
-
-
             identity_ok, reason = self.verify_session_identity(session, require_migo=True)
-
             if not identity_ok:
-
                 return False, reason
 
-            read_doc = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
-
-            read_year = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+            # Đối chiếu đọc lại số chứng từ kèm retry (chống trễ render)
+            match_ok = False
+            read_doc = None
+            read_year = None
+            for _ in range(8):
+                read_doc = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
+                read_year = smart_find(session, "GODYNPRO-DOC_YEAR", "GuiTextField") or smart_find(session, "GODYNPRO-DOC_YEAR", "GuiCTextField")
+                if read_doc is not None and read_year is not None:
+                    cur_d = str(getattr(read_doc, "Text", getattr(read_doc, "text", ""))).strip()
+                    cur_y = str(getattr(read_year, "Text", getattr(read_year, "text", ""))).strip()
+                    if cur_d == str(doc).strip() and cur_y == str(year).strip():
+                        match_ok = True
+                        break
+                time.sleep(0.2)
+                sap_wait_idle(session, 1.0)
 
             if read_doc is None or read_year is None:
-
                 return False, "DOCUMENT_READBACK_UNAVAILABLE"
 
-            if str(getattr(read_doc, "Text", "")).strip() != str(doc) or str(getattr(read_year, "Text", "")).strip() != str(year):
-
+            if not match_ok:
                 return False, "DOCUMENT_READBACK_MISMATCH"
 
             if getattr(read_doc, "Changeable", True):
-
                 return False, "DOCUMENT_NOT_LOADED"
 
             self._active_document = (str(doc), str(year))
-
             return True, "LOADED_VERIFIED"
 
         except Exception as e:
-
             try:
-
                 w0 = safe_find_by_id(session, "wnd[0]")
-
                 if w0:
-
                     w0.SendVKey(12)  # Esc thoát chứng từ khi gặp ngoại lệ
-
             except Exception:
-
                 pass
-
             return False, f"NAV_ERROR: {e}"
 
+    def open_migo_document(self, session, doc: str, year: str = "", mode: str = "CHANGE", force_reload: bool = False) -> Tuple[bool, str]:
+        """Nạp chứng từ MIGO theo chuẩn luồng Change_doc kèm cơ chế Tự động Thử lại (Auto-Retry Guard):
+        Nếu lần 1 gặp lỗi do trễ giao diện (UI Lag / Redraw delay / E_PENDING / COM 613 / READBACK_MISMATCH),
+        Bot tự động làm sạch session, làm mới MIGO và thử lại lần 2 để cứu vãn chứng từ!
+        """
+        loaded_ok, nav_msg = self._do_open_migo_document(session, doc, year, mode=mode, force_reload=force_reload)
+        if loaded_ok:
+            return True, nav_msg
 
+        retryable_keys = [
+            "NAV_ERROR", "YEAR_CONTROL_NOT_FOUND", "DOCUMENT_READBACK_MISMATCH",
+            "SESSION_BUSY", "DOCUMENT_NOT_LOADED", "DOCUMENT_READBACK_UNAVAILABLE"
+        ]
+        if any(k in nav_msg for k in retryable_keys):
+            print(f"[MIGO NAV RETRY] ⚠️ Lần 1 nạp DOC {doc} gặp độ trễ giao diện ({nav_msg}). Làm mới session và thử lại lần 2...")
+            sanitize_migo_session(session)
+            time.sleep(0.3)
+            self.prepare_migo_session(session, mode=mode)
+            loaded_ok2, nav_msg2 = self._do_open_migo_document(session, doc, year, mode=mode, force_reload=True)
+            if loaded_ok2:
+                print(f"[MIGO NAV RETRY] ✅ Lần 2 nạp DOC {doc} THÀNH CÔNG!")
+                return True, nav_msg2
+            return loaded_ok2, nav_msg2
+
+        return loaded_ok, nav_msg
 
     def process_single_migo_item(
 
@@ -3803,8 +3391,6 @@ class MigoAttachmentRunner:
 
             return self._failed_item(doc, ticket_no, identity_status, "Chưa xác minh đúng hệ thống, client, người dùng và session được cấp")
 
-
-
         # =========================================================================
 
         # TRƯỜNG HỢP 1: NGƯỜI DÙNG KHÔNG YÊU CẦU ĐÍNH KÈM (Chỉ điền số phiếu HeadText)
@@ -3820,8 +3406,6 @@ class MigoAttachmentRunner:
             overall_status = "CHƯA_XỬ_LÝ"
 
             is_succ = False
-
-
 
             if dry_run:
 
@@ -3881,8 +3465,6 @@ class MigoAttachmentRunner:
 
                         overall_status = "THIẾU_SỐ_PHIẾU"
 
-
-
             if not dry_run and session is not None:
 
                 try:
@@ -3898,8 +3480,6 @@ class MigoAttachmentRunner:
                 except Exception:
 
                     pass
-
-
 
             return {
 
@@ -3931,8 +3511,6 @@ class MigoAttachmentRunner:
 
             }, is_succ
 
-
-
         # =========================================================================
 
         # TRƯỜNG HỢP 2: CÓ YÊU CẦU ĐÍNH KÈM NHƯNG THƯ MỤC LỖI TRUY CẬP (Mất mạng / VPN)
@@ -3944,8 +3522,6 @@ class MigoAttachmentRunner:
             headtext_res = "SKIP"
 
             headtext_msg = "Không điền HeadText"
-
-
 
             if fill_headtext and ticket_no:
 
@@ -3969,8 +3545,6 @@ class MigoAttachmentRunner:
 
                         headtext_msg = nav_msg
 
-
-
             bbbg_res = "LỖI_THƯ_MỤC"
 
             vat_res = "LỖI_THƯ_MỤC"
@@ -3986,8 +3560,6 @@ class MigoAttachmentRunner:
                 overall_status = "LỖI_THƯ_MỤC"
 
                 is_succ = False
-
-
 
             return {
 
@@ -4019,8 +3591,6 @@ class MigoAttachmentRunner:
 
             }, is_succ
 
-
-
         # =========================================================================
 
         # TRƯỜNG HỢP 3: CÓ THƯ MỤC HỢP LỆ -> QUÉT & ĐÍNH KÈM FILE BBBG, VAT VÀO MIGO
@@ -4034,8 +3604,6 @@ class MigoAttachmentRunner:
         vat_paths = all_matches["vat"]
 
         mail_paths = all_matches["mail"]
-
-
 
         match_notes_list = []
 
@@ -4057,8 +3625,6 @@ class MigoAttachmentRunner:
 
         match_notes = " | ".join(match_notes_list)
 
-
-
         headtext_res = "SKIP"
 
         headtext_msg = "Không điền HeadText"
@@ -4072,8 +3638,6 @@ class MigoAttachmentRunner:
         overall_status = "FILE_NOT_FOUND"
 
         is_succ = False
-
-
 
         if dry_run:
 
@@ -4136,8 +3700,6 @@ class MigoAttachmentRunner:
 
                 ticket_nums, _ = extract_search_tokens(ticket_no)
 
-
-
                 # 2. Đính kèm file BBBG (hỗ trợ lũy kế nhiều file BBBG)
 
                 b_ok = False
@@ -4146,8 +3708,6 @@ class MigoAttachmentRunner:
                     to_upload_bb, already_bb = [], ["ZFIR266"]
                 else:
                     to_upload_bb, already_bb, _ = match_files_to_sap(bbbg_paths, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
-
-
 
                 if not to_upload_bb and already_bb:
 
@@ -4207,8 +3767,6 @@ class MigoAttachmentRunner:
 
                     bbbg_res = "FILE_NOT_FOUND"
 
-
-
                 # 3. Đính kèm file VAT (hỗ trợ lũy kế nhiều file VAT)
 
                 v_ok = False
@@ -4217,8 +3775,6 @@ class MigoAttachmentRunner:
                     to_upload_vat, already_vat = [], ["ZFIR266"]
                 else:
                     to_upload_vat, already_vat, _ = match_files_to_sap(vat_paths, sap_titles, ticket_nums=ticket_nums, file_type="vat")
-
-
 
                 if not to_upload_vat and already_vat:
 
@@ -4278,8 +3834,6 @@ class MigoAttachmentRunner:
 
                     vat_res = "FILE_NOT_FOUND"
 
-
-
                 # 4. Đính kèm file Mail (nếu có)
 
                 m_ok = False
@@ -4297,8 +3851,6 @@ class MigoAttachmentRunner:
                     else:
 
                         mail_res = f"Lỗi: {msg_m}"
-
-
 
                 # Đánh giá trạng thái tổng thể chính xác (A03 - Phân định rõ DONE, PARTIAL, REVIEW)
 
@@ -4344,8 +3896,6 @@ class MigoAttachmentRunner:
 
                     is_succ = False
 
-
-
         # Sau khi xử lý xong chứng từ, dọn sạch modal popup và chuyển chứng từ êm ái chống treo tab
 
         if not dry_run and session is not None:
@@ -4367,8 +3917,6 @@ class MigoAttachmentRunner:
             except Exception:
 
                 pass
-
-
 
         return {
 
@@ -4400,8 +3948,6 @@ class MigoAttachmentRunner:
 
         }, is_succ
 
-
-
     def process_attachment_batch(
 
         self,
@@ -4432,8 +3978,6 @@ class MigoAttachmentRunner:
 
         folder_error = ""
 
-
-
         if is_folder_requested:
 
             try:
@@ -4451,8 +3995,6 @@ class MigoAttachmentRunner:
             except Exception as e:
 
                 folder_error = f"Lỗi truy cập thư mục: {e}"
-
-
 
         if has_folder:
 
@@ -4474,8 +4016,6 @@ class MigoAttachmentRunner:
 
             print(f"[ATT RUNNER] Chế độ điền số phiếu HeadText (Không đính kèm file).")
 
-
-
         # Phát hiện xung đột MULTI_TICKET_DOC (A02): cùng 1 DOC nhưng có nhiều ticket_no khác nhau
 
         doc_tickets = {}
@@ -4490,8 +4030,6 @@ class MigoAttachmentRunner:
 
                 doc_tickets.setdefault(d, set()).add(t)
 
-
-
         multi_ticket_docs = {d: sorted(list(ts)) for d, ts in doc_tickets.items() if len(ts) > 1}
 
         if multi_ticket_docs:
@@ -4505,8 +4043,6 @@ class MigoAttachmentRunner:
                 if d in multi_ticket_docs:
 
                     it["multi_ticket_conflict"] = multi_ticket_docs[d]
-
-
 
         results = []
         total_success = 0
@@ -4951,8 +4487,6 @@ class MigoAttachmentRunner:
 
                     total_missing += 1
 
-
-
         # ---------------------------------------------------------------------
 
         # NHÁNH B: CHẠY ĐƠN TAB TUẦN TỰ (SINGLE-TAB HOẶC DRY-RUN)
@@ -4985,13 +4519,9 @@ class MigoAttachmentRunner:
 
                     session = self.sap_engine.ensure_session()
 
-
-
                 if session is not None:
 
                     self.prepare_migo_session(session, mode="CHANGE")
-
-
 
             try:
 
@@ -5012,8 +4542,6 @@ class MigoAttachmentRunner:
                         except Exception as ex:
 
                             print(f"[PROGRESS WARN] Callback error: {ex}")
-
-
 
                     res_dict, is_s = self.process_single_migo_item(
 
@@ -5045,8 +4573,6 @@ class MigoAttachmentRunner:
 
                     reset_session_to_main_menu(session)
 
-
-
         return {
 
             "folder_path": clean_folder if is_folder_requested else "",
@@ -5073,8 +4599,6 @@ class MigoAttachmentRunner:
 
         }
 
-
-
     @staticmethod
 
     def format_teams_report(batch_summary: Dict[str, Any]) -> str:
@@ -5092,8 +4616,6 @@ class MigoAttachmentRunner:
         folder_path = batch_summary.get("folder_path", "")
 
         folder_error = batch_summary.get("folder_error", "")
-
-
 
         lines = []
 
@@ -5151,8 +4673,6 @@ class MigoAttachmentRunner:
 
                 lines.append(f"- `{doc}`: {status}")
 
-
-
             lines.append("")
 
             lines.append("| Số DOC | Số phiếu | Điền HeadText | BBBG | VAT | Trạng thái |")
@@ -5174,8 +4694,6 @@ class MigoAttachmentRunner:
                 status = r.get("overall_status", "-")
 
                 lines.append(f"| {doc} | {ticket} | {head} | {bbbg} | {vat} | {status} |")
-
-
 
         return "\n".join(lines)
 
