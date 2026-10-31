@@ -371,11 +371,11 @@ def sap_wait_idle(session, max_wait_sec: float = 5.0) -> None:
 RECORDED_MIGO_IDS = {
 
     "GODYNPRO-ACTION": [
-
-        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmbGODYNPRO-ACTION",
-
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/cmbGODYNPRO-ACTION",
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0001/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
+        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
         "wnd[0]/usr/cmbGODYNPRO-ACTION",
-
     ],
 
     "GODYNPRO-REFDOC": [
@@ -1691,138 +1691,156 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
     }
 
 def ensure_migo_mode(session, target_action="A12", target_refdoc="R02") -> bool:
-
     """Đảm bảo MIGO ở đúng Action và RefDoc:
-
-    - Kiểm tra Action: Nếu đã đúng target_action thì BỎ QUA hoàn toàn, không đụng vào.
-
-    - Nếu khác: gán .Key = target_action và time.sleep(0.5) chờ SAP vẽ lại màn hình (Screen Redraw).
-
-    - Re-fetch RefDoc từ đầu vì đối tượng cũ bị hủy sau redraw.
-
-    - Kiểm tra RefDoc: Nếu đã đúng target_refdoc thì TUYỆT ĐỐI KHÔNG gán lại.
-
-    - Nếu khác: gán .Key = target_refdoc và time.sleep(0.5).
-
+    - Nếu có chứng từ cũ đang nạp trên màn hình, Esc trước để mở khóa ComboBox Action.
+    - Hỗ trợ dò tìm toàn diện ComboBox GODYNPRO-ACTION và GODYNPRO-REFDOC qua mọi Subscreen (:0001-:0004).
+    - Nhận diện linh hoạt cả Key kỹ thuật (A04/A08/A12, R02/R10) lẫn Text hiển thị (Display/Change/Transfer).
+    - Chuyển Action & RefDoc kèm vòng lặp retry an toàn để đảm bảo không bị kẹt ở Display.
     """
-
     if session is None:
-
         return False
-
     try:
+        def _get_combo_key_or_code(cb, prefix="A"):
+            if cb is None:
+                return ""
+            val = str(getattr(cb, "Key", getattr(cb, "key", "")) or "").strip()
+            if re.fullmatch(rf"{prefix}\d{{2}}", val):
+                return val
+            txt = str(getattr(cb, "Text", getattr(cb, "text", getattr(cb, "Value", ""))) or "").upper()
+            if prefix == "A":
+                if "CHANGE" in txt:
+                    return "A12"
+                elif "DISPLAY" in txt:
+                    return "A04"
+                elif "TRANSFER" in txt:
+                    return "A08"
+                elif "RECEIPT" in txt or "GOODS RECEIPT" in txt:
+                    return "A01"
+                elif "ISSUE" in txt:
+                    return "A07"
+            elif prefix == "R":
+                if "MATERIAL" in txt:
+                    return "R02"
+                elif "OTHER" in txt:
+                    return "R10"
+                elif "ORDER" in txt or "PURCHASE" in txt:
+                    return "R01"
+                elif "DELIVERY" in txt:
+                    return "R05"
+            return val
 
         def _find_combo(name):
-
             try:
-
                 w0 = safe_find_by_id(session, "wnd[0]")
-
                 if w0 and hasattr(w0, "findByName"):
-
                     try:
-
                         cb = w0.findByName(name, "GuiComboBox")
-
                         if cb is not None:
-
                             return cb
-
                     except Exception:
-
                         pass
-
             except Exception:
-
                 pass
 
-            for cand_id in [
-
-                f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmb{name}",
-
-                f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmb{name}",
-
-                f"wnd[0]/usr/cmb{name}",
-
-            ]:
-
+            cand_ids = []
+            if name == "GODYNPRO-ACTION":
+                cand_ids = [
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/cmbGODYNPRO-ACTION",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0001/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
+                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION",
+                    "wnd[0]/usr/cmbGODYNPRO-ACTION",
+                ]
+            else:
+                cand_ids = [
+                    f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmb{name}",
+                    f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0001/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmb{name}",
+                    f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmb{name}",
+                    f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/cmb{name}",
+                    f"wnd[0]/usr/cmb{name}",
+                ]
+            for cand_id in cand_ids:
                 cb = safe_find_by_id(session, cand_id)
-
                 if cb is not None:
-
                     return cb
 
             return smart_find(session, name, "GuiComboBox")
 
+        # 0. Nếu đang có chứng từ cũ mở trên màn hình làm khóa ComboBox -> Esc trước
+        for doc_cid in [
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/txtGODYNPRO-MAT_DOC",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2010/ctxtGODYNPRO-MAT_DOC",
+            "wnd[0]/usr/txtGODYNPRO-MAT_DOC",
+            "wnd[0]/usr/ctxtGODYNPRO-MAT_DOC",
+        ]:
+            doc_chk = safe_find_by_id(session, doc_cid)
+            if doc_chk is not None and not getattr(doc_chk, "Changeable", True):
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    try:
+                        w0.SendVKey(12)  # Esc (Cancel)
+                        time.sleep(0.05)
+                        dismiss_any_modal_popup(session)
+                    except Exception:
+                        pass
+                break
+
         # 1. Kiểm tra Action: Nếu đã đúng target_action thì BỎ QUA luôn
-
         cmb_action = _find_combo("GODYNPRO-ACTION")
+        cur_act = _get_combo_key_or_code(cmb_action, "A")
 
-        cur_act = ""
-
-        if cmb_action is not None:
-
-            val = getattr(cmb_action, "Key", getattr(cmb_action, "key", ""))
-
-            if isinstance(val, str) and re.fullmatch(r"A\d{2}", val.strip()):
-
-                cur_act = val.strip()
-
-        if cur_act and cur_act != target_action:
-
-            print(f"[MIGO AUTO-SWITCH] ComboBox Action đang ở '{cur_act}' (cần '{target_action}'). Đang chuyển...")
-
-            try:
-
-                cmb_action.Key = target_action
-
+        if cur_act != target_action:
+            print(f"[MIGO AUTO-SWITCH] ComboBox Action đang ở '{cur_act or 'UNKNOWN'}' (cần '{target_action}'). Đang chuyển...")
+            action_changed = False
+            if cmb_action is not None:
+                for attempt in range(3):
+                    try:
+                        cmb_action.Key = target_action
+                        action_changed = True
+                        break
+                    except Exception:
+                        try:
+                            cmb_action.key = target_action
+                            action_changed = True
+                            break
+                        except Exception as act_err:
+                            time.sleep(0.15)
+                            sap_wait_idle(session, 1.0)
+            if action_changed:
                 sap_wait_idle(session, 5.0)
-
                 time.sleep(0.3)  # Chờ SAP vẽ lại màn hình sau khi đổi Action
 
-            except Exception as act_err:
-
-                print(f"[MIGO AUTO-SWITCH WARN] Lỗi gán Action: {act_err}")
-
         # 2. Phải tìm lại từ đầu cho RefDoc (vì màn hình vừa redraw xong, COM object cũ đã bị hủy)
-
         cmb_refdoc = _find_combo("GODYNPRO-REFDOC")
-
-        cur_ref = ""
-
-        if cmb_refdoc is not None:
-
-            val = getattr(cmb_refdoc, "Key", getattr(cmb_refdoc, "key", ""))
-
-            if isinstance(val, str) and re.fullmatch(r"R\d{2}", val.strip()):
-
-                cur_ref = val.strip()
+        cur_ref = _get_combo_key_or_code(cmb_refdoc, "R")
 
         # Nếu đã là target_refdoc rồi thì TUYỆT ĐỐI KHÔNG gán lại!
-
-        if cur_ref and cur_ref != target_refdoc:
-
-            print(f"[MIGO AUTO-SWITCH] ComboBox RefDoc đang ở '{cur_ref}' (cần '{target_refdoc}'). Đang chuyển...")
-
-            try:
-
-                cmb_refdoc.Key = target_refdoc
-
+        if cur_ref != target_refdoc:
+            print(f"[MIGO AUTO-SWITCH] ComboBox RefDoc đang ở '{cur_ref or 'UNKNOWN'}' (cần '{target_refdoc}'). Đang chuyển...")
+            ref_changed = False
+            if cmb_refdoc is not None:
+                for attempt in range(3):
+                    try:
+                        cmb_refdoc.Key = target_refdoc
+                        ref_changed = True
+                        break
+                    except Exception:
+                        try:
+                            cmb_refdoc.key = target_refdoc
+                            ref_changed = True
+                            break
+                        except Exception as ref_err:
+                            time.sleep(0.15)
+                            sap_wait_idle(session, 1.0)
+            if ref_changed:
                 sap_wait_idle(session, 5.0)
-
                 time.sleep(0.3)  # Chờ SAP vẽ lại màn hình sau khi đổi RefDoc
 
-            except Exception as ref_err:
-
-                print(f"[MIGO AUTO-SWITCH WARN] Lỗi gán RefDoc: {ref_err}")
-
         return True
-
     except Exception as ex:
-
         print(f"[MIGO AUTO-SWITCH WARN] {ex}")
-
         return False
+
 
 class MigoAttachmentRunner:
 
@@ -2265,6 +2283,12 @@ class MigoAttachmentRunner:
             return "SKIP_NO_TICKET", "Không có số phiếu cần điền"
 
         ticket_clean = str(ticket_no).strip()
+        # Kiểm tra tiêu đề cửa sổ: Nếu đang ở Display Material Document -> Chặn ngay lập tức
+        titl_bar = safe_find_by_id(session, "wnd[0]/titl")
+        titl_text = str(getattr(titl_bar, "Text", getattr(titl_bar, "text", "")) or "").upper()
+        if titl_text and "DISPLAY" in titl_text:
+            return "HEADTEXT_BLOCKED", f"MIGO đang ở chế độ xem Display (A04) thay vì Change (A12), không thể sửa Header Text."
+
 
         try:
 
@@ -3141,6 +3165,8 @@ class MigoAttachmentRunner:
                     except Exception:
                         pass
                 doc_fld = smart_find(session, "GODYNPRO-MAT_DOC", "GuiTextField") or smart_find(session, "GODYNPRO-MAT_DOC", "GuiCTextField")
+                # Sau khi Esc, ComboBox Action đã được mở khóa -> Đảm bảo lại đúng Action A12 và RefDoc R02
+                ensure_migo_mode(session, target_action=target_act, target_refdoc="R02")
 
             # Nếu sau Esc vẫn chưa sẵn sàng -> Reset về MIGO A12 sạch sẽ
             if doc_fld is None or not getattr(doc_fld, "Changeable", True):
@@ -3263,6 +3289,20 @@ class MigoAttachmentRunner:
 
             if getattr(read_doc, "Changeable", True):
                 return False, "DOCUMENT_NOT_LOADED"
+
+            # 5. Xác thực chế độ nạp chứng từ: Nếu yêu cầu CHANGE mà SAP lại mở DISPLAY -> Buộc reset và nạp lại ở CHANGE!
+            titl_bar = safe_find_by_id(session, "wnd[0]/titl")
+            titl_text = str(getattr(titl_bar, "Text", getattr(titl_bar, "text", "")) or "").upper()
+            if mode == "CHANGE" and ("DISPLAY" in titl_text or (titl_text and "CHANGE" not in titl_text and "MATERIAL" in titl_text)):
+                print(f"[MIGO MODE MISMATCH WARN] Cảnh báo: Yêu cầu CHANGE nhưng màn hình đang là '{titl_text}'. Buộc reset và mở lại ở CHANGE...")
+                w0 = safe_find_by_id(session, "wnd[0]")
+                if w0:
+                    try:
+                        w0.SendVKey(12)  # Esc thoát Display
+                    except Exception:
+                        pass
+                self.prepare_migo_session(session, mode="CHANGE")
+                return False, f"WRONG_MODE_DISPLAY: MIGO nạp nhầm vào mục Display ('{titl_text}') thay vì Change"
 
             self._active_document = (str(doc), str(year))
             return True, "LOADED_VERIFIED"
@@ -4404,9 +4444,19 @@ class MigoAttachmentRunner:
 
                     # 2. Kiểm tra nếu SAP GUI bị văng hoặc tắt hẳn
                     if not is_sap_gui_alive():
-                        print("[ATT RUNNER WATCHDOG] 🚨 PHÁT HIỆN SAP GUI BỊ VĂNG / MẤT KẾT NỐI KHỎI HỆ THỐNG! Dừng chờ mẻ...")
-                        stop_event.set()
-                        break
+                        is_genuinely_dead = True
+                        try:
+                            if self.sap_engine and hasattr(self.sap_engine, "session"):
+                                s = getattr(self.sap_engine, "session", None)
+                                if s and hasattr(s, "Busy"):
+                                    _ = s.Busy
+                                    is_genuinely_dead = False
+                        except Exception:
+                            is_genuinely_dead = True
+                        if is_genuinely_dead:
+                            print("[ATT RUNNER WATCHDOG] 🚨 PHÁT HIỆN SAP GUI BỊ VĂNG / MẤT KẾT NỐI KHỎI HỆ THỐNG! Dừng chờ mẻ...")
+                            stop_event.set()
+                            break
 
                     time.sleep(1.0)
 
