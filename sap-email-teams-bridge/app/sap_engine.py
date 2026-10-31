@@ -5787,22 +5787,8 @@ class SapEngine:
             print(f"[ZFIR266 EXCEPTION] {zfir_err}")
             zfir_supported = False
 
-        # 5. DỰ PHÒNG MIGO DISPLAY: Khi ZFIR266 không khả dụng hoặc trả về 0 kết quả cho DOC
-        docs_need_migo_fallback = [d for d in clean_docs if (not zfir_supported) or (d in zfir_results and not zfir_results[d])]
+        # 5. TUYỆT ĐỐI KHÔNG FALLBACK MIGO DISPLAY: Bảo tồn 100% session sạch cho luồng ghi tiếp theo
         migo_results = {}
-        if docs_need_migo_fallback:
-            print(f"[CHECK_ATT FALLBACK] ZFIR266 không khả dụng, chuyển sang kiểm tra GOS qua MIGO Display cho {len(docs_need_migo_fallback)} DOC...")
-            runner = MigoAttachmentRunner(sap_engine=self, expected_session_identity=self.session_identity)
-            for doc in docs_need_migo_fallback:
-                titles = []
-                try:
-                    loaded_ok, nav_msg = runner.open_migo_document(session, doc, year=year, mode="DISPLAY", force_reload=True)
-                    if loaded_ok:
-                        titles = runner.read_sap_attachment_titles(session)
-                except Exception as migo_err:
-                    print(f"[MIGO DISPLAY WARN] Lỗi đọc DOC {doc}: {migo_err}")
-                migo_results[doc] = titles
-
         self._reset_to_session_manager()
 
         records = []

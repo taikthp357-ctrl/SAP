@@ -62,7 +62,77 @@ class AttHandler(BaseHandler):
             )
 
         # -------------------------------------------------------------
-        # NHÁNH 2: ĐÍNH KÈM FILE GOS & ĐIỀN SỐ PHIẾU HEADTEXT (MIGO A12)
+        # NHÁNH 2: CHUYÊN TRÁCH ĐIỀN SỐ PHIẾU HEADTEXT (MIGO A12 CHANGE)
+        # -------------------------------------------------------------
+        elif cmd in ["MIGO_HEADTEXT", "DIEN_PHIEU", "HEADTEXT", "SUA_PHIEU"]:
+            is_preview = ctx.meta.get("dryRun", False) is True
+            if not is_preview:
+                assert_write_permission(ctx)
+                ctx.sap.ensure_session()
+
+            items_to_fill = ctx.meta.get("attachmentItems", [])
+            if not items_to_fill:
+                att_docs = ctx.meta.get("attachmentDocs", [])
+                if not att_docs and ctx.raw_materials:
+                    att_docs = [m for m in ctx.raw_materials if m.isdigit() and len(m) >= 8]
+                ticket_no = ctx.meta.get("refNo") or ctx.meta.get("ticket_no") or ""
+                items_to_fill = [{"doc": d, "ticket_no": ticket_no} for d in att_docs]
+
+            if not items_to_fill:
+                raise ValueError("Không tìm thấy số chứng từ DOC hoặc số phiếu cần điền")
+
+            target_year = (ctx.meta.get("year") or "").strip() or str(datetime.now().year)
+            allow_overwrite = bool(ctx.meta.get("allow_overwrite_headtext") or ctx.meta.get("overwrite_headtext"))
+
+            from app.writers.migo_headtext_writer import MigoHeadtextWriter
+            records = []
+            total_succ = 0
+            session = getattr(ctx.sap, "session", None) or ctx.session
+
+            for it in items_to_fill:
+                d = str(it.get("doc", "")).strip()
+                t = str(it.get("ticket_no", "")).strip()
+                if is_preview:
+                    records.append({
+                        "doc": d, "ticket_no": t, "headtext_status": "PREVIEW_OK", "overall_status": "DONE"
+                    })
+                    total_succ += 1
+                else:
+                    succ, status_c, msg = MigoHeadtextWriter.fill(
+                        session=session,
+                        doc=d,
+                        year=target_year,
+                        ticket_no=t,
+                        allow_overwrite=allow_overwrite
+                    )
+                    records.append({
+                        "doc": d,
+                        "ticket_no": t,
+                        "headtext_status": status_c,
+                        "overall_status": "DONE" if succ else "FAIL",
+                        "message": msg
+                    })
+                    if succ:
+                        total_succ += 1
+
+            headers = {
+                "doc": "Số DOC",
+                "ticket_no": "Số phiếu",
+                "headtext_status": "Trạng thái điền",
+                "overall_status": "Kết luận"
+            }
+            summary = f"Điền số phiếu HeadText MIGO A12 ({total_succ}/{len(items_to_fill)} thành công)"
+            return CommandResult(
+                status="SUCCEEDED" if total_succ == len(items_to_fill) else ("PARTIAL" if total_succ > 0 else "FAILED"),
+                summary=summary,
+                records=records,
+                headers=headers,
+                audit_target=f"{len(items_to_fill)} chứng từ",
+                audit_message=f"Hoàn tất điền số phiếu HeadText: {total_succ}/{len(items_to_fill)}"
+            )
+
+        # -------------------------------------------------------------
+        # NHÁNH 3: ĐÍNH KÈM FILE GOS & ĐIỀN SỐ PHIẾU HEADTEXT (FULL MIGO)
         # -------------------------------------------------------------
         elif cmd in ["ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"]:
             is_preview = ctx.meta.get("dryRun", False) is True

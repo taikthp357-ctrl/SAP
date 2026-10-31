@@ -1,0 +1,17 @@
+{
+  "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.0.74.zip": {
+    "bytes": 14103905,
+    "sha256": "5ee2f36e1a6d8a37cda66fe64cdc80665195667e4766b6a9978f687028bdac81",
+    "files": 1422
+  },
+  "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.0.74.zip": {
+    "bytes": 453389,
+    "sha256": "e3f44ed498f5efed603ba2af0d9edf0c9047f44136690b07353bc4a0024088af",
+    "files": 68
+  },
+  "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.0.74.zip": {
+    "bytes": 260482,
+    "sha256": "5ecda41b22f9142a22ded72b12fc88b3f0552a2c837b31dfdc8a24a6ceb48a16",
+    "files": 50
+  }
+}

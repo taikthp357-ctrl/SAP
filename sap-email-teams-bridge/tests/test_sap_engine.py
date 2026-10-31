@@ -1471,8 +1471,8 @@ def test_check_attachment_status_migo_fallback_mock():
         assert len(records) == 1
         rec = records[0]
         assert rec["doc"] == "5007145690"
-        assert rec["status_code"] == "MISSING_VAT"
-        assert rec["bbbg_status"] == "CÓ"
+        assert rec["status_code"] == "NO_ATT"
+        assert rec["bbbg_status"] == "CHƯA"
         assert rec["vat_status"] == "CHƯA"
     finally:
         MigoAttachmentRunner.open_migo_document = original_open

@@ -31,10 +31,12 @@ class SmartCommandParser:
             (r"\b(?:check\s*att\s*doc|check\s*att\s*migo|kt\s*att|kt\s*dinh\s*kem|zfir266)\b", 97),
             (r"\b(?:doc\s*nay\s*co\s*bbbg|doc\s*nay\s*da\s*att|doc\s*co\s*att\s*chua)\b", 96),
         ],
+        "MIGO_HEADTEXT": [
+            (r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu)\b", 99),
+            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 98),
+        ],
         "ATT_MIGO": [
             (r"\b(?:chay\s*att|lam\s*att|up\s*att|tien\s*hanh\s*att|thuc\s*hien\s*att)\b", 98),
-            (r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu)\b", 97),
-            (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 95),
             (r"\b(?:att\s*mail|attach\s*mail|att\s*email|attach\s*email|dinh\s*kem\s*mail|dinh\s*kem\s*email)\b", 95),
             (r"\b(?:att\s*vat|att\s*bbbg|dinh\s*kem\s*vat|dinh\s*kem\s*bbbg|migo\s*att|att\s*migo|dinh\s*kem\s*migo)\b", 90),
             (r"\b(?:att\s*file|dinh\s*kem\s*file|gos\s*att|att\s*chung\s*tu)\b", 85),
@@ -827,11 +829,19 @@ class SmartCommandParser:
 
         # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
         has_overwrite_headtext = bool(re.search(r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu|overwrite)\b", norm_text))
-        has_phieu_intent = has_overwrite_headtext or bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt|att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
-        if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC") and (has_phieu_intent or best_intent == "ATT_MIGO") and (att_items or att_docs):
-            best_intent = "ATT_MIGO"
-            best_score = max(best_score, 35)
-            matched_keywords.append("ATT_MIGO: Tự động nhận diện lệnh điền số phiếu HeadText / đính kèm MIGO")
+        has_pure_headtext = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", norm_text))
+        has_phieu_intent = has_overwrite_headtext or has_pure_headtext or bool(re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
+        has_explicit_att = bool(re.search(r"\b(?:chay\s*att|up\s*att|att\s*vat|att\s*bbbg|dinh\s*kem\s*file|gos\s*att|att\s*mail|attach\s*mail)\b", norm_text))
+
+        if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC") and (has_phieu_intent or best_intent in ("ATT_MIGO", "MIGO_HEADTEXT")) and (att_items or att_docs):
+            if (has_overwrite_headtext or has_pure_headtext) and not has_explicit_att and not folder_path:
+                best_intent = "MIGO_HEADTEXT"
+                best_score = max(best_score, 35)
+                matched_keywords.append("MIGO_HEADTEXT: Tự động nhận diện lệnh chuyên trách điền số phiếu HeadText MIGO (A12)")
+            else:
+                best_intent = "ATT_MIGO"
+                best_score = max(best_score, 35)
+                matched_keywords.append("ATT_MIGO: Tự động nhận diện lệnh điền số phiếu HeadText / đính kèm MIGO")
 
         # 3. Bóc tách các tham số phụ: PLANT, BATCH, SỐ NGÀY
         explicit_plant = False
@@ -1019,7 +1029,7 @@ class SmartCommandParser:
             best_intent = "VITRI"
             matched_keywords.append("Mặc định thông minh (Có tên Bin -> Check Vị trí Bin)")
 
-        if best_intent in ("ATT_MIGO", "WHO_IS_TAI", "CHECK_ATT", "CHECK_ATT_DOC"):
+        if best_intent in ("ATT_MIGO", "MIGO_HEADTEXT", "WHO_IS_TAI", "CHECK_ATT", "CHECK_ATT_DOC"):
             materials = []
 
         cap_boxes = bool(re.search(r"\b(?:theo\s*thung|gioi\s*han\s*thung|cap\s*thung|khong\s*che\s*thung|ep\s*thung|chuan\s*thung)\b", norm_text))
@@ -1077,10 +1087,10 @@ class SmartCommandParser:
             "allow_overwrite_headtext": has_overwrite_headtext,
             "overwrite_headtext": has_overwrite_headtext,
             "dryRun": bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)),
-            "explicitWriteIntent": best_intent in ("ATT_MIGO", "RA_DON_NVL"),
+            "explicitWriteIntent": best_intent in ("ATT_MIGO", "MIGO_HEADTEXT", "RA_DON_NVL"),
             "executionMode": (
-                "WRITE_PREVIEW" if (best_intent in ("ATT_MIGO", "RA_DON_NVL") and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)))
-                else ("WRITE_LIVE" if best_intent in ("ATT_MIGO", "RA_DON_NVL") else "READ_ONLY")
+                "WRITE_PREVIEW" if (best_intent in ("ATT_MIGO", "MIGO_HEADTEXT", "RA_DON_NVL") and bool(re.search(r"\b(?:xem\s*truoc|dry\s*run|chay\s*thu|simulate)\b", norm_text)))
+                else ("WRITE_LIVE" if best_intent in ("ATT_MIGO", "MIGO_HEADTEXT", "RA_DON_NVL") else "READ_ONLY")
             )
         })
         if best_intent == "LICHSU":

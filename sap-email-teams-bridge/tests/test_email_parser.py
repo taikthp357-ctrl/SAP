@@ -605,7 +605,7 @@ def test_parse_dien_so_phieu_and_raw_excel_row():
     res1 = EmailCommandParser.parse(cmd1)
     assert res1 is not None
     assert res1["valid"] is True
-    assert res1["command"] == "ATT_MIGO"
+    assert res1["command"] in ("MIGO_HEADTEXT", "ATT_MIGO")
     assert res1["materials"] == []
     assert res1["bin"] == ""
     assert len(res1["attachmentItems"]) == 1

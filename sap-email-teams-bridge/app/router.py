@@ -39,7 +39,8 @@ class CommandRouter:
         # 1. Nhóm Đính kèm & Tra cứu ZFIR266 (AttHandler)
         att_commands = [
             "CHECK_ATT", "CHECK_ATT_DOC", "CHECK_DINH_KEM", "ZFIR266",
-            "ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO"
+            "ATT_MIGO", "ATTACH_VAT_BBBG", "MIGO_ATT", "ATTACH_MIGO",
+            "MIGO_HEADTEXT", "DIEN_PHIEU", "HEADTEXT", "SUA_PHIEU"
         ]
         for cmd in att_commands:
             self.register(cmd, self.att_handler)

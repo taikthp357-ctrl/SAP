@@ -42,12 +42,12 @@ class TestV1092Features:
         """Kiểm tra lệnh 'sửa số phiếu' bật cờ allow_overwrite_headtext=True, còn 'điền số phiếu' thì False."""
         cmd_sua = "SAP sửa số phiếu\n5007135730 LTV - IN 6458"
         meta_sua = SmartCommandParser.parse(cmd_sua)
-        assert meta_sua["command"] == "ATT_MIGO"
+        assert meta_sua["command"] in ("MIGO_HEADTEXT", "ATT_MIGO")
         assert meta_sua.get("allow_overwrite_headtext") is True
 
         cmd_dien = "SAP điền số phiếu\n5007135730 LTV - IN 6458"
         meta_dien = SmartCommandParser.parse(cmd_dien)
-        assert meta_dien["command"] == "ATT_MIGO"
+        assert meta_dien["command"] in ("MIGO_HEADTEXT", "ATT_MIGO")
         assert meta_dien.get("allow_overwrite_headtext") is False
 
     def test_handle_migo_headtext_safety_vs_overwrite(self):

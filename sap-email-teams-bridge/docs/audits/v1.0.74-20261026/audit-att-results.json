@@ -1,0 +1,48 @@
+{
+  "route_SCWM": {
+    "valid": true,
+    "command": "SCWM",
+    "handler": "NoneType"
+  },
+  "route_/SCWM/POST": {
+    "valid": true,
+    "command": "/SCWM/POST",
+    "handler": "NoneType"
+  },
+  "route_TRA_CUU_ASN": {
+    "valid": true,
+    "command": "TRA_CUU_ASN",
+    "handler": "LogisticsHandler"
+  },
+  "empty_identity": [
+    true,
+    "SESSION_VERIFIED"
+  ],
+  "different_session_id": [
+    true,
+    "SESSION_VERIFIED"
+  ],
+  "spoofed_body_sender_and_partial_status": {
+    "handler_status": "SUCCEEDED",
+    "write_runner_called": true,
+    "default_year": "2026"
+  },
+  "stale_status_while_popup_close_times_out": {
+    "result": [
+      true,
+      "DONE_SAP_SBAR: new-file.pdf"
+    ],
+    "readback_calls": 0
+  },
+  "url_missing_controls_warning_status": [
+    true,
+    "DONE_SAP_URL: AUDIT"
+  ],
+  "different_ticket_prefix_accepted": [
+    "HEADTEXT_OK",
+    "Đã có đúng số phiếu ('OUT_P1_1234')"
+  ],
+  "no_bot_tab_fallback": [
+    "/app/con[0]/ses[2]"
+  ]
+}
