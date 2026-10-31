@@ -12,7 +12,7 @@ Tính năng:
 
 import re
 import unicodedata
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 
 class SmartCommandParser:
@@ -34,6 +34,7 @@ class SmartCommandParser:
         "MIGO_HEADTEXT": [
             (r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu)\b", 99),
             (r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", 98),
+            (r"\b(?:dien|nhap|cap\s*nhat|update|gan|sua|thay)\s+(?:giup\s+(?:em|anh|e|a)\s+)?(?:so\s*phieu|header\s*text|head\s*text|text|bktxt)\b", 100),
         ],
         "ATT_MIGO": [
             (r"\b(?:chay\s*att|lam\s*att|up\s*att|tien\s*hanh\s*att|thuc\s*hien\s*att)\b", 98),
@@ -132,7 +133,7 @@ class SmartCommandParser:
             (r"\b(?:cap\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*(?:cho\s*)?(?:ca|model|xe)\s*nao|dung\s*chung)\b", 98),
             (r"\b(?:cap\s*du\s*(?:chua|hay\s*thieu)|cap\s*thieu\s*(?:khsx|chay\s*not)?|ra\s*don\s*cap\s*not|cap\s*giup\s*e|cap\s*cho\s*a\s*con)\b", 96),
             (r"\b(?:cac\s*ma\s*(?:nay\s*)?(?:cua|cho)\s*(?:limo|vf\d+|xe|model))\b", 96),
-            (r"\b(?:so\s*phieu|phieu\s*sp|gap|cap\s*thieu|oder\s*bao\s*nhieu|cap\s*thieu\s*bao\s*nhieu)\b", 95),
+            (r"\b(?:phieu\s*sp|phieu\s*cap|gap|cap\s*thieu|oder\s*bao\s*nhieu|cap\s*thieu\s*bao\s*nhieu)\b", 95),
             (r"\b(?:tinh\s*trang\s*cap\s*(?:ma|vat\s*tu)|tra\s*cuu\s*cap\s*nvl|check\s*cap\s*ma|ho\s*tro\s*em\s*may\s*ma)\b", 95),
             (r"\b(?:hoi\s*(?:cac\s*)?ma|cac\s*ma\s*nay|danh\s*sach\s*ma\s*nay)\b", 90),
             (r"\b(?:cap\s*not|cap\s*bu|xin\s*cap)\b", 92),
@@ -539,7 +540,52 @@ class SmartCommandParser:
         return result
 
     @classmethod
-    def parse(cls, raw_body: Any, html_body: str = "", subject: str = "", default_plant: str = "3093") -> Optional[Dict[str, Any]]:
+    def split_dual_zone_and_strip_signature(cls, text: str) -> Tuple[str, str]:
+        """Tách nội dung thành 2 vùng:
+        - top_zone: Lời dặn mới của người gửi ở đầu mail (đã cắt bỏ phần Reply/Forward và chữ ký cá nhân).
+        - data_zone: Toàn bộ nội dung gốc (dùng để bóc tách bảng số DOC, mã NVL, v.v.).
+        """
+        if not text:
+            return "", ""
+        data_zone = text
+        quote_patterns = [
+            r"-----Original Message-----",
+            r"(?:From|Từ):\s*.*?\r?\n(?:Sent|Đã gửi|Ngày gửi):",
+            r"On\s+.+?,\s*.+?\s*wrote:",
+            r"Vào\s+Th\w+.*?,\s*\d+.*?đã viết:",
+            r"Người gửi:\s*.*?\r?\n(?:Ngày|Ngày gửi):",
+            r"_{10,}",
+            r"-{10,}",
+            r"Sent from my (?:iPhone|Galaxy|iPad)",
+            r"Được gửi từ Outlook dành cho (?:iOS|Android)"
+        ]
+        top_part = text
+        for pat in quote_patterns:
+            m = re.search(pat, top_part, re.IGNORECASE)
+            if m:
+                top_part = top_part[:m.start()]
+
+        sig_patterns = [
+            r"^\s*--\s*$",
+            r"^\s*(?:trân\s*trọng|tran\s*trong|best\s*regards|thanks\s*(?:and|&)\s*best\s*regards|warm\s*regards|thân\s*ái|than\s*ai|kính\s*thư|kinh\s*thu|tks\s*&\s*brgds|rgds|brgds)\b",
+            r"^\s*(?:cảm\s*ơn|cam\s*on|thanks|thank\s*you)\s*[,.!]?\s*$",
+            r"^\s*(?:tel|mobile|phone|sđt|sdt|ext)\s*[:=.]?\s*\+?\d+",
+            r"^\s*(?:chuyên\s*viên|kỹ\s*sư|phụ\s*trách|trưởng\s*nhóm|phó\s*phòng|trưởng\s*phòng)\b",
+        ]
+        lines = top_part.splitlines()
+        cut_idx = len(lines)
+        for i, line in enumerate(lines):
+            l_strip = line.strip().lower()
+            if any(re.search(sp, l_strip, re.IGNORECASE) for sp in sig_patterns):
+                cut_idx = i
+                break
+        top_zone = "\n".join(lines[:cut_idx]).strip()
+        if not top_zone:
+            top_zone = top_part.strip()
+        return top_zone, data_zone
+
+    @classmethod
+    def parse(cls, raw_body: Any, html_body: str = "", subject: str = "", default_plant: str = "3093", attachments: Optional[List[Any]] = None) -> Optional[Dict[str, Any]]:
         """Phân tích nội dung email và trả về từ điển lệnh."""
         json_obj = None
         if isinstance(raw_body, dict):
@@ -636,10 +682,20 @@ class SmartCommandParser:
 
         command_text = raw_m.group(1).strip() if raw_m else cleaned
         meta["rawText"] = command_text
-        # TẦNG 1: Dịch tiếng lóng và chuẩn hóa
-        norm_text = cls.normalize_and_expand_slang(command_text)
+        top_zone, data_zone = cls.split_dual_zone_and_strip_signature(command_text)
+        meta["topZone"] = top_zone
+
+        clean_subj = str(subject or "").strip()
+        is_reply_fwd = bool(re.match(r"^\s*(?:re|fw|fwd|tl|chuyển\s*tiếp|v/v)\s*:\s*", clean_subj, re.IGNORECASE))
+        subj_weight = 0.1 if (is_reply_fwd and len(top_zone.split()) >= 3) else 1.0
+
+        # TẦNG 1: Dịch tiếng lóng và chuẩn hóa LỆNH TRÊN TOP_ZONE (không dính chữ ký/mail cũ)
+        norm_text = cls.normalize_and_expand_slang(top_zone)
+        norm_subj = cls.normalize_and_expand_slang(clean_subj) if clean_subj else ""
+        norm_full_data = cls.normalize_and_expand_slang(data_zone)
+
         from app.sap_attachment import clean_folder_path, extract_folder_path_multiline, DEFAULT_MIGO_ATT_FOLDER
-        raw_folder = extract_folder_path_multiline(command_text)
+        raw_folder = extract_folder_path_multiline(data_zone) or extract_folder_path_multiline(command_text)
 
         # 1. Chấm điểm Ý định (Intent Scoring)
         scores = {k: 0 for k in cls.INTENT_SCORES.keys()}
@@ -651,6 +707,21 @@ class SmartCommandParser:
                 if m:
                     scores[intent] += weight
                     matched_keywords.append(f"{intent}:'{m.group(0)}' (+{weight})")
+                elif norm_subj and subj_weight > 0.0:
+                    sm = re.search(pat, norm_subj)
+                    if sm:
+                        w_adj = int(weight * subj_weight)
+                        scores[intent] += w_adj
+                        matched_keywords.append(f"{intent}:subj:'{sm.group(0)}' (+{w_adj})")
+
+        # Fallback: nếu top_zone không khớp intent nào (ví dụ mail chỉ có bảng mà không có câu lệnh), thử tìm trên data_zone
+        if max(scores.values()) == 0:
+            for intent, rules in cls.INTENT_SCORES.items():
+                for pat, weight in rules:
+                    m = re.search(pat, norm_full_data)
+                    if m:
+                        scores[intent] += weight
+                        matched_keywords.append(f"{intent}:data:'{m.group(0)}' (+{weight})")
 
         # TẦNG 3: LUẬT PHỦ ĐỊNH (VETO RULES) - CHỐNG BẪY NGỮ CẢNH
         has_tracking_signals = bool(re.search(
@@ -670,7 +741,7 @@ class SmartCommandParser:
             scores["TRA_CUU_CAP_NVL"] = -50
 
         # Ưu tiên Đính kèm MIGO / ZFIR266 trên từ khóa số phiếu (không để rơi vào TRA_CUU_CAP_NVL)
-        if has_att_exec_signals or has_pure_zfir_signals:
+        if has_att_exec_signals or has_pure_zfir_signals or bool(re.search(r"\b(?:dien|nhap|cap\s*nhat|update|gan|sua|thay)\s+(?:giup\s+(?:em|anh|e|a)\s+)?(?:so\s*phieu|header\s*text|head\s*text|text|bktxt)\b", norm_text)):
             scores["TRA_CUU_CAP_NVL"] = -50
 
         # Phân biệt CHECK_ATT (tra cứu) vs ATT_MIGO (ghi dữ liệu)
@@ -825,16 +896,40 @@ class SmartCommandParser:
         except Exception:
             att_items = []
 
-        att_docs = [item["doc"] for item in att_items] if att_items else re.findall(r"\b(?:49\d{8}|500\d{7}|\d{10})\b", command_text)
+        att_docs = [item["doc"] for item in att_items if str(item.get("doc", "")).startswith(("49", "50"))] if att_items else re.findall(r"\b(?:49\d{8}|50\d{8})\b", command_text)
+        has_docs = len(att_docs) > 0
+        has_pairs = any(bool(item.get("ticket_no")) for item in att_items)
 
         # NẾU CÓ FOLDER PATH HOẶC YÊU CẦU ĐIỀN SỐ PHIẾU / ATT_MIGO:
         has_overwrite_headtext = bool(re.search(r"\b(?:sua\s*so\s*phieu|sua\s*phieu|ghi\s*de\s*so\s*phieu|ghi\s*de\s*phieu|doi\s*so\s*phieu|thay\s*so\s*phieu|cap\s*nhat\s*lai\s*so\s*phieu|fix\s*phieu|overwrite)\b", norm_text))
-        has_pure_headtext = bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", norm_text))
-        has_phieu_intent = has_overwrite_headtext or has_pure_headtext or bool(re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text))
-        has_explicit_att = bool(re.search(r"\b(?:chay\s*att|up\s*att|att\s*vat|att\s*bbbg|dinh\s*kem\s*file|gos\s*att|att\s*mail|attach\s*mail)\b", norm_text))
+        has_pure_headtext = bool(re.search(r"\b(?:dien|nhap|cap\s*nhat|update|gan|sua|thay)\s+(?:giup\s+(?:em|anh|e|a)\s+)?(?:so\s*phieu|header\s*text|head\s*text|text|bktxt)\b", norm_text)) or bool(re.search(r"\b(?:dien\s*so\s*phieu|dien\s*phieu|dien\s*headtext|cap\s*nhat\s*headtext|dien\s*bktxt)\b", norm_text))
+        has_phieu_intent = has_overwrite_headtext or has_pure_headtext or bool(re.search(r"\b(?:att\s*mail|attach\s*mail|dinh\s*kem\s*mail)\b", norm_text)) or (has_pairs and bool(re.search(r"\b(?:phieu|headtext|bktxt)\b", norm_text)))
+        has_explicit_att = bool(re.search(r"\b(?:chay\s*att|up\s*att|att\s*vat|att\s*bbbg|dinh\s*kem\s*file|gos\s*att|att\s*mail|attach\s*mail|att\s*migo|dinh\s*kem\s*migo)\b", norm_text))
 
-        if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC") and (has_phieu_intent or best_intent in ("ATT_MIGO", "MIGO_HEADTEXT")) and (att_items or att_docs):
-            if (has_overwrite_headtext or has_pure_headtext) and not has_explicit_att and not folder_path:
+        # TẦNG 3 & 4: ĐỐI CHIẾU HÌNH THÁI DỮ LIỆU & LUẬT PHỦ QUYẾT CỨNG (HARD VETO)
+        if has_pairs or (has_docs and (has_phieu_intent or best_intent in ("ATT_MIGO", "MIGO_HEADTEXT"))):
+            scores["CHECK_NVL_MIGO"] = -500.0
+
+        num_valid_files = len(attachments or [])
+        has_unc_folder = bool(folder_path)
+        has_files_or_folder = (num_valid_files > 0) or has_unc_folder
+
+        # 1. Hard Veto cho ATT_MIGO:
+        # Nếu không có file thật và không có đường dẫn UNC -> KHÔNG THỂ là đính kèm file GOS!
+        if not has_files_or_folder and not has_explicit_att:
+            scores["ATT_MIGO"] = -999.0
+        elif has_files_or_folder and att_docs:
+            scores["ATT_MIGO"] += 30.0
+
+        # 2. Khớp hình thái cho MIGO_HEADTEXT:
+        # Chỉ BOOST khi có ý định lệnh (has_phieu_intent) kèm bảng 2 cột; nếu chỉ dán raw row không có lệnh -> không tự cấp quyền
+        if has_pairs and not has_files_or_folder and has_phieu_intent:
+            scores["MIGO_HEADTEXT"] += 40.0
+        elif not has_pairs and not has_phieu_intent:
+            scores["MIGO_HEADTEXT"] = -999.0
+
+        if best_intent not in ("CHECK_ATT", "CHECK_ATT_DOC", "CHECK_IB", "CHECK_PO", "TIM_IB", "STO", "VITRI", "LICHSU", "TON") and (has_phieu_intent or best_intent in ("ATT_MIGO", "MIGO_HEADTEXT")) and (att_items or att_docs):
+            if (has_overwrite_headtext or has_pure_headtext or (has_pairs and not has_files_or_folder)) and not has_explicit_att and not folder_path:
                 best_intent = "MIGO_HEADTEXT"
                 best_score = max(best_score, 35)
                 matched_keywords.append("MIGO_HEADTEXT: Tự động nhận diện lệnh chuyên trách điền số phiếu HeadText MIGO (A12)")
@@ -987,7 +1082,7 @@ class SmartCommandParser:
                 or (best_intent == "CHECK_PO" and po_no)
                 or (best_intent == "TIM_GR_DOC" and (inbound_no or ref_no or mat_doc))
                 or (best_intent == "CHECK_QUEUE")
-                or (best_intent == "ATT_MIGO")
+                or (best_intent in ("ATT_MIGO", "MIGO_HEADTEXT"))
                 or (best_intent in ("CHECK_ATT", "CHECK_ATT_DOC") and (att_docs or raw_mats))
                 or (best_intent in ("TAO_BBBG", "XEM_BBBG", "DIEU_PHOI_OB", "TRA_CUU_ASN", "TINH_TRANG_NVL", "IN_WHT", "TRA_CUU_CAP_NVL", "SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL", "SET_NVL_PASSWORD", "MAT_KHAU_NVL"))
                 or (best_intent in ("RA_DON_NVL", "KE_HOACH_NVL") and bool(nvl_table_rows))

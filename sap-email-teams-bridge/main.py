@@ -454,6 +454,38 @@ def deliver_outbox(state_mgr, max_attempts=3):
 
 
 
+def get_valid_attachments(mail) -> list:
+    """Lọc danh sách file đính kèm nghiệp vụ thật, loại trừ 100% ảnh chữ ký / inline icons."""
+    valid_files = []
+    if mail is None:
+        return valid_files
+    try:
+        att_col = getattr(mail, "Attachments", None)
+        if not att_col:
+            return valid_files
+        count = getattr(att_col, "Count", 0)
+        for i in range(1, count + 1):
+            att = att_col.Item(i)
+            fname = str(getattr(att, "FileName", "") or "").strip()
+            fsize = getattr(att, "Size", 0)
+            if not fname:
+                continue
+            lower_name = fname.lower()
+            garbage_markers = ["image001", "image002", "image003", "outlook-", "signature", "logo", "icon_"]
+            if any(gm in lower_name for gm in garbage_markers):
+                continue
+            doc_exts = (".pdf", ".xlsx", ".xls", ".xlsb", ".docx", ".doc", ".zip", ".rar", ".7z")
+            if lower_name.endswith(doc_exts):
+                valid_files.append(fname)
+            elif lower_name.endswith((".png", ".jpg", ".jpeg")):
+                is_biz_name = any(k in lower_name for k in ["bbbg", "vat", "hd", "bk", "inv", "pl", "49", "50"])
+                if fsize > 50000 or is_biz_name:
+                    valid_files.append(fname)
+    except Exception:
+        pass
+    return valid_files
+
+
 def actual_sender_address(mail):
 
     address = str(getattr(mail, "SenderEmailAddress", "") or "").strip().lower()
@@ -911,7 +943,8 @@ def run_bridge():
 
 
 
-                    meta = NaturalCommandParser.parse(raw_body, html_body=html_body, subject=subject, default_plant=def_plant)
+                    val_atts = get_valid_attachments(mail)
+                    meta = NaturalCommandParser.parse(raw_body, html_body=html_body, subject=subject, default_plant=def_plant, attachments=val_atts)
 
 
 

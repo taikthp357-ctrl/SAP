@@ -189,12 +189,32 @@ class MigoHeadtextWriter:
             w0.SendVKey(12)  # Esc
             return False, "DISPLAY_MODE_BLOCKED", f"MIGO nạp nhầm vào mục Display ('{titl_text}'). Không thể sửa Header Text."
 
-        # Bước 4: Mở Header và điền số phiếu vào GOHEAD-BKTXT
+        # Bước 4: Mở Header và kích hoạt Tab General của SAP
         try:
             session.SendCommand("MIGO_OK_HEADER_OPEN")
             wait_idle(session, 1.0)
         except Exception:
             pass
+
+        # Kích hoạt tường minh Tab General (Ảnh 3) để ô txtGOHEAD-BKTXT luôn hiển thị
+        cand_tab_gen = [
+            "wnd[0]/usr/subSUB1:SAPLMIGO:0010/subSUB2:SAPLMIGO:0020/subSUB3:SAPLMIGO:0030/subSUB4:SAPLMIGO:0031/tabsTS_GOHEAD/tabpOK_GOHEAD_GEN",
+            "wnd[0]/usr/subSUB1:SAPLMIGO:0020/subSUB2:SAPLMIGO:0030/subSUB3:SAPLMIGO:0031/tabsTS_GOHEAD/tabpOK_GOHEAD_GEN",
+            "wnd[0]/usr/subSUB1:SAPLMIGO:0001/subSUB2:SAPLMIGO:0020/subSUB3:SAPLMIGO:0030/subSUB4:SAPLMIGO:0031/tabsTS_GOHEAD/tabpOK_GOHEAD_GEN",
+        ]
+        t_gen = None
+        for tid in cand_tab_gen:
+            t_gen = find_by_id_safe(session, tid)
+            if t_gen is not None:
+                break
+        if t_gen is None:
+            t_gen = smart_find(session, "tabpOK_GOHEAD_GEN", "GuiTab")
+        if t_gen is not None:
+            try:
+                t_gen.select()
+                wait_idle(session, 0.5)
+            except Exception:
+                pass
 
         head_fld = smart_find(session, "GOHEAD-BKTXT", "GuiTextField")
         if head_fld is None:

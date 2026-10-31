@@ -13,7 +13,55 @@ from app.core.sap_primitives import (
     reset_to_session_manager,
 )
 from app.core.sap_alv import fill_multiple_selection, get_column_caption
-from app.sap_attachment import classify_sap_attachments
+
+BBBG_REGEX = re.compile(r"(?:bbbg|bien\s*ban|b\s*b\s*b\s*g|delivery\s*note)", re.IGNORECASE)
+VAT_REGEX = re.compile(r"(?:vat|hoa\s*don|h[oó]a\s*đ[oơ]n|invoice|inv)", re.IGNORECASE)
+
+def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str, Any]:
+    """Phân loại trạng thái file đính kèm BBBG / VAT từ ALV Grid ZFIR266."""
+    if not titles:
+        return {
+            "total_files": 0, "files": [], "bbbg_file": None, "vat_file": None,
+            "has_bbbg": False, "has_vat": False, "status_code": "NO_ATT",
+            "overall_status": "Chưa có cả BBBG lẫn VAT", "badge_color": "red"
+        }
+    bbbg_list = []
+    vat_list = []
+    other_list = []
+    tick_clean = re.sub(r"[^A-Za-z0-9]+", "", str(ticket_no or "")).upper()
+
+    for title in titles:
+        t_clean = re.sub(r"[^A-Za-z0-9]+", "", str(title or "")).upper()
+        is_match = True if not tick_clean else (tick_clean in t_clean or t_clean in tick_clean)
+        norm = title.lower()
+        is_bb = bool(BBBG_REGEX.search(norm))
+        is_vat = bool(VAT_REGEX.search(norm))
+        if is_bb and (is_match or not bbbg_list):
+            bbbg_list.append(title)
+        if is_vat and (is_match or not vat_list):
+            vat_list.append(title)
+        if not is_bb and not is_vat:
+            other_list.append(title)
+
+    has_bb = len(bbbg_list) > 0
+    has_vat = len(vat_list) > 0
+    if has_bb and has_vat:
+        code, st, clr = "FULL_ATT", "Đã có cả BBBG và VAT", "green"
+    elif has_bb and not has_vat:
+        code, st, clr = "MISSING_VAT", "Đã có BBBG, thiếu VAT", "gold"
+    elif has_vat and not has_bb:
+        code, st, clr = "MISSING_BBBG", "Đã có VAT, thiếu BBBG", "gold"
+    else:
+        code, st, clr = "NO_ATT", "Chưa có cả BBBG lẫn VAT", "red"
+
+    return {
+        "total_files": len(titles), "files": titles,
+        "bbbg_file": bbbg_list[0] if bbbg_list else None,
+        "vat_file": vat_list[0] if vat_list else None,
+        "other_files": other_list,
+        "has_bbbg": has_bb, "has_vat": has_vat,
+        "status_code": code, "overall_status": st, "badge_color": clr
+    }
 
 
 class Zfir266Reader:

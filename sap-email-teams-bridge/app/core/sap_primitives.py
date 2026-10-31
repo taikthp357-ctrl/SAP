@@ -3,6 +3,7 @@
 TUYỆT ĐỐI KHÔNG CHỨA LOGIC NGHIỆP VỤ (Không phân biệt MB52, MIGO, ZFIR266...).
 """
 import time
+from contextlib import contextmanager
 from typing import Optional, Tuple, Set
 
 
@@ -63,22 +64,16 @@ def wait_idle(session, timeout_sec: float = 30.0) -> bool:
 
 
 def smart_find(session, element_name: str, element_type: Optional[str] = None, window: str = "wnd[0]"):
-    """Tự động tìm kiếm đối tượng theo Tên tương thích cả High Speed & Low Speed,
-    kết hợp bộ nhớ đệm tự học (UI_CACHE).
-    """
+    """Tự động tìm kiếm đối tượng theo Tên trên window."""
     if session is None:
         return None
-    try:
-        from app.sap_attachment import UI_CACHE
-        return UI_CACHE.resolve_element(session, key_alias=element_name, field_name=element_name, element_type=element_type, window=window)
-    except Exception:
-        w = find_by_id_safe(session, window)
-        if w and hasattr(w, "findByName"):
-            try:
-                return w.findByName(element_name, element_type) if element_type else w.findByName(element_name)
-            except Exception:
-                pass
-        return None
+    w = find_by_id_safe(session, window)
+    if w and hasattr(w, "findByName"):
+        try:
+            return w.findByName(element_name, element_type) if element_type else w.findByName(element_name)
+        except Exception:
+            pass
+    return None
 
 
 def get_status(session) -> Tuple[str, str]:
@@ -193,3 +188,19 @@ def reset_to_session_manager(session) -> None:
         print("[SAP] Đã đưa phiên làm việc về màn hình gốc /n thành công.")
     except Exception as e:
         print(f"[SAP RESET WARN] Lỗi khi đưa về màn hình gốc /n: {e}")
+
+
+@contextmanager
+def transaction_scope(session, tcode: str):
+    """Đảm bảo mọi Reader/Writer luôn bắt đầu sạch và trả lại màn hình /n khi kết thúc."""
+    try:
+        dismiss_popups(session)
+        open_transaction(session, tcode)
+        yield session
+    finally:
+        try:
+            dismiss_popups(session)
+            reset_to_session_manager(session)
+        except Exception:
+            pass
+
