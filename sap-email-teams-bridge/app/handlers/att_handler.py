@@ -85,36 +85,28 @@ class AttHandler(BaseHandler):
             allow_overwrite = bool(ctx.meta.get("allow_overwrite_headtext") or ctx.meta.get("overwrite_headtext"))
 
             from app.writers.migo_headtext_writer import MigoHeadtextWriter
-            records = []
-            total_succ = 0
             session = getattr(ctx.sap, "session", None) or ctx.session
 
-            for it in items_to_fill:
-                d = str(it.get("doc", "")).strip()
-                t = str(it.get("ticket_no", "")).strip()
-                if is_preview:
+            if is_preview:
+                records = []
+                for it in items_to_fill:
                     records.append({
-                        "doc": d, "ticket_no": t, "headtext_status": "PREVIEW_OK", "overall_status": "DONE"
+                        "doc": str(it.get("doc", "")).strip(),
+                        "ticket_no": str(it.get("ticket_no", "")).strip(),
+                        "headtext_status": "PREVIEW_OK",
+                        "overall_status": "DONE"
                     })
-                    total_succ += 1
-                else:
-                    succ, status_c, msg = MigoHeadtextWriter.fill(
-                        session=session,
-                        doc=d,
-                        year=target_year,
-                        ticket_no=t,
-                        allow_overwrite=allow_overwrite
-                    )
-                    records.append({
-                        "doc": d,
-                        "ticket_no": t,
-                        "headtext_status": status_c,
-                        "overall_status": "DONE" if succ else "FAIL",
-                        "message": msg
-                    })
-                    if succ:
-                        total_succ += 1
-
+                total_succ = len(records)
+            else:
+                prompt_raw = str(ctx.meta.get("promptRaw") or ctx.meta.get("prompt") or ctx.meta.get("subject") or ctx.command or "")
+                records, total_succ = MigoHeadtextWriter.fill_batch_multi_tab(
+                    items=items_to_fill,
+                    year=target_year,
+                    allow_overwrite=allow_overwrite,
+                    prompt_raw=prompt_raw,
+                    connection_index=getattr(ctx.sap, "connection_index", 0),
+                    fallback_session=session
+                )
             headers = {
                 "doc": "Số DOC",
                 "ticket_no": "Số phiếu",

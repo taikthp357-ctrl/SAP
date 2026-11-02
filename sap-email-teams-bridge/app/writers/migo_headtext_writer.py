@@ -4,8 +4,10 @@ TUYỆT ĐỐI KHÔNG ĐỤNG TỚI GOS / WIN32 MUTEX / ZFIR266.
 ĐẢM BẢO 100% LUÔN Ở CHẾ ĐỘ CHANGE (A12), KHÔNG BAO GIỜ BỊ KẸT Ở DISPLAY (A04).
 """
 import re
+import threading
 import time
-from typing import Tuple
+from collections import deque
+from typing import Tuple, List, Dict, Any, Optional
 from app.core.sap_primitives import (
     find_by_id_safe,
     wait_idle,
@@ -13,6 +15,8 @@ from app.core.sap_primitives import (
     open_transaction,
     smart_find,
     get_status,
+    ensure_sap_tabs,
+    get_safe_sap_session,
 )
 
 
@@ -264,3 +268,228 @@ class MigoHeadtextWriter:
             pass
 
         return True, "FILLED", f"Đã điền số phiếu '{ticket_clean}' và lưu thành công ({post_txt or 'OK'})"
+
+    @classmethod
+    def fill_batch_multi_tab(
+        cls,
+        items: List[Dict[str, Any]],
+        year: str = "",
+        allow_overwrite: bool = False,
+        prompt_raw: str = "",
+        connection_index: int = 0,
+        fallback_session=None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Xử lý lô chứng từ HeadText với khả năng chạy Đa Tab (Multi-Tab) song song.
+        Tự động phân bổ tải trên 2-6 Tab SAP (mặc định 3-4 Tab khi có nhiều DOC hoặc lệnh yêu cầu).
+        Trả về (records: list, total_succ: int).
+        """
+        if not items:
+            return [], 0
+
+        year_clean = str(year).strip() or str(time.localtime().tm_year)
+
+        # 1. Nếu chỉ có 1 DOC hoặc không có môi trường Windows COM -> Chạy tuần tự đơn phiên
+        if len(items) <= 1:
+            rec = []
+            it = items[0]
+            d = str(it.get("doc", "")).strip()
+            t = str(it.get("ticket_no", "")).strip()
+            s = fallback_session or get_safe_sap_session(connection_index, 0)
+            succ, status_c, msg = cls.fill(
+                session=s,
+                doc=d,
+                year=year_clean,
+                ticket_no=t,
+                allow_overwrite=allow_overwrite
+            )
+            rec.append({
+                "doc": d,
+                "ticket_no": t,
+                "headtext_status": status_c,
+                "overall_status": "DONE" if succ else "FAIL",
+                "message": msg,
+                "tab": 1
+            })
+            return rec, (1 if succ else 0)
+
+        # 2. Phân tích số lượng Tab mong muốn từ prompt_raw
+        prompt_lower = (prompt_raw or "").lower()
+        tab_match = re.search(r"(?:(?:chay|mo|dung|bat)\s+)?([2-6])\s*tab", prompt_lower)
+        if tab_match:
+            target_tabs = int(tab_match.group(1))
+        elif "max" in prompt_lower or "turbo" in prompt_lower or "tat ca tab" in prompt_lower:
+            target_tabs = min(len(items), 6)
+        elif len(items) >= 20:
+            target_tabs = 4
+        elif len(items) >= 8:
+            target_tabs = 3
+        elif len(items) >= 3:
+            target_tabs = 3
+        else:
+            target_tabs = 2
+
+        # 3. Đảm bảo mở đủ số Tab trên SAP GUI
+        try:
+            available_tabs = ensure_sap_tabs(target_tabs, connection_index=connection_index)
+        except Exception as e:
+            print(f"[MIGO HEADTEXT WARN] Không thể gọi ensure_sap_tabs: {e}")
+            available_tabs = 1
+
+        usable_tabs = min(available_tabs, target_tabs, len(items))
+
+        # Nếu không tạo được đa tab -> Chạy tuần tự an toàn trên session fallback
+        if usable_tabs <= 1:
+            print(f"[MIGO HEADTEXT] Chạy tuần tự trên 1 Tab duy nhất ({len(items)} DOC)...")
+            records = []
+            total_succ = 0
+            s = fallback_session or get_safe_sap_session(connection_index, 0)
+            for it in items:
+                d = str(it.get("doc", "")).strip()
+                t = str(it.get("ticket_no", "")).strip()
+                succ, status_c, msg = cls.fill(
+                    session=s,
+                    doc=d,
+                    year=year_clean,
+                    ticket_no=t,
+                    allow_overwrite=allow_overwrite
+                )
+                records.append({
+                    "doc": d,
+                    "ticket_no": t,
+                    "headtext_status": status_c,
+                    "overall_status": "DONE" if succ else "FAIL",
+                    "message": msg,
+                    "tab": 1
+                })
+                if succ:
+                    total_succ += 1
+            return records, total_succ
+
+        # 4. KÍCH HOẠT ĐA TAB SONG SONG (MULTI-TAB BATCH EXECUTION)
+        active_tab_indices = list(range(usable_tabs))
+        tabs_display = ", ".join(f"Tab {t+1}" for t in active_tab_indices)
+        print(f"[MIGO HEADTEXT] 🚀 KÍCH HOẠT ĐA TAB THÀNH CÔNG: Phân bổ {len(items)} DOC trên {len(active_tab_indices)} Tabs song song ({tabs_display})...")
+
+        tab_queues = {t_idx: deque() for t_idx in active_tab_indices}
+        for i, itm in enumerate(items):
+            target_tab = active_tab_indices[i % len(active_tab_indices)]
+            tab_queues[target_tab].append((i, itm))
+
+        results: List[Optional[Dict[str, Any]]] = [None] * len(items)
+        res_lock = threading.Lock()
+        total_succ = 0
+
+        def _tab_worker(tab_idx: int):
+            nonlocal total_succ
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+
+            # Stagger nhẹ 0.15s giữa các tab khi khởi động để tránh xung đột focus ban đầu
+            if tab_idx > 0:
+                time.sleep(min(1.0, tab_idx * 0.15))
+
+            worker_session = get_safe_sap_session(connection_index, tab_idx)
+            if worker_session is None:
+                print(f"[MIGO HEADTEXT Tab {tab_idx+1}] ⚠️ Không thể kết nối session, chuyển việc sang các tab khác...")
+                with res_lock:
+                    remaining_items = list(tab_queues[tab_idx])
+                    tab_queues[tab_idx].clear()
+                    alive_tabs = [t for t in active_tab_indices if t != tab_idx]
+                    if alive_tabs:
+                        for idx, it in enumerate(remaining_items):
+                            alt_tab = alive_tabs[idx % len(alive_tabs)]
+                            tab_queues[alt_tab].append(it)
+                return
+
+            while True:
+                item_tuple = None
+                with res_lock:
+                    if tab_queues[tab_idx]:
+                        item_tuple = tab_queues[tab_idx].popleft()
+                    else:
+                        # Work-stealing nếu tab này hết việc sớm
+                        for other_t in active_tab_indices:
+                            if len(tab_queues[other_t]) > 1:
+                                item_tuple = tab_queues[other_t].pop()
+                                break
+                if item_tuple is None:
+                    break
+
+                orig_idx, it = item_tuple
+                d = str(it.get("doc", "")).strip()
+                t = str(it.get("ticket_no", "")).strip()
+
+                try:
+                    succ, status_c, msg = cls.fill(
+                        session=worker_session,
+                        doc=d,
+                        year=year_clean,
+                        ticket_no=t,
+                        allow_overwrite=allow_overwrite
+                    )
+                except Exception as ex:
+                    succ, status_c, msg = False, "EXCEPTION", str(ex)
+
+                rec = {
+                    "doc": d,
+                    "ticket_no": t,
+                    "headtext_status": status_c,
+                    "overall_status": "DONE" if succ else "FAIL",
+                    "message": msg,
+                    "tab": tab_idx + 1
+                }
+                with res_lock:
+                    results[orig_idx] = rec
+                    if succ:
+                        total_succ += 1
+
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+        threads = []
+        for t_idx in active_tab_indices:
+            th = threading.Thread(target=_tab_worker, args=(t_idx,), name=f"MigoHeadtextTab-{t_idx+1}")
+            th.daemon = True
+            th.start()
+            threads.append(th)
+
+        for th in threads:
+            th.join(timeout=180.0)
+
+        # 5. Xử lý sót (nếu có tab nào bị crash bất ngờ làm sót phần tử)
+        fallback_s = fallback_session or get_safe_sap_session(connection_index, 0)
+        for i, r in enumerate(results):
+            if r is None:
+                it = items[i]
+                d = str(it.get("doc", "")).strip()
+                t = str(it.get("ticket_no", "")).strip()
+                print(f"[MIGO HEADTEXT FALLBACK] Bổ sung xử lý DOC {d} trên Session chính...")
+                try:
+                    succ, status_c, msg = cls.fill(
+                        session=fallback_s,
+                        doc=d,
+                        year=year_clean,
+                        ticket_no=t,
+                        allow_overwrite=allow_overwrite
+                    )
+                except Exception as ex:
+                    succ, status_c, msg = False, "FALLBACK_ERROR", str(ex)
+
+                results[i] = {
+                    "doc": d,
+                    "ticket_no": t,
+                    "headtext_status": status_c,
+                    "overall_status": "DONE" if succ else "FAIL",
+                    "message": msg,
+                    "tab": 1
+                }
+                if succ:
+                    total_succ += 1
+
+        return results, total_succ
