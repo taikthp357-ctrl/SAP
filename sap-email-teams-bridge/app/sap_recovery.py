@@ -68,22 +68,59 @@ def is_saplogon_running() -> bool:
         return False
 
 
+def get_sap_process_pids() -> set:
+    """Lấy danh sách Process ID (PID) của toàn bộ tiến trình saplogon.exe và sapfront.exe."""
+    pids = set()
+    try:
+        output = subprocess.check_output(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            timeout=2.0
+        )
+        for line in output.splitlines():
+            line_lower = line.lower()
+            if "saplogon.exe" in line_lower or "sapfront.exe" in line_lower:
+                parts = [p.strip('"\t ') for p in line.split('","')]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    pids.add(int(parts[1]))
+    except Exception:
+        pass
+    return pids
+
+
 def is_sap_gui_hung(timeout_sec: float = 3.0) -> bool:
     """
     Kiểm tra xem SAP GUI (saplogon.exe / sapfront.exe) có đang ở trạng thái 'Not Responding' (đơ cứng) hay không.
-    Sử dụng cả Win32 IsHungAppWindow API cấp OS (phản hồi tức thì 0.01s) và fallback lệnh tasklist.
+    Sử dụng cả Win32 IsHungAppWindow API cấp OS theo PID tiến trình và fallback lệnh tasklist.
     """
-    # 1. Quét nhanh qua Windows Win32 API: IsHungAppWindow & Window Title
+    # 1. Quét nhanh qua Windows Win32 API: IsHungAppWindow & Process ID
     try:
         if win32gui is not None:
             hung_found = False
+            sap_pids = get_sap_process_pids()
+
             def _enum_win_cb(hwnd, _):
                 nonlocal hung_found
-                if hung_found or not win32gui.IsWindowVisible(hwnd):
+                if hung_found:
                     return
+
+                is_sap_win = False
+                if win32process is not None and sap_pids:
+                    try:
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        if pid in sap_pids:
+                            is_sap_win = True
+                    except Exception:
+                        pass
+
                 title = str(win32gui.GetWindowText(hwnd) or "").lower()
                 cls = str(win32gui.GetClassName(hwnd) or "").lower()
-                if "sap" in title or "migo" in title or "sap" in cls:
+                if not is_sap_win:
+                    if "sap" in cls or "sap" in title or "migo" in title or "gui" in cls:
+                        is_sap_win = True
+
+                if is_sap_win:
                     if "(not responding)" in title or "not responding" in title:
                         hung_found = True
                         return
@@ -93,6 +130,7 @@ def is_sap_gui_hung(timeout_sec: float = 3.0) -> bool:
                             return
                     except Exception:
                         pass
+
             win32gui.EnumWindows(_enum_win_cb, None)
             if hung_found:
                 return True
@@ -386,3 +424,134 @@ def recover_hung_sap_session(
         timeout_sec=20.0,
         max_retries=3
     )
+
+
+# ==============================================================================
+# TRẠM GÁC ĐỘC LẬP 24/7 (DEDICATED GLOBAL DAEMON WATCHDOG)
+# ==============================================================================
+import threading
+
+class SapGlobalWatchdog:
+    """Trạm gác độc lập 24/7 (Dedicated Background Daemon Thread).
+    Chạy liên tục ở cấp toàn hệ thống, hoàn toàn không gọi COM và không bị chặn bởi bất kỳ lệnh SAP nào.
+    Tự động phát hiện khi SAP GUI bị đơ '(Not Responding)' quá ngưỡng thời gian quy định (mặc định 15s),
+    cưỡng chế giải phóng tiến trình (taskkill) và kích hoạt khôi phục SSO ngay lập tức!
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(
+        self,
+        connection_name: str = DEFAULT_SAP_CONNECTION,
+        hung_threshold_sec: float = 15.0,
+        check_interval_sec: float = 1.5,
+        on_recovery = None
+    ):
+        self.connection_name = connection_name
+        self.hung_threshold_sec = hung_threshold_sec
+        self.check_interval_sec = check_interval_sec
+        self.on_recovery = on_recovery
+        self.enabled = True
+        self.hung_start_time = None
+        self._thread = None
+        self._stop_event = threading.Event()
+
+    def start(self):
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return self
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._watch_loop, name="SapGlobalWatchdog", daemon=True)
+            self._thread.start()
+            print(f"[GLOBAL WATCHDOG] 🛡️ Đã khởi chạy Trạm gác độc lập 24/7 (Ngưỡng tự phục hồi: {self.hung_threshold_sec:.0f}s)...")
+            return self
+
+    def stop(self):
+        with self._lock:
+            self._stop_event.set()
+            if self._thread is not None:
+                self._thread.join(timeout=3.0)
+                self._thread = None
+
+    def _watch_loop(self):
+        while not self._stop_event.is_set():
+            time.sleep(self.check_interval_sec)
+            if not self.enabled:
+                self.hung_start_time = None
+                continue
+
+            try:
+                # 1. Nếu saplogon hoàn toàn không chạy -> Reset bộ đếm
+                if not is_saplogon_running():
+                    self.hung_start_time = None
+                    continue
+
+                # 2. Kiểm tra SAP có bị treo cứng (Not Responding / IsHungAppWindow)
+                if is_sap_gui_hung():
+                    if self.hung_start_time is None:
+                        self.hung_start_time = time.time()
+                        print("[GLOBAL WATCHDOG] ⚠️ Cảnh báo: Phát hiện cửa sổ SAP GUI có dấu hiệu không phản hồi (Not Responding)...")
+                    else:
+                        elapsed = time.time() - self.hung_start_time
+                        if elapsed >= self.hung_threshold_sec:
+                            print(f"[GLOBAL WATCHDOG] 🚨 BÁO ĐỘNG ĐỎ: SAP GUI đã bị treo cứng '{elapsed:.1f}s' (vượt ngưỡng {self.hung_threshold_sec:.0f}s)!")
+                            print(f"[GLOBAL WATCHDOG] ⚡ CƯỠNG CHẾ GIẢI PHÓNG VÀ KÍCH HOẠT HỒI SINH SSO NGAY LẬP TỨC...")
+
+                            # Cưỡng chế dọn dẹp tiến trình treo (bẻ gãy lập tức mọi cuộc gọi COM đang bị nghẽn)
+                            kill_hung_sap_processes(timeout_sec=3.0)
+                            self.hung_start_time = None
+                            time.sleep(2.0)
+
+                            # Tự động mở lại SSO Link
+                            try:
+                                conn_name = self.connection_name or DEFAULT_SAP_CONNECTION
+                                new_session = auto_connect_sso_session(
+                                    connection_name=conn_name,
+                                    timeout_sec=20.0,
+                                    max_retries=3
+                                )
+                                if new_session is not None:
+                                    print("[GLOBAL WATCHDOG] ✅ HỒI SINH THÀNH CÔNG! Đã kết nối lại phiên SAP SSO mới.")
+                                    if callable(self.on_recovery):
+                                        try:
+                                            self.on_recovery(new_session)
+                                        except Exception as cb_err:
+                                            print(f"[GLOBAL WATCHDOG WARN] Lỗi callback phục hồi: {cb_err}")
+                            except Exception as rec_err:
+                                print(f"[GLOBAL WATCHDOG WARN] Lỗi khi hồi sinh SSO: {rec_err}")
+                else:
+                    if self.hung_start_time is not None:
+                        # SAP đã phản hồi trở lại bình thường trước khi chạm ngưỡng
+                        self.hung_start_time = None
+
+            except Exception:
+                # Trạm gác không bao giờ được chết vì ngoại lệ
+                time.sleep(1.0)
+
+
+_global_watchdog_instance = None
+
+def start_global_sap_watchdog(
+    connection_name: str = DEFAULT_SAP_CONNECTION,
+    hung_threshold_sec: float = 15.0,
+    check_interval_sec: float = 1.5,
+    on_recovery = None
+) -> SapGlobalWatchdog:
+    """Khởi tạo và chạy Trạm gác độc lập 24/7 toàn cục (Singleton)."""
+    global _global_watchdog_instance
+    if _global_watchdog_instance is None:
+        _global_watchdog_instance = SapGlobalWatchdog(
+            connection_name=connection_name,
+            hung_threshold_sec=hung_threshold_sec,
+            check_interval_sec=check_interval_sec,
+            on_recovery=on_recovery
+        )
+    return _global_watchdog_instance.start()
+
+
+def stop_global_sap_watchdog():
+    """Dừng Trạm gác độc lập."""
+    global _global_watchdog_instance
+    if _global_watchdog_instance is not None:
+        _global_watchdog_instance.stop()
