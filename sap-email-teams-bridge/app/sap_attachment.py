@@ -4485,10 +4485,50 @@ class MigoAttachmentRunner:
                         heal_session = None
 
                     if heal_session is not None:
-                        print(f"[ATT RUNNER SELF-HEAL] ✅ Kết nối lại SSO thành công! Tiếp tục xử lý {len(unprocessed_items)} chứng từ tồn đọng...")
-                        self.prepare_migo_session(heal_session, mode="CHANGE")
+                        print(f"[ATT RUNNER SELF-HEAL] ✅ Kết nối lại SSO thành công! Bắt đầu tái thiết lập môi trường...")
+
+                        # BƯỚC 1: Xóa cờ dừng khẩn cấp
+                        stop_event.clear()
+                        time.sleep(0.5)
+
+                        # BƯỚC 2: Cấp lại "Thẻ căn cước phiên" (Session Identity) từ phiên SSO mới
+                        try:
+                            new_info = getattr(heal_session, "Info", None)
+                            if new_info is not None:
+                                new_identity = {
+                                    "system": str(getattr(new_info, "SystemName", "") or "").strip(),
+                                    "client": str(getattr(new_info, "Client", "") or "").strip(),
+                                    "user": str(getattr(new_info, "User", "") or "").strip(),
+                                    "session_id": str(getattr(heal_session, "Id", "") or "").strip(),
+                                    "connection_id": 0,
+                                    "allow_any_tab": True
+                                }
+                                self.expected_session_identity = new_identity
+                                if self.sap_engine is not None:
+                                    self.sap_engine.session = heal_session
+                                    self.sap_engine.session_identity = new_identity
+                                print(f"[ATT RUNNER SELF-HEAL] 🛡️ Đã cấp mới Thẻ căn cước phiên: User={new_identity['user']} | Client={new_identity['client']} | Session={new_identity['session_id']}")
+                        except Exception as id_err:
+                            print(f"[ATT RUNNER SELF-HEAL WARN] Lỗi khi cấp căn cước mới: {id_err}")
+
+                        # BƯỚC 3: Mở sẵn giao dịch MIGO ở chế độ Thay đổi (A12 Change) trên Tab cứu hộ
+                        migo_ready = False
+                        for prep_attempt in range(3):
+                            if self.prepare_migo_session(heal_session, mode="CHANGE"):
+                                migo_ready = True
+                                break
+                            time.sleep(1.0)
+
+                        if not migo_ready:
+                            print("[ATT RUNNER SELF-HEAL WARN] Không thể mở sẵn MIGO, sẽ nạp động từng chứng từ...")
+
+                        rem_count = len(unprocessed_items)
+                        print(f"[ATT RUNNER SELF-HEAL] 🚀 Bắt đầu gánh tiếp {rem_count} chứng từ tồn đọng trên phiên SAP mới...")
+
+                        # BƯỚC 4: Xử lý lần lượt từng chứng từ còn lại
                         for o_idx, rem_itm in unprocessed_items:
                             doc_rem = str(rem_itm.get("doc", "")).strip()
+                            print(f"[ATT RUNNER SELF-HEAL] 🔄 Đang xử lý lại DOC {doc_rem}...")
                             try:
                                 h_dict, h_succ = self.process_single_migo_item(
                                     heal_session, rem_itm, index_data, fill_headtext, year,
@@ -4513,7 +4553,7 @@ class MigoAttachmentRunner:
                                 processed_count += 1
                                 if h_succ or h_dict.get("is_succ") is True or h_dict.get("overall_status") == "DONE":
                                     success_count += 1
-                            time.sleep(0.05)
+                            time.sleep(0.1)
                         unprocessed_items.clear()
 
                 # Vét nốt những item thực sự không thể phục hồi (nếu SSO không mở được)
