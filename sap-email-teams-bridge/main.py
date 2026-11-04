@@ -768,10 +768,22 @@ def run_bridge():
     # Khởi chạy Trạm gác độc lập 24/7 (Global Dedicated Daemon Watchdog)
     try:
         from app.sap_recovery import start_global_sap_watchdog
+        def _on_watchdog_recovered(new_sess):
+            if hasattr(sap, "session"):
+                sap.session = new_sess
+                if hasattr(sap, "_check_identity"):
+                    try:
+                        sap.session_identity = sap._check_identity(new_sess)
+                    except Exception:
+                        pass
+                sap.last_activity = time.time()
+                sap.is_dedicated_session = False
+                print("[GLOBAL WATCHDOG] 🔄 Đã tự động đồng bộ phiên SSO mới vào SAP Engine.")
+
         start_global_sap_watchdog(
             connection_name=config.get("sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link"),
-            hung_threshold_sec=15.0,
-            on_recovery=lambda new_sess: sap.recover_hung_session() if hasattr(sap, "recover_hung_session") else None
+            hung_threshold_sec=35.0,
+            on_recovery=_on_watchdog_recovered
         )
     except Exception as w_ex:
         print(f"[GLOBAL WATCHDOG WARN] Không thể khởi chạy trạm gác: {w_ex}")

@@ -399,6 +399,7 @@ def auto_connect_sso_session(
             client = str(getattr(s_info, "Client", "") or "").strip() if s_info else ""
 
             print(f"[SAP RECOVERY] ✅ KẾT NỐI SSO THÀNH CÔNG! User: '{user}', Client: '{client}', Màn hình: '{tcode or 'MAIN'}'")
+            set_last_recovered_session(session)
             return session
 
         except Exception as ex:
@@ -408,22 +409,52 @@ def auto_connect_sso_session(
     return None
 
 
+_last_recovery_time = 0.0
+_last_recovered_session = None
+
+def get_last_recovered_session() -> Optional[Any]:
+    global _last_recovery_time, _last_recovered_session
+    if time.time() - _last_recovery_time < 15.0 and _last_recovered_session is not None:
+        try:
+            if is_sap_gui_alive() and not is_sap_gui_hung():
+                return _last_recovered_session
+        except Exception:
+            pass
+    return None
+
+def set_last_recovered_session(session: Any):
+    global _last_recovery_time, _last_recovered_session
+    _last_recovery_time = time.time()
+    _last_recovered_session = session
+
 def recover_hung_sap_session(
     connection_name: str = DEFAULT_SAP_CONNECTION,
-    custom_saplogon_path: Optional[str] = None
+    custom_saplogon_path: Optional[str] = None,
+    force: bool = False
 ) -> Optional[Any]:
     """
     Cưỡng chế dọn dẹp tiến trình SAP bị treo (taskkill) và mở lại kết nối SSO mới hoàn toàn.
+    Áp dụng Deduplication Guard: Nếu vừa hồi phục thành công <15s và SAP đang sống khỏe,
+    tái sử dụng ngay phiên vừa mở để tránh bẫy Double Recovery (giết đi giết lại).
     """
+    if not force:
+        recent_sess = get_last_recovered_session()
+        if recent_sess is not None:
+            print("[SAP RECOVERY] 🛡️ Phiên SAP SSO mới vừa được hồi sinh gần đây (<15s) và đang hoạt động tốt. Tái sử dụng phiên này, tránh xả kép (Double Recovery)!")
+            return recent_sess
+
     print("[SAP RECOVERY] ⚠️ Cưỡng chế giải phóng SAP GUI bị đơ cứng và kết nối lại qua SSO...")
     kill_hung_sap_processes(timeout_sec=4.0)
     time.sleep(2.0)
-    return auto_connect_sso_session(
+    sess = auto_connect_sso_session(
         connection_name=connection_name,
         custom_saplogon_path=custom_saplogon_path,
         timeout_sec=20.0,
         max_retries=3
     )
+    if sess is not None:
+        set_last_recovered_session(sess)
+    return sess
 
 
 # ==============================================================================
@@ -434,8 +465,9 @@ import threading
 class SapGlobalWatchdog:
     """Trạm gác độc lập 24/7 (Dedicated Background Daemon Thread).
     Chạy liên tục ở cấp toàn hệ thống, hoàn toàn không gọi COM và không bị chặn bởi bất kỳ lệnh SAP nào.
-    Tự động phát hiện khi SAP GUI bị đơ '(Not Responding)' quá ngưỡng thời gian quy định (mặc định 15s),
+    Tự động phát hiện khi SAP GUI bị đơ '(Not Responding)' quá ngưỡng thời gian quy định (mặc định 35s),
     cưỡng chế giải phóng tiến trình (taskkill) và kích hoạt khôi phục SSO ngay lập tức!
+    Có cơ chế suppress() và record_activity() để chống bắn nhầm khi Bot đang thực thi tải nặng.
     """
 
     _instance = None
@@ -444,8 +476,8 @@ class SapGlobalWatchdog:
     def __init__(
         self,
         connection_name: str = DEFAULT_SAP_CONNECTION,
-        hung_threshold_sec: float = 15.0,
-        check_interval_sec: float = 1.5,
+        hung_threshold_sec: float = 35.0,
+        check_interval_sec: float = 2.0,
         on_recovery = None
     ):
         self.connection_name = connection_name
@@ -454,8 +486,18 @@ class SapGlobalWatchdog:
         self.on_recovery = on_recovery
         self.enabled = True
         self.hung_start_time = None
+        self.suppressed_until = 0.0
         self._thread = None
         self._stop_event = threading.Event()
+
+    def suppress(self, duration_sec: float = 30.0):
+        """Tạm hoãn trạm gác trong duration_sec (khi hệ thống đang khởi tạo Multi-Tab / tải ALV nặng)."""
+        self.suppressed_until = max(self.suppressed_until, time.time() + duration_sec)
+        self.hung_start_time = None
+
+    def record_activity(self):
+        """Ghi nhận hệ thống đang hoạt động bình thường, reset bộ đếm treo."""
+        self.hung_start_time = None
 
     def start(self):
         with self._lock:
@@ -464,7 +506,7 @@ class SapGlobalWatchdog:
             self._stop_event.clear()
             self._thread = threading.Thread(target=self._watch_loop, name="SapGlobalWatchdog", daemon=True)
             self._thread.start()
-            print(f"[GLOBAL WATCHDOG] 🛡️ Đã khởi chạy Trạm gác độc lập 24/7 (Ngưỡng tự phục hồi: {self.hung_threshold_sec:.0f}s)...")
+            print(f"[GLOBAL WATCHDOG] 🛡️ Đã khởi chạy Trạm gác độc lập 24/7 (Ngưỡng tự phục hồi: {self.hung_threshold_sec:.0f}s, Chống bắn nhầm enabled)...")
             return self
 
     def stop(self):
@@ -478,6 +520,11 @@ class SapGlobalWatchdog:
         while not self._stop_event.is_set():
             time.sleep(self.check_interval_sec)
             if not self.enabled:
+                self.hung_start_time = None
+                continue
+
+            # Nếu đang trong thời gian tạm hoãn (suppressed) -> Reset bộ đếm
+            if time.time() < self.suppressed_until:
                 self.hung_start_time = None
                 continue
 
@@ -512,6 +559,7 @@ class SapGlobalWatchdog:
                                     max_retries=3
                                 )
                                 if new_session is not None:
+                                    set_last_recovered_session(new_session)
                                     print("[GLOBAL WATCHDOG] ✅ HỒI SINH THÀNH CÔNG! Đã kết nối lại phiên SAP SSO mới.")
                                     if callable(self.on_recovery):
                                         try:
@@ -534,8 +582,8 @@ _global_watchdog_instance = None
 
 def start_global_sap_watchdog(
     connection_name: str = DEFAULT_SAP_CONNECTION,
-    hung_threshold_sec: float = 15.0,
-    check_interval_sec: float = 1.5,
+    hung_threshold_sec: float = 35.0,
+    check_interval_sec: float = 2.0,
     on_recovery = None
 ) -> SapGlobalWatchdog:
     """Khởi tạo và chạy Trạm gác độc lập 24/7 toàn cục (Singleton)."""
@@ -555,3 +603,17 @@ def stop_global_sap_watchdog():
     global _global_watchdog_instance
     if _global_watchdog_instance is not None:
         _global_watchdog_instance.stop()
+
+
+def suppress_global_watchdog(duration_sec: float = 30.0):
+    """Tạm hoãn trạm gác toàn cục khi hệ thống đang xử lý tác vụ giao diện nặng."""
+    global _global_watchdog_instance
+    if _global_watchdog_instance is not None:
+        _global_watchdog_instance.suppress(duration_sec)
+
+
+def record_global_watchdog_activity():
+    """Ghi nhận hoạt động lên trạm gác toàn cục."""
+    global _global_watchdog_instance
+    if _global_watchdog_instance is not None:
+        _global_watchdog_instance.record_activity()

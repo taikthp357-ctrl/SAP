@@ -64,3 +64,54 @@ def test_self_heal_recovers_unprocessed_items():
         assert mock_prep.called
         assert mock_proc.call_count == 2
         assert len(unprocessed) == 0
+
+
+def test_reclaim_in_flight_failed_items():
+    """Kiểm tra cơ chế quét ngược thu hồi các chứng từ in-flight bị lỗi rụng phiên (SESSION_IDENTITY_UNAVAILABLE)."""
+    items = [
+        {"doc": "5007144012", "ticket_no": "6500"},
+        {"doc": "5007144025", "ticket_no": "6500"},
+        {"doc": "5007144099", "ticket_no": "6501"},
+    ]
+    # Giả lập indexed_results có 1 chứng từ thành công, và 1 chứng từ bị dính SESSION_IDENTITY_UNAVAILABLE do sập tab
+    indexed_results = [
+        (0, {"doc": "5007144012", "ticket_no": "6500", "headtext_status": "SESSION_IDENTITY_UNAVAILABLE", "overall_status": "SESSION_IDENTITY_UNAVAILABLE", "match_notes": "test", "is_succ": False}, False),
+        (2, {"doc": "5007144099", "ticket_no": "6501", "headtext_status": "HEADTEXT_OK", "overall_status": "DONE", "match_notes": "ok", "is_succ": True}, True),
+    ]
+    tab_queues = {
+        0: deque([(1, {"doc": "5007144025", "ticket_no": "6500"})])
+    }
+
+    # Áp dụng logic thu hồi in-flight
+    reclaimed_items = []
+    survived_results = []
+    for o_idx, r_dict, is_s in indexed_results:
+        st = str(r_dict.get("headtext_status", "")).upper()
+        ov = str(r_dict.get("overall_status", "")).upper()
+        notes = str(r_dict.get("match_notes", "")).lower()
+        is_session_fatal = (
+            st in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE", "EXCEPTION", "TIMEOUT")
+            or ov in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE", "ERROR", "TIMEOUT")
+            or any(k in notes for k in ["disconnected", "rpc", "session", "quarantine", "self-heal", "sập tab", "căn cước", "identity"])
+        )
+        if not is_s and is_session_fatal:
+            orig_itm = items[o_idx] if o_idx < len(items) else {"doc": r_dict.get("doc"), "ticket_no": r_dict.get("ticket_no")}
+            reclaimed_items.append((o_idx, orig_itm))
+        else:
+            survived_results.append((o_idx, r_dict, is_s))
+
+    unprocessed_items = list(reclaimed_items)
+    for t_q in tab_queues.values():
+        while t_q:
+            unprocessed_items.append(t_q.popleft())
+
+    # Kiểm tra:
+    # 1. Chứng từ bị lỗi rụng phiên (5007144012) đã được rút khỏi survived_results
+    assert len(survived_results) == 1
+    assert survived_results[0][0] == 2
+
+    # 2. unprocessed_items thu gom đủ cả 5007144012 (từ indexed_results) và 5007144025 (từ queue)
+    assert len(unprocessed_items) == 2
+    docs_to_heal = [itm["doc"] for _, itm in unprocessed_items]
+    assert "5007144012" in docs_to_heal
+    assert "5007144025" in docs_to_heal

@@ -4251,6 +4251,11 @@ class MigoAttachmentRunner:
 
         active_tab_indices = [0]
         if is_multi_tab_eligible:
+            try:
+                from app.sap_recovery import suppress_global_watchdog
+                suppress_global_watchdog(45.0)
+            except Exception:
+                pass
             target_tabs = min(7, user_reserved + max_bot_tabs)
             available_tabs = ensure_sap_tabs(target_tabs, connection_index=conn_idx)
             bot_tabs = [t for t in range(user_reserved, available_tabs) if t < 7]
@@ -4308,6 +4313,11 @@ class MigoAttachmentRunner:
                         print(f"[ATT RUNNER Tab {tab_idx}] Lỗi kết nối session: {conn_err}")
 
                     if worker_session is not None:
+                        try:
+                            from app.sap_recovery import suppress_global_watchdog
+                            suppress_global_watchdog(30.0)
+                        except Exception:
+                            pass
                         self.prepare_migo_session(worker_session, mode="CHANGE")
                     else:
                         print(f"[ATT RUNNER Tab {tab_idx} QUARANTINE] ⚠️ Không thể lấy session cho Tab {tab_idx+1}. Bỏ qua tab này để các tab khác tiếp tục gánh tải!")
@@ -4358,6 +4368,22 @@ class MigoAttachmentRunner:
                                     allow_overwrite_headtext=allow_overwrite_headtext
                                 )
                                 consecutive_tab_errors = 0
+                                try:
+                                    from app.sap_recovery import record_global_watchdog_activity
+                                    record_global_watchdog_activity()
+                                except Exception:
+                                    pass
+
+                                # Chốt chặn phát hiện rụng phiên ngay trong kết quả process_single_migo_item
+                                r_ht_status = str(res_dict.get("headtext_status", "")).upper()
+                                r_ov_status = str(res_dict.get("overall_status", "")).upper()
+                                if (r_ht_status in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE")
+                                        or r_ov_status in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE")):
+                                    is_tab_fatal = True
+                                    stop_event.set()
+                                    with queue_lock:
+                                        healthy_tabs.discard(tab_idx)
+                                    print(f"[ATT RUNNER Tab {tab_idx} FATAL] DOC {doc_str}: Phát hiện phiên SAP bị sập / mất kết nối ({r_ht_status})! Dừng tab ngay để Self-Heal cứu hộ...")
                             except Exception as item_err:
                                 err_msg = str(item_err)
                                 print(f"[ATT RUNNER Tab {tab_idx} ERROR] DOC {doc_str}: {item_err}")
@@ -4463,23 +4489,41 @@ class MigoAttachmentRunner:
                 stop_event.set()
 
                 # TỰ HỒI SINH GIỮA MẺ (INTRA-BATCH SELF-HEALING): Cứu vãn các chứng từ còn tồn khi tất cả các tab bị sập
-                unprocessed_items = []
+                # BƯỚC 0: Thu hồi toàn bộ chứng từ in-flight đã bị lỗi do rụng session (như SESSION_IDENTITY_UNAVAILABLE, EXCEPTION, TIMEOUT)
+                reclaimed_items = []
+                with prog_lock:
+                    survived_results = []
+                    for o_idx, r_dict, is_s in indexed_results:
+                        st = str(r_dict.get("headtext_status", "")).upper()
+                        ov = str(r_dict.get("overall_status", "")).upper()
+                        notes = str(r_dict.get("match_notes", "")).lower()
+                        is_session_fatal = (
+                            st in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE", "EXCEPTION", "TIMEOUT")
+                            or ov in ("SESSION_IDENTITY_UNAVAILABLE", "SESSION_NONE", "SESSION_INFO_NONE", "ERROR", "TIMEOUT")
+                            or any(k in notes for k in ["disconnected", "rpc", "session", "quarantine", "self-heal", "sập tab", "căn cước", "identity"])
+                        )
+                        if not is_s and is_session_fatal:
+                            orig_itm = items[o_idx] if o_idx < len(items) else {"doc": r_dict.get("doc"), "ticket_no": r_dict.get("ticket_no")}
+                            reclaimed_items.append((o_idx, orig_itm))
+                        else:
+                            survived_results.append((o_idx, r_dict, is_s))
+                    indexed_results = survived_results
+
+                # Gom tiếp từ tab_queues
+                unprocessed_items = list(reclaimed_items)
                 with queue_lock:
                     for t_q in tab_queues.values():
                         while t_q:
                             unprocessed_items.append(t_q.popleft())
 
                 if unprocessed_items:
-                    print(f"[ATT RUNNER SELF-HEAL] ⚠️ Còn {len(unprocessed_items)} chứng từ chưa hoàn tất do sự cố sập tab! Kích hoạt quy trình TỰ HỒI SINH GIỮA MẺ...")
+                    print(f"[ATT RUNNER SELF-HEAL] ⚠️ Phát hiện {len(unprocessed_items)} chứng từ chưa hoàn tất (gồm {len(reclaimed_items)} chứng từ thu hồi do đứt phiên)! Kích hoạt quy trình TỰ HỒI SINH GIỮA MẺ...")
                     heal_session = None
                     try:
                         from app.sap_recovery import is_sap_gui_hung, is_sap_gui_alive, recover_hung_sap_session, auto_connect_sso_session
                         conn_name = getattr(self.sap_engine, "sap_connection_name", "13.Future VN S4 HANA PRD (SSO) Link") if self.sap_engine else "13.Future VN S4 HANA PRD (SSO) Link"
-                        if not is_sap_gui_alive():
-                            print("[ATT RUNNER SELF-HEAL] Phát hiện SAP GUI bị văng, crash hoặc đơ cứng! Cưỡng chế giải phóng và mở lại phiên SSO mới...")
-                            heal_session = recover_hung_sap_session(connection_name=conn_name)
-                        else:
-                            heal_session = auto_connect_sso_session(connection_name=conn_name)
+                        # recover_hung_sap_session đã có Deduplication Guard: Tự động tái sử dụng nếu vừa có phiên SSO mới mở <15s
+                        heal_session = recover_hung_sap_session(connection_name=conn_name)
                     except Exception as heal_conn_err:
                         print(f"[ATT RUNNER SELF-HEAL WARN] Lỗi khi kết nối lại SSO: {heal_conn_err}")
                         heal_session = None

@@ -10,6 +10,10 @@ from app.sap_recovery import (
     is_sap_gui_hung,
     start_global_sap_watchdog,
     stop_global_sap_watchdog,
+    suppress_global_watchdog,
+    record_global_watchdog_activity,
+    recover_hung_sap_session,
+    set_last_recovered_session,
 )
 
 
@@ -105,3 +109,44 @@ def test_sap_global_watchdog_no_action_when_healthy():
         assert not mock_kill.called
         assert not mock_sso.called
         assert not recovery_callback.called
+
+
+def test_sap_global_watchdog_suppressed_no_recovery():
+    """Kiểm tra khi được gọi suppress (đang mở Multi-Tab tải nặng) thì không bao giờ kích hoạt diệt SAP."""
+    recovery_callback = MagicMock()
+
+    watchdog = SapGlobalWatchdog(
+        connection_name="Test SSO",
+        hung_threshold_sec=0.2,
+        check_interval_sec=0.05,
+        on_recovery=recovery_callback,
+    )
+
+    with patch("app.sap_recovery.is_saplogon_running", return_value=True), \
+         patch("app.sap_recovery.is_sap_gui_hung", return_value=True), \
+         patch("app.sap_recovery.kill_hung_sap_processes") as mock_kill, \
+         patch("app.sap_recovery.auto_connect_sso_session") as mock_sso:
+
+        watchdog.suppress(duration_sec=1.0)  # Tạm hoãn 1.0s
+        watchdog.start()
+        time.sleep(0.3)
+        watchdog.stop()
+
+        # Không được kill hay sso vì đang suppressed
+        assert not mock_kill.called
+        assert not mock_sso.called
+        assert not recovery_callback.called
+
+
+def test_recover_hung_sap_session_deduplication():
+    """Kiểm tra Deduplication Guard: Nếu vừa hồi phục <15s và SAP còn sống thì tái sử dụng, không kill lần 2."""
+    mock_session = MagicMock()
+    set_last_recovered_session(mock_session)
+
+    with patch("app.sap_recovery.is_sap_gui_alive", return_value=True), \
+         patch("app.sap_recovery.is_sap_gui_hung", return_value=False), \
+         patch("app.sap_recovery.kill_hung_sap_processes") as mock_kill:
+
+        recovered = recover_hung_sap_session(connection_name="Test SSO", force=False)
+        assert recovered is mock_session
+        assert not mock_kill.called  # KHÔNG được gọi kill lần 2!
