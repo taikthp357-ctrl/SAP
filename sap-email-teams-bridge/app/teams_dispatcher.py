@@ -456,6 +456,13 @@ class TeamsDispatcher:
 
 
 
+                products = {r.get("product") for r in records if r.get("product")}
+                if len(products) > 1:
+                    badges.append(
+                        f"<span style='{badge_style}background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe;'>"
+                        f"📦 {len(products)} Mã hàng</span>"
+                    )
+
                 badges.append(
 
                     f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
@@ -489,6 +496,12 @@ class TeamsDispatcher:
                     f"⚡ Khả dụng: {format_qty_display(tot_avail)} {unit}</span>"
 
                 )
+
+                if tot_held > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"🔒 Đang giữ/khóa: {format_qty_display(tot_held)} {unit}</span>"
+                    )
 
 
 

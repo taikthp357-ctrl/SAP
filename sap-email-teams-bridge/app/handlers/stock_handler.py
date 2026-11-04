@@ -35,40 +35,77 @@ class StockHandler(BaseHandler):
         # 1. TRA CỨU VỊ TRÍ BIN EWM (/SCWM/POST) & SMART COMBO CHECK
         # -------------------------------------------------------------
         if cmd in ["VITRI", "VỊ TRÍ", "BIN", "POST"]:
-            records = ctx.sap.check_position_posting_change(resolved_mats, ctx.batch, plant=ctx.plant)
-            headers = {
-                "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
-                "totalQty": "Tổng tồn", "availQty": "Khả dụng",
-                "unit": "ĐVT", "grDate": "Ngày GR", "grTime": "Giờ GR",
-                "cat": "Trạng thái"
-            }
-            summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+            bin_target = (ctx.meta.get("bin") or getattr(ctx, "bin", "") or "").strip()
 
-            # Smart Combo Check: Nếu /SCWM/POST trả về 0 dòng, tự động fallback kiểm tra MB52 xem còn tồn ở SLoc ngoài EWM không
-            if not records and resolved_mats:
-                try:
-                    mb52_fb = ctx.sap.check_stock_mb52(resolved_mats, plant=ctx.plant)
-                    if mb52_fb:
-                        sloc_summary = []
-                        for r_fb in mb52_fb:
-                            sloc_summary.append(f"SLoc {r_fb.get('sloc', '')}: {r_fb.get('unrest', '0')} {r_fb.get('unit', '')}")
-                        sloc_str = ", ".join(sloc_summary[:4])
-                        summary = f"Trên EWM (Kho {ctx.plant}) hiện không còn Bin nào, nhưng trên MB52 đang có tồn tại {sloc_str}!"
-                        print(f"[COMBO CHECK] EWM rỗng nhưng MB52 có tồn: {sloc_str}")
-                        for r_fb in mb52_fb:
-                            records.append({
-                                "product": r_fb.get("product", ""),
-                                "batch": r_fb.get("batch", ""),
-                                "bin": f"SLoc {r_fb.get('sloc', '')} (Ngoài EWM)",
-                                "totalQty": r_fb.get("unrest", "0"),
-                                "availQty": r_fb.get("unrest", "0"),
-                                "unit": r_fb.get("unit", ""),
-                                "grDate": "Xem MB52",
-                                "grTime": "",
-                                "cat": "Tồn SLoc"
-                            })
-                except Exception as fb_err:
-                    print(f"[COMBO CHECK WARN] Không thể fallback sang MB52: {fb_err}")
+            # TRƯỜNG HỢP 1: Tra cứu theo Bin (Không có mã hàng cụ thể -> Hiển thị toàn bộ Multi-SKU trong Bin)
+            if bin_target and not resolved_mats:
+                records = ctx.sap.check_stock_by_bin(bin_target, plant=ctx.plant)
+                headers = {
+                    "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
+                    "availQty": "Khả dụng", "totalQty": "Tổng tồn", "heldQty": "Đang giữ/khóa",
+                    "unit": "ĐVT", "cat": "Loại tồn (TST)",
+                    "grDate": "Ngày GR", "grTime": "Giờ GR"
+                }
+                sku_count = len(set(r.get("product") for r in records if r.get("product")))
+                if records:
+                    summary = f"Vị trí lưu kho & Danh mục vật tư (/SCWM/POST) tại Bin '{bin_target}' (Kho {ctx.plant}): {len(records)} dòng ({sku_count} mã hàng)"
+                else:
+                    summary = f"Không tìm thấy vật tư nào tại Bin '{bin_target}' trên EWM (Kho {ctx.plant})."
+
+            # TRƯỜNG HỢP 2: Có cả Mã hàng lẫn Bin (Kiểm tra mã đó có trong Bin này hay không)
+            elif bin_target and resolved_mats:
+                raw_bin_records = ctx.sap.check_stock_by_bin(bin_target, plant=ctx.plant)
+                headers = {
+                    "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
+                    "availQty": "Khả dụng", "totalQty": "Tổng tồn", "heldQty": "Đang giữ/khóa",
+                    "unit": "ĐVT", "cat": "Loại tồn (TST)",
+                    "grDate": "Ngày GR", "grTime": "Giờ GR"
+                }
+                matched = [r for r in raw_bin_records if any(m in str(r.get("product", "")).upper() for m in resolved_mats)]
+                if matched:
+                    records = matched
+                    summary = f"Vị trí lưu kho (/SCWM/POST) cho mã {', '.join(resolved_mats)} tại Bin '{bin_target}' (Kho {ctx.plant})"
+                else:
+                    records = raw_bin_records
+                    all_skus = ", ".join(sorted(set(r.get("product") for r in raw_bin_records if r.get("product"))))
+                    summary = f"Mã {', '.join(resolved_mats)} hiện KHÔNG có tại Bin '{bin_target}' (Kho {ctx.plant}). Các mã đang có trong Bin: {all_skus or 'Trống'}."
+
+            # TRƯỜNG HỢP 3: Tra cứu theo Mã hàng (Material) thông thường
+            else:
+                records = ctx.sap.check_position_posting_change(resolved_mats, ctx.batch, plant=ctx.plant)
+                headers = {
+                    "product": "Mã hàng", "batch": "Batch", "bin": "Vị trí (Bin)",
+                    "totalQty": "Tổng tồn", "availQty": "Khả dụng",
+                    "unit": "ĐVT", "grDate": "Ngày GR", "grTime": "Giờ GR",
+                    "cat": "Trạng thái"
+                }
+                summary = f"Vị trí lưu kho & Giờ GR (/SCWM/POST) cho mã: {', '.join(resolved_mats)}{mapping_info}"
+
+                # Smart Combo Check: Nếu /SCWM/POST trả về 0 dòng, tự động fallback kiểm tra MB52 xem còn tồn ở SLoc ngoài EWM không
+                if not records and resolved_mats:
+                    try:
+                        mb52_fb = ctx.sap.check_stock_mb52(resolved_mats, plant=ctx.plant)
+                        if mb52_fb:
+                            sloc_summary = []
+                            for r_fb in mb52_fb:
+                                sloc_summary.append(f"SLoc {r_fb.get('sloc', '')}: {r_fb.get('unrest', '0')} {r_fb.get('unit', '')}")
+                            sloc_str = ", ".join(sloc_summary[:4])
+                            summary = f"Trên EWM (Kho {ctx.plant}) hiện không còn Bin nào, nhưng trên MB52 đang có tồn tại {sloc_str}!"
+                            print(f"[COMBO CHECK] EWM rỗng nhưng MB52 có tồn: {sloc_str}")
+                            for r_fb in mb52_fb:
+                                records.append({
+                                    "product": r_fb.get("product", ""),
+                                    "batch": r_fb.get("batch", ""),
+                                    "bin": f"SLoc {r_fb.get('sloc', '')} (Ngoài EWM)",
+                                    "totalQty": r_fb.get("unrest", "0"),
+                                    "availQty": r_fb.get("unrest", "0"),
+                                    "unit": r_fb.get("unit", ""),
+                                    "grDate": "Xem MB52",
+                                    "grTime": "",
+                                    "cat": "Tồn SLoc"
+                                })
+                    except Exception as fb_err:
+                        print(f"[COMBO CHECK WARN] Không thể fallback sang MB52: {fb_err}")
 
         # -------------------------------------------------------------
         # 2. TRA CỨU TỒN KHO 1005 & 3093 (MB52 FILTERED)

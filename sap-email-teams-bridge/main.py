@@ -1131,6 +1131,8 @@ def run_bridge():
 
                             batch=batch,
 
+                            bin=meta.get("bin", ""),
+
                             days=days,
 
                         )

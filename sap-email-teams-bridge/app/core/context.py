@@ -22,6 +22,7 @@ class RequestContext:
     resolved_materials: List[str] = field(default_factory=list)
     plant: str = "3093"
     batch: str = ""
+    bin: str = ""                                       # Tên Storage Bin EWM (nếu có)
     days: int = 7
     session: Any = None                                 # SAP GuiSession (nếu có sẵn)
 

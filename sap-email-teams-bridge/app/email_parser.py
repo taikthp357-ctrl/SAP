@@ -15,6 +15,62 @@ import unicodedata
 from typing import Optional, Dict, Any, List, Tuple
 
 
+
+def normalize_bin_query(bin_input: str) -> str:
+    """Chuẩn hóa chuỗi truy vấn Bin kho:
+    - Loại bỏ khoảng trắng thừa, chuyển sang chữ in hoa.
+    - Bóc tách tiền tố từ khóa (BIN:, KỆ:, Ô:, VỊ TRÍ:).
+    - Zero-padding cho các phân đoạn số:
+        zf1-1-1 -> ZF01-01-01
+        p1-1-1 -> P01-01-01
+        p1-1-* -> P01-01-*
+        apfl-hr8-8-1 -> APFL-HR08-08-01
+    - Tự động gắn wildcard '*' nếu là tiền tố ngắn (implicit prefix search):
+        zf01 -> ZF01*
+        zf1 -> ZF01*
+        p01 -> P01*
+        p1 -> P01*
+    - Giữ nguyên các ký tự wildcard '*' nếu người dùng đã chỉ định:
+        p01-01-* -> P01-01-*
+    """
+    if not bin_input:
+        return ""
+    raw = bin_input.strip().upper()
+    while True:
+        stripped = re.sub(r"^(?:Ô\s*BIN|O\s*BIN|KỆ\s*BIN|KE\s*BIN|VI\s*TRÍ\s*BIN|VI\s*TRI\s*BIN|BIN|KE|KỆ|O|Ô|VI\s*TRI|VỊ\s*TRÍ|V_TRI)[\s:=]+", "", raw, flags=re.I).strip()
+        if stripped == raw:
+            break
+        raw = stripped
+    has_trailing_star = raw.endswith("*")
+    clean = raw.rstrip("*")
+
+    if "-" in clean:
+        parts = clean.split("-")
+        norm_parts = []
+        for p in parts:
+            p_strip = p.strip()
+            if p_strip.isdigit() and len(p_strip) == 1:
+                norm_parts.append(p_strip.zfill(2))
+            elif re.match(r"^[A-Z]+[0-9]$", p_strip):
+                m = re.match(r"^([A-Z]+)(\d)$", p_strip)
+                norm_parts.append(f"{m.group(1)}{m.group(2).zfill(2)}")
+            else:
+                norm_parts.append(p_strip)
+        result = "-".join(norm_parts)
+        if has_trailing_star:
+            result += "*"
+        return result
+    else:
+        m = re.match(r"^([A-Z]+)(\d+)$", clean)
+        if m:
+            prefix, num = m.group(1), m.group(2)
+            if len(num) == 1:
+                num = num.zfill(2)
+            return f"{prefix}{num}*"
+        else:
+            return f"{clean}*" if not has_trailing_star else raw
+
+
 class SmartCommandParser:
     """Bộ bóc tách ý định câu lệnh và thực thể từ Email V3 của Power Automate."""
 
@@ -827,12 +883,46 @@ class SmartCommandParser:
             if not shift_val.startswith("S") and shift_val.isdigit():
                 shift_val = f"S{shift_val}"
 
+        def _is_valid_bin_cand(c_str: str) -> bool:
+            c_u = c_str.upper()
+            if any(c_u.startswith(p) for p in ("BIW", "BAT", "EDM", "MOT", "INV", "FAS")):
+                return False
+            if c_u.isdigit() and len(c_u) in (8, 10):
+                return False
+            if re.search(r"\b(?:lich\s*su|lịch\s*sử|history)\s+bin\s+" + re.escape(c_str.lower()), norm_text):
+                return False
+            return True
+
+        raw_bin = ""
         bin_val = ""
-        bin_m = re.search(r"\b(?:bin|ke|\bo\b)\s*[:=]?\s*([a-z0-9_-]{3,15})\b|\b(\d{2}-[a-z0-9]+-[a-z0-9]+)\b", norm_text)
+        # 1. Bắt theo tiền tố bin / kệ / ô / vi tri bin rõ ràng
+        bin_m = re.search(
+            r"\b(?:check\s*bin|tra\s*bin|kiem\s*tra\s*bin|vi\s*tri\s*bin|vtri\s*bin|ke\s*bin|kệ\s*bin|o\s*bin|ô\s*bin|\bbin\b|\bke\b|\bkệ\b|\bo\b|\bô\b)\s*[:=]?\s*([a-z0-9_*-]{2,30})",
+            norm_text
+        )
         if bin_m:
-            bin_cand = (bin_m.group(1) or bin_m.group(2)).upper()
-            if bin_cand not in cls.STOP_WORDS:
-                bin_val = bin_cand
+            cand = bin_m.group(1).upper()
+            if cand not in cls.STOP_WORDS and cand not in {"CHECK", "KIEM", "TRA", "XEM", "TIM", "CO", "DANG"} and _is_valid_bin_cand(cand):
+                raw_bin = bin_m.group(1)
+                bin_val = normalize_bin_query(cand)
+
+        # 2. Nếu chưa có, bắt theo 'vi tri' / 'vtri' nhưng chỉ chấp nhận nếu chuỗi có cấu trúc tọa độ Bin (chứa dấu '-')
+        if not bin_val:
+            m_vt = re.search(r"\b(?:vi\s*tri|vtri|vị\s*trí)\s*[:=]?\s*([a-z0-9]+-[a-z0-9_*-]+)", norm_text)
+            if m_vt:
+                cand = m_vt.group(1).upper()
+                if cand not in cls.STOP_WORDS and _is_valid_bin_cand(cand):
+                    raw_bin = m_vt.group(1)
+                    bin_val = normalize_bin_query(cand)
+
+        # 3. Dự phòng bắt mẫu tọa độ Bin độc lập (ít nhất 2 dấu '-', ví dụ: ZF01-01-01, APFL-HR08-08-01, P1-1-1)
+        if not bin_val:
+            m_coord = re.search(r"\b([a-z0-9]+-[a-z0-9]+-[a-z0-9*]+(?:-[a-z0-9*]+)?)\b", norm_text)
+            if m_coord:
+                cand = m_coord.group(1).upper()
+                if cand not in cls.STOP_WORDS and _is_valid_bin_cand(cand):
+                    raw_bin = m_coord.group(1)
+                    bin_val = normalize_bin_query(cand)
 
         inbound_no = ""
         ib_m = re.search(r"\b(?:inbound|ib)\s*[:=]?\s*([0-9]{8,10})\b|\b(18\d{8})\b", command_text, re.I)
@@ -999,6 +1089,13 @@ class SmartCommandParser:
                     work_str = work_str.replace(item["ticket_no"].upper(), " ")
         if batch_m and batch:
             work_str = re.sub(r"\b(?:BATCH|SO\s*LO|LO|CHARG|LÔ|SỐ\s*LÔ)\s*[:=]?\s*" + re.escape(batch), " ", work_str, flags=re.I)
+        if bin_val:
+            if raw_bin:
+                work_str = re.sub(r"\b" + re.escape(raw_bin.upper()) + r"\b", " ", work_str, flags=re.I)
+            work_str = re.sub(r"\b" + re.escape(bin_val.upper()) + r"\b", " ", work_str, flags=re.I)
+            core_bin = bin_val.rstrip("*").upper()
+            if core_bin:
+                work_str = re.sub(r"\b" + re.escape(core_bin) + r"\b", " ", work_str, flags=re.I)
         if plant_m or explicit_plant:
             work_str = re.sub(r"\b(?:PLANT|PLAN|PLAT|PL|WERKS|NHA\s*MAY|NHÀ\s*MÁY|KHO)\s*[:=-]?\s*" + re.escape(plant), " ", work_str, flags=re.I)
             work_str = re.sub(r"\b" + re.escape(plant) + r"\b", " ", work_str)
@@ -1028,6 +1125,15 @@ class SmartCommandParser:
             if (any(ch.isdigit() for ch in clean_tk) or (has_wildcard and len(clean_tk) >= 3)) and clean_tk != plant and clean_tk != batch:
                 if clean_tk not in materials:
                     materials.append(clean_tk)
+
+        # Lọc bỏ mọi token trùng với tên Bin ra khỏi danh sách materials
+        if bin_val:
+            forbidden_bin = {
+                bin_val.upper(),
+                bin_val.rstrip("*").upper(),
+                raw_bin.upper() if raw_bin else ""
+            }
+            materials = [m for m in materials if m.upper() not in forbidden_bin]
 
         # Nếu lệnh là SET_FOLDER (chọn/xem thư mục), xóa trắng materials để tránh nhận nhầm thành phần path
         if best_intent in ("SET_FOLDER", "CHON_FOLDER", "THU_MUC_NVL"):
@@ -1147,6 +1253,7 @@ class SmartCommandParser:
             "limit": limit_val,
             "obNo": ob_no,
             "bin": bin_val,
+            "rawBin": raw_bin,
             "inboundNo": inbound_no,
             "poNo": po_no,
             "poItem": po_item,

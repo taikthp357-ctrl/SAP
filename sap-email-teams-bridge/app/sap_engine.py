@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 import win32com.client
 
 from app.number_utils import parse_sap_float, format_qty_display, parse_sap_datetime_sort_key
+from app.email_parser import normalize_bin_query
 from app.adaptive_cache import UI_CACHE, AdaptiveConfigCache
 from app.ob_service import (
     ObService,
@@ -1624,6 +1625,219 @@ class SapEngine:
             return records
 
         # --------------------------------------------------------------------------
+        finally:
+            self._reset_to_session_manager()
+
+
+    # --------------------------------------------------------------------------
+    # 1.1 TRA CỨU VỊ TRÍ BIN EWM THEO STORAGE BIN (/SCWM/POST) - MULTI-SKU SUPPORT
+    # --------------------------------------------------------------------------
+    def check_stock_by_bin(
+        self,
+        bin_name: str,
+        plant: str = "3093",
+        sloc: Optional[str] = "1005"
+    ) -> List[Dict[str, str]]:
+        """Tra cứu toàn bộ danh mục vật tư, tồn khả dụng, tổng tồn và ngày giờ GR tại một Storage Bin EWM (/SCWM/POST).
+        Hỗ trợ:
+        - Chuẩn hóa tên Bin (vd: zf1-1-1 -> ZF01-01-01, p1-1-1 -> P01-01-01)
+        - Wildcard prefix (vd: zf01 -> ZF01*, p01-01-* -> P01-01-*)
+        - Bóc tách toàn bộ Multi-SKU trong Bin (1 Bin chứa nhiều mã hàng theo đặc thù EWM VF02)
+        """
+        try:
+            if not bin_name or not bin_name.strip():
+                return []
+
+            norm_bin = normalize_bin_query(bin_name)
+            print(f"[SAP POST BIN] Chuẩn hóa Bin: '{bin_name}' ➔ '{norm_bin}' | Plant={plant}")
+
+            self._open_transaction("/SCWM/POST")
+            self._wait_idle(15.0)
+
+            # 1. Định danh ID các trường trên màn hình /SCWM/POST (theo chuẩn RC65/BBBG)
+            ID_ADV_TOGGLE = "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/btnGV_BUTTON_TEXT"
+            ID_ADV_START = (
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
+                "subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_AS_BUTTONS:/SCMB/SAPLSERVICES:1000/btnCMD_START_ADVANCED"
+            )
+            ID_PRODUCT_LOW = (
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
+                "subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_MATNR-LOW"
+            )
+            ID_OWNER_LOW = (
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
+                "subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_OWNER-LOW"
+            )
+            ID_BATCH_LOW = (
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
+                "subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_CHARG-LOW"
+            )
+            ID_STOCK_GRID = (
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/"
+                "subSUB_OIP_DATA_AREA:/SCWM/SAPLUI_POST:2210/subSUB_OIP_1_DATA:/SCWM/SAPLUI_POST:2211/"
+                "cntlCONTAINER_ALV_OIP_1/shellcont/shell"
+            )
+
+            # 2. Đảm bảo Advanced Search đang mở
+            owner_ctl = self._find_by_id_safe(ID_OWNER_LOW)
+            prod_ctl = self._find_by_id_safe(ID_PRODUCT_LOW)
+            if owner_ctl is None and prod_ctl is None:
+                toggle_btn = self._find_by_id_safe(ID_ADV_TOGGLE)
+                if toggle_btn is not None:
+                    print("[SAP POST BIN] Mở Advanced Search...")
+                    toggle_btn.press()
+                    self._wait_idle(10.0)
+                    owner_ctl = self._find_by_id_safe(ID_OWNER_LOW)
+                    prod_ctl = self._find_by_id_safe(ID_PRODUCT_LOW)
+
+            # 3. Điền Owner (mặc định 3093 như chuẩn EWM)
+            if owner_ctl is not None:
+                try:
+                    owner_ctl.text = plant or "3093"
+                except Exception as e:
+                    print(f"[SAP POST BIN WARN] Không thể gán Owner: {e}")
+
+            # 4. Xóa trắng mã hàng (Product) và Batch để lấy toàn bộ mã trong Bin
+            if prod_ctl is not None:
+                try:
+                    prod_ctl.text = ""
+                except Exception:
+                    pass
+            batch_ctl = self._find_by_id_safe(ID_BATCH_LOW)
+            if batch_ctl is not None:
+                try:
+                    batch_ctl.text = ""
+                except Exception:
+                    pass
+
+            # 5. Điền tên Bin vào trường Storage Bin
+            bin_filled = False
+            ID_BIN_CANDIDATES = [
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_LGPLA-LOW",
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_VLPLA-LOW",
+                "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_ADVANCED_SEARCH:/SCWM/SAPLUI_POST:2300/subSUB_SELECTION_SCREEN:/SCWM/SAPLUI_POST:2500/ctxtP_NLPLA-LOW",
+            ]
+            for bin_id in ID_BIN_CANDIDATES:
+                bin_ctl = self._find_by_id_safe(bin_id)
+                if bin_ctl is not None:
+                    try:
+                        bin_ctl.text = norm_bin
+                        bin_filled = True
+                        print(f"[SAP POST BIN] Đã nhập Bin '{norm_bin}' vào trường: {bin_id}")
+                        break
+                    except Exception as e:
+                        print(f"[SAP POST BIN WARN] Thử {bin_id} thất bại: {e}")
+
+            # Fallback sang Quick Search nếu Advanced Search không thấy ô Bin
+            if not bin_filled:
+                QUICK_BIN_CANDIDATES = [
+                    "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_SEARCH_VALUE:/SCWM/SAPLUI_POST:2001/ctxt/SCWM/S_ASPQ_STOCK-LGPLA",
+                    "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_SEARCH_VALUE:/SCWM/SAPLUI_POST:2001/ctxt/SCWM/S_ASPQ_STOCK-VLPLA",
+                    "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_SEARCH_VALUE:/SCWM/SAPLUI_POST:2001/ctxt/SCWM/S_ASPQ_STOCK-MATNR"
+                ]
+                for q_id in QUICK_BIN_CANDIDATES:
+                    q_ctl = self._find_by_id_safe(q_id)
+                    if q_ctl is not None:
+                        try:
+                            q_ctl.text = norm_bin
+                            bin_filled = True
+                            print(f"[SAP POST BIN] Đã nhập Bin '{norm_bin}' vào Quick Search: {q_id}")
+                            break
+                        except Exception:
+                            pass
+
+            # 6. Bấm thực thi tìm kiếm (Execute)
+            print("[SAP POST BIN] Bấm thực thi tìm kiếm (Execute)...")
+            start_btn = self._find_by_id_safe(ID_ADV_START)
+            if start_btn is not None:
+                start_btn.press()
+            else:
+                quick_go = self._find_by_id_safe(
+                    "wnd[0]/usr/subSUB_COMPLETE_OIP:/SCWM/SAPLUI_POST:2000/subSUB_SEARCH_VALUE:/SCWM/SAPLUI_POST:2001/btnCMD_GO"
+                )
+                if quick_go is not None:
+                    quick_go.press()
+                else:
+                    self.session.findById("wnd[0]").sendVKey(8)
+
+            self._wait_idle(25.0)
+            self._dismiss_popups()
+
+            # 7. Kiểm tra trạng thái
+            status_txt, status_type = self._get_status()
+            if status_type in ("E", "A"):
+                raise SapExecutionError(f"Lỗi SAP /SCWM/POST ({status_type}): {status_txt}")
+
+            # 8. Tìm ALV Grid kết quả
+            alv_grid = self._find_by_id_safe(ID_STOCK_GRID)
+            if alv_grid is None:
+                alv_grid = self._find_largest_grid(max_wait_sec=10.0)
+
+            if alv_grid is None:
+                self._validate_grid_or_raise(alv_grid, "/SCWM/POST", status_txt, status_type)
+                return []
+
+            # 9. Trích xuất ALV Grid
+            col_map = {
+                "product":  ["MATNR", "PRODUCT", "MATERIAL", "MATNR_EXT"],
+                "batch":    ["CHARG", "BATCH", "DEST.BATCH", "DEST BATCH"],
+                "bin":      ["LGPLA", "VLPLA", "NLPLA", "SOURCE STORAGE BIN", "SOURCE BIN", "STORAGE BIN", "BIN"],
+                "totalQty": ["TOTAL STK", "TOTAL STOCK", "GESME", "TOTAL_STK"],
+                "availQty": ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY"],
+                "qty":      ["AQUAN", "AQTY", "AVL_ALT_QTY", "A.QTY AUOM", "A.QTY", "AVAILABLE QTY", "AVAILABLE QUANTITY", "AVLQTY", "TOTAL STK", "TOTAL STOCK", "GESME", "QUAN"],
+                "unit":     ["MEINS", "ALTME", "UNIT", "UOM", "AUN"],
+                "cat":      ["TST", "CAT", "STOCK TYPE", "SOURCE STOCK TYPE", "ST", "TO_CAT"],
+                "grDate":   ["WDATU", "GR_DATE", "WEDAT", "GR DATE", "GOODS RECEIPT DATE"],
+                "grTime":   ["WTIME", "GR_TIME", "UZEIT", "GR TIME", "GOODS RECEIPT TIME"]
+            }
+            raw_records = self._extract_alv_grid(alv_grid, col_map)
+            print(f"[SAP POST BIN] Đã trích xuất {len(raw_records)} dòng từ /SCWM/POST cho Bin '{norm_bin}'.")
+
+            # Lọc bỏ dòng tổng cộng ALV (bắt buộc phải có mã hàng hoặc batch hoặc bin)
+            records = [r for r in raw_records if r.get("product") or r.get("batch") or r.get("bin")]
+
+            # Chuẩn hóa hai cột số lượng: Tổng tồn (totalQty) và Khả dụng (availQty), tính SL bị giữ (heldQty)
+            for r in records:
+                t_val = parse_sap_float(r.get("totalQty", 0.0))
+                a_val = parse_sap_float(r.get("availQty", 0.0) or r.get("qty", 0.0))
+                if t_val == 0.0 and a_val > 0.0:
+                    t_val = a_val
+                if a_val == 0.0 and t_val > 0.0 and not r.get("availQty"):
+                    a_val = t_val
+                held_val = max(0.0, t_val - a_val)
+
+                r["totalQty"] = format_qty_display(t_val)
+                r["availQty"] = format_qty_display(a_val)
+                r["heldQty"] = format_qty_display(held_val)
+                r["qty"] = r["availQty"]
+                if not r.get("bin") and norm_bin and not norm_bin.endswith("*"):
+                    r["bin"] = norm_bin
+                if not r.get("plant") and plant:
+                    r["plant"] = str(plant)
+                    r["source_plant_verified"] = True
+                target_sloc = str(sloc or "1005")
+                if not r.get("sloc"):
+                    r["sloc"] = target_sloc
+                    r["source_sloc_verified"] = True
+
+            # Sắp xếp ưu tiên: Theo Bin, sau đó Ngày GR & Giờ GR mới nhất lên đầu
+            def _bin_sort_key(item):
+                b_raw = item.get("bin", "")
+                d_raw = item.get("grDate", "")
+                t_raw = item.get("grTime", "")
+                parts = re.split(r"[./-]", d_raw)
+                if len(parts) == 3:
+                    if len(parts[2]) == 4:
+                        d_sort = f"{parts[2]}{parts[1].zfill(2)}{parts[0].zfill(2)}"
+                    else:
+                        d_sort = f"{parts[0]}{parts[1].zfill(2)}{parts[2].zfill(2)}"
+                else:
+                    d_sort = d_raw
+                return (b_raw, d_sort, t_raw)
+
+            records.sort(key=_bin_sort_key, reverse=True)
+            return records
+
         finally:
             self._reset_to_session_manager()
 
