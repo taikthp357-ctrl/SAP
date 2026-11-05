@@ -2052,6 +2052,9 @@ class SapEngine:
                 transit_f = parse_sap_float(r.get("transit", "0"))
                 pl_code = str(r.get("plant", plant)).strip()
 
+                qual_f = parse_sap_float(r.get("qual", "0"))
+                blocked_f = parse_sap_float(r.get("blocked", "0"))
+
                 if not sloc_raw:
                     # Nếu dòng không có SLoc nhưng có số lượng Transit/Transf. > 0 (như dòng 78 EA ở Plant 4007)
                     if transit_f > 0:
@@ -2060,6 +2063,8 @@ class SapEngine:
                             r["batch"] = "Chờ xuất (từ 3093)" if pl_code in ("4007", "4004") else "Chờ nhập (Transit)"
                         r["unrest"] = format_qty_display(transit_f)
                         r["transit"] = format_qty_display(transit_f)
+                        r["qual"] = format_qty_display(qual_f)
+                        r["blocked"] = format_qty_display(blocked_f)
                         r["is_transit"] = True
                         valid_records.append(r)
                     # Nếu cả sloc rỗng và transit == 0 -> dòng tổng cộng/rỗng (subtotal), bỏ qua
@@ -2068,6 +2073,8 @@ class SapEngine:
                 # Dòng kho bình thường có SLoc
                 r["unrest"] = format_qty_display(unrest_f)
                 r["transit"] = format_qty_display(transit_f)
+                r["qual"] = format_qty_display(qual_f)
+                r["blocked"] = format_qty_display(blocked_f)
                 valid_records.append(r)
 
             records = valid_records
@@ -2083,9 +2090,12 @@ class SapEngine:
             def _mb52_sort_key(item):
                 sloc_val = str(item.get("sloc", "")).strip().upper()
                 unrest_val = parse_sap_float(item.get("unrest", 0.0))
+                qual_val = parse_sap_float(item.get("qual", 0.0))
+                blocked_val = parse_sap_float(item.get("blocked", 0.0))
+                total_val = unrest_val + qual_val + blocked_val
                 batch_val = str(item.get("batch", "")).strip().upper()
                 is_tr = 0 if (item.get("is_transit") or sloc_val == "TRANSIT") else 1
-                return (is_tr, sloc_val, -unrest_val, batch_val)
+                return (is_tr, sloc_val, -total_val, -unrest_val, batch_val)
 
             records.sort(key=_mb52_sort_key)
             return records

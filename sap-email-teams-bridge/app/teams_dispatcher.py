@@ -506,142 +506,122 @@ class TeamsDispatcher:
 
 
             elif (any(k in cmd_upper for k in ["TON", "MB52"]) and "THAP" not in cmd_upper):
-
                 batches = {r.get("batch") for r in records if r.get("batch") and not r.get("is_transit") and str(r.get("sloc", "")).upper() != "TRANSIT"}
-
                 unrest_sum = 0.0
-
                 transit_sum = 0.0
-
+                qual_sum = 0.0
+                blocked_sum = 0.0
                 unit = ""
-
-                sloc_totals = {}
-
+                sloc_unrest = {}
+                sloc_qual = {}
+                sloc_blocked = {}
                 target_plant = ""
 
                 for r in records:
-
                     sloc = str(r.get("sloc", "")).strip()
-
                     is_tr = bool(r.get("is_transit") or sloc.upper() == "TRANSIT")
-
-                    u_val = parse_sap_float(r.get("unrest"))
-
+                    u_val = parse_sap_float(r.get("unrest", "0"))
                     t_val = parse_sap_float(r.get("transit", "0"))
+                    q_val = parse_sap_float(r.get("qual", "0"))
+                    b_val = parse_sap_float(r.get("blocked", "0"))
 
                     if not target_plant and r.get("plant"):
-
                         target_plant = str(r.get("plant")).strip()
-
                     if not unit and r.get("unit"):
-
                         unit = r.get("unit")
 
-
-
                     if is_tr:
-
                         transit_sum += (t_val if t_val > 0 else u_val)
-
                     else:
-
                         unrest_sum += u_val
-
+                        qual_sum += q_val
+                        blocked_sum += b_val
                         if sloc:
+                            sloc_unrest[sloc] = sloc_unrest.get(sloc, 0.0) + u_val
+                            sloc_qual[sloc] = sloc_qual.get(sloc, 0.0) + q_val
+                            sloc_blocked[sloc] = sloc_blocked.get(sloc, 0.0) + b_val
 
-                            sloc_totals[sloc] = sloc_totals.get(sloc, 0.0) + u_val
-
-
-
-                # 1. Badge Tổng tồn khả dụng (nếu có hàng transit thì ghi rõ Tồn khả dụng để không cộng lẫn)
-
-                if transit_sum > 0:
-
+                # 1. Badge Tổng tồn khả dụng
+                if transit_sum > 0 or qual_sum > 0 or blocked_sum > 0:
                     badges.append(
-
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-
                         f"✅ Tồn khả dụng: {format_qty_display(unrest_sum)} {unit}</span>"
-
                     )
-
                 else:
-
                     badges.append(
-
                         f"<span style='{badge_style}background:#dafbe1;color:#1a7f37;border:1px solid #4ac26b;'>"
-
                         f"✅ Tồn: {format_qty_display(unrest_sum)} {unit}</span>"
-
                     )
 
-
-
-                # 2. Badge Hàng đang đi đường / In-Transit (tách biệt rõ ràng)
-
-                if transit_sum > 0:
-
-                    transit_label = "🚚 Chờ nhập (Transit từ 3093)" if target_plant in ("4007", "4004") else "🚚 Chờ nhập (Transit)"
-
+                # 2. Badge Chờ KCS / Lỗi (QI) nếu có
+                if qual_sum > 0:
                     badges.append(
-
                         f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-
-                        f"{transit_label}: {format_qty_display(transit_sum)} {unit}</span>"
-
+                        f"🔍 Chờ KCS (QI): {format_qty_display(qual_sum)} {unit}</span>"
                     )
 
+                # 3. Badge Khóa (Blocked) nếu có
+                if blocked_sum > 0:
+                    badges.append(
+                        f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                        f"🚫 Khóa (Blocked): {format_qty_display(blocked_sum)} {unit}</span>"
+                    )
 
+                # 4. Badge Hàng đang đi đường / In-Transit (tách biệt rõ ràng)
+                if transit_sum > 0:
+                    transit_label = "🚚 Chờ nhập (Transit từ 3093)" if target_plant in ("4007", "4004") else "🚚 Chờ nhập (Transit)"
+                    badges.append(
+                        f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
+                        f"{transit_label}: {format_qty_display(transit_sum)} {unit}</span>"
+                    )
 
-                # 3. Phân rã theo SLoc (nếu có từ 2 kho trở lên hoặc có transit)
+                # 5. Phân rã theo SLoc
+                all_slocs = set(sloc_unrest.keys()) | set(sloc_qual.keys()) | set(sloc_blocked.keys())
+                has_multi_sloc = len(all_slocs) > 1 or transit_sum > 0 or qual_sum > 0 or blocked_sum > 0
 
-                if len(sloc_totals) > 1 or transit_sum > 0 or ("1005" in sloc_totals and "3001" in sloc_totals):
+                if has_multi_sloc:
+                    def _format_sloc_detail(sloc_id: str) -> str:
+                        u = sloc_unrest.get(sloc_id, 0.0)
+                        q = sloc_qual.get(sloc_id, 0.0)
+                        b = sloc_blocked.get(sloc_id, 0.0)
+                        extra_parts = []
+                        if q > 0:
+                            extra_parts.append(f"+{format_qty_display(q)} QI")
+                        if b > 0:
+                            extra_parts.append(f"+{format_qty_display(b)} Block")
+                        extra_str = f" ({', '.join(extra_parts)})" if extra_parts else ""
+                        return f"{format_qty_display(u)}{extra_str} {unit}"
 
-                    if "1005" in sloc_totals:
-
+                    if "1005" in all_slocs:
                         badges.append(
-
                             f"<span style='{badge_style}background:#ddf4ff;color:#0969da;border:1px solid #54aeff;'>"
-
-                            f"🏢 Tồn kho 1005: {format_qty_display(sloc_totals['1005'])} {unit}</span>"
-
+                            f"🏢 Tồn kho 1005: {_format_sloc_detail('1005')}</span>"
                         )
-
-                    if "3001" in sloc_totals:
-
+                    if "3001" in all_slocs:
                         badges.append(
-
                             f"<span style='{badge_style}background:#fff8c5;color:#9a6700;border:1px solid #d4a72c;'>"
-
-                            f"🏭 Tồn line nhỏ 3001: {format_qty_display(sloc_totals['3001'])} {unit}</span>"
-
+                            f"🏭 Tồn line nhỏ 3001: {_format_sloc_detail('3001')}</span>"
+                        )
+                    if "9004" in all_slocs:
+                        badges.append(
+                            f"<span style='{badge_style}background:#ffebe9;color:#cf222e;border:1px solid #ff8182;'>"
+                            f"⚠️ SLoc 9004 (Hàng lỗi/NCC): {_format_sloc_detail('9004')}</span>"
                         )
 
-                    for sloc_k, sloc_qty in sorted(sloc_totals.items()):
-
-                        if sloc_k not in ("1005", "3001"):
-
+                    for sloc_k in sorted(all_slocs):
+                        if sloc_k not in ("1005", "3001", "9004"):
                             badges.append(
-
                                 f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
-
-                                f"📦 SLoc {sloc_k}: {format_qty_display(sloc_qty)} {unit}</span>"
-
+                                f"📦 SLoc {sloc_k}: {_format_sloc_detail(sloc_k)}</span>"
                             )
 
-
-
-                # 4. Badge Số lượng Lô (Batch)
-
+                # 6. Badge Số lượng Lô (Batch)
                 if batches:
-
                     badges.append(
-
                         f"<span style='{badge_style}background:#f0f3f6;color:#24292f;border:1px solid #d0d7de;'>"
-
                         f"🏷️ {len(batches)} Lô (Batch)</span>"
-
                     )
+
 
 
 

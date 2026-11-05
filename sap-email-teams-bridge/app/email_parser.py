@@ -231,7 +231,7 @@ class SmartCommandParser:
 
     STOP_WORDS = {
         "CHECK", "CHEK", "KIEM", "TRA", "KIEMTRA", "KT", "VI", "TRI", "VITRI", "VTRI",
-        "TON", "KHO", "TONKHO", "LICH", "SU", "LICHSU", "LSU", "BATCH", "PLANT", "WERKS",
+        "TON", "KHO", "TONKHO", "LICH", "SU", "LICHSU", "LSU", "LS", "BATCH", "PLANT", "WERKS",
         "NGAY", "DAYS", "DAY", "HOM", "MA", "HANG", "MAHANG", "SAN", "PHAM", "BIN",
         "MB51", "MB52", "POST", "SCWM", "LENH", "GIUP", "VOI", "ANH", "CHI", "EM", "OI",
         "BOT", "SAP", "XEM", "TIM", "CHO", "HOI", "XIN", "BAO", "NHIEU", "XUAT", "NHAP",
@@ -246,6 +246,8 @@ class SmartCommandParser:
     }
 
     SLANG_MAP = {
+        "ls bin": "lich su bin",
+        "ls": "lich su",
         "ktton": "kiem tra ton",
         "kt ton": "kiem tra ton",
         "checkton": "kiem tra ton",
@@ -889,8 +891,7 @@ class SmartCommandParser:
                 return False
             if c_u.isdigit() and len(c_u) in (8, 10):
                 return False
-            if re.search(r"\b(?:lich\s*su|lịch\s*sử|history)\s+bin\s+" + re.escape(c_str.lower()), norm_text):
-                return False
+            # Cho phép trích xuất bin kể cả khi lệnh là lịch sử bin (để phục vụ LICHSU_BIN)
             return True
 
         raw_bin = ""

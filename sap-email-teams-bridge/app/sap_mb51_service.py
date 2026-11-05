@@ -10,6 +10,7 @@ Khắc phục triệt để lỗi (617, 'The virtual key is not enabled'):
 """
 
 import re
+import time
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -225,18 +226,26 @@ class SapMb51Service:
             except Exception:
                 active_session.findById("wnd[0]").sendVKey(8)
 
-            # Kiểm tra Status Bar
-            try:
-                sbar = active_session.findById("wnd[0]/sbar")
-                if sbar.MessageType in ("E", "W") and any(w in sbar.Text.lower() for w in ["no ", "không ", "không có", "not found"]):
-                    return []
-            except Exception:
-                pass
+            # Polling wait: SAP có thể mất 1-3 giây để load dữ liệu lớn từ MKPF/MSEG
+            grid = None
+            for _ in range(30):  # Đợi tối đa 15s (0.5s x 30)
+                try:
+                    sbar = active_session.findById("wnd[0]/sbar")
+                    if sbar.MessageType in ("E", "W") and any(w in sbar.Text.lower() for w in ["no ", "không ", "không có", "not found", "không tìm thấy"]):
+                        return []
+                except Exception:
+                    pass
 
-            # 4. ĐỌC DỮ LIỆU TỪ ALV GRID
-            try:
-                grid = active_session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
-            except Exception:
+                try:
+                    g = active_session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+                    if g is not None:
+                        grid = g
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            if not grid:
                 return []
 
             row_count = int(getattr(grid, "RowCount", 0))

@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 from app.core.context import RequestContext, CommandResult
 from app.handlers.base_handler import BaseHandler
 from app.sap_mb51_service import SapMb51Service, parse_mb51_date_range, generate_mb51_table_html
+from app.number_utils import parse_sap_float
 
 
 class StockHandler(BaseHandler):
@@ -113,10 +114,18 @@ class StockHandler(BaseHandler):
         elif cmd in ["TON_KHO", "TONKHO"]:
             wh_slocs = ctx.config.get("warehouse_slocs", ["1005", "3093"])
             records = ctx.sap.check_stock_mb52(resolved_mats, ctx.plant, slocs=wh_slocs)
+            has_qual = any(parse_sap_float(r.get("qual", 0)) > 0 for r in records)
+            has_blocked = any(parse_sap_float(r.get("blocked", 0)) > 0 for r in records)
             headers = {
                 "product": "Mã hàng", "plant": "Plant", "sloc": "Sloc",
-                "batch": "Batch", "unrest": "Tồn", "unit": "ĐVT"
+                "batch": "Batch",
+                "unrest": "Khả dụng" if (has_qual or has_blocked) else "Tồn"
             }
+            if has_qual:
+                headers["qual"] = "Chờ KCS (QI)"
+            if has_blocked:
+                headers["blocked"] = "Khóa (Blocked)"
+            headers["unit"] = "ĐVT"
             summary = f"Tồn kho (Kho 1005 & 3093 - Plant {ctx.plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
         # -------------------------------------------------------------
@@ -124,10 +133,18 @@ class StockHandler(BaseHandler):
         # -------------------------------------------------------------
         elif cmd in ["TON", "TỒN", "MB52"]:
             records = ctx.sap.check_stock_mb52(resolved_mats, ctx.plant)
+            has_qual = any(parse_sap_float(r.get("qual", 0)) > 0 for r in records)
+            has_blocked = any(parse_sap_float(r.get("blocked", 0)) > 0 for r in records)
             headers = {
                 "product": "Mã hàng", "plant": "Plant", "sloc": "Sloc",
-                "batch": "Batch", "unrest": "Tồn", "unit": "ĐVT"
+                "batch": "Batch",
+                "unrest": "Khả dụng" if (has_qual or has_blocked) else "Tồn"
             }
+            if has_qual:
+                headers["qual"] = "Chờ KCS (QI)"
+            if has_blocked:
+                headers["blocked"] = "Khóa (Blocked)"
+            headers["unit"] = "ĐVT"
             summary = f"Tồn tổng hợp (Toàn bộ SLoc - Plant {ctx.plant}) cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
         # -------------------------------------------------------------
@@ -152,6 +169,13 @@ class StockHandler(BaseHandler):
             mb51_service = SapMb51Service(default_plant=target_plant or "3093")
             sap_session = getattr(ctx.sap, "session", None) if ctx.sap else None
 
+            is_explicit_date = bool(
+                ctx.meta.get("dateFrom") or ctx.meta.get("dateTo") or
+                re.search(r"\b\d{1,3}\s*ng[aà]y\b", raw_text.lower()) or
+                re.search(r"\b\d{1,2}[/-]\d{1,2}", raw_text)
+            )
+
+            auto_expanded_mb51 = False
             try:
                 records = mb51_service.fetch_movement_history(
                     materials=resolved_mats,
@@ -162,6 +186,24 @@ class StockHandler(BaseHandler):
                 )
             except Exception:
                 records = []
+
+            # Smart Date Expansion: Nếu 0 dòng và không chỉ định ngày (<= 7 ngày), tự động mở rộng 30 ngày
+            if not records and not is_explicit_date and (dt_to - dt_from).days <= 7:
+                dt_from_expanded = dt_to - timedelta(days=30)
+                try:
+                    expanded_recs = mb51_service.fetch_movement_history(
+                        materials=resolved_mats,
+                        date_from=dt_from_expanded,
+                        date_to=dt_to,
+                        plant=target_plant,
+                        session=sap_session
+                    )
+                    if expanded_recs:
+                        records = expanded_recs
+                        dt_from = dt_from_expanded
+                        auto_expanded_mb51 = True
+                except Exception:
+                    pass
 
             # Nếu service trả về rỗng (hoặc chạy trong môi trường mock/test nơi ctx.sap được mock):
             if not records and ctx.sap and hasattr(ctx.sap, "check_history_mb51"):
@@ -212,7 +254,8 @@ class StockHandler(BaseHandler):
             }
             plant_info = f" (Plant {ctx.plant})" if explicit_p else " (Tất cả nhà máy)"
             range_info = f"từ {dt_from.strftime('%d/%m/%Y')} đến {dt_to.strftime('%d/%m/%Y')}" if dt_from.date() != dt_to.date() else f"ngày {dt_from.strftime('%d/%m/%Y')}"
-            summary = f"Lịch sử giao dịch vật tư (MB51 - {range_info}){plant_info} cho mã: {', '.join(resolved_mats)}{mapping_info}"
+            expansion_note = " (Tự động mở rộng 30 ngày do 7 ngày qua không phát sinh giao dịch)" if auto_expanded_mb51 else ""
+            summary = f"Lịch sử giao dịch vật tư (MB51 - {range_info}){plant_info}{expansion_note} cho mã: {', '.join(resolved_mats)}{mapping_info}"
 
             if records:
                 custom_html = generate_mb51_table_html(records, summary)
