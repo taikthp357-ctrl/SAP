@@ -5866,8 +5866,9 @@ class SapEngine:
                                             break
 
                                 if matched_doc and r_file:
-                                    if r_file not in zfir_results[matched_doc]:
-                                        zfir_results[matched_doc].append(r_file)
+                                    for sub_f in [f.strip() for f in re.split(r"[,;]+", str(r_file)) if f.strip()]:
+                                        if sub_f not in zfir_results[matched_doc]:
+                                            zfir_results[matched_doc].append(sub_f)
 
                             print(f"[ZFIR266 BATCH SUCCESS] Đã trích xuất xong {grid.RowCount} dòng từ ZFIR266.")
                             batch_ran_ok = True
@@ -5979,8 +5980,10 @@ class SapEngine:
                                                     pass
                                         except Exception:
                                             pass
-                                    if fname and fname not in titles_found:
-                                        titles_found.append(fname)
+                                    if fname:
+                                        for sub_f in [f.strip() for f in re.split(r"[,;]+", str(fname)) if f.strip()]:
+                                            if sub_f not in titles_found:
+                                                titles_found.append(sub_f)
 
                             # 4. CHỈ bấm F3 quay lại màn hình Selection khi THỰC SỰ đang đứng ở màn hình Grid
                             if has_grid:
@@ -6007,7 +6010,13 @@ class SapEngine:
 
         records = []
         for doc in clean_docs:
-            titles = zfir_results.get(doc) or migo_results.get(doc, [])
+            raw_titles = zfir_results.get(doc) or migo_results.get(doc, [])
+            titles = []
+            for t in raw_titles:
+                for sub_t in re.split(r"[,;]+", str(t)):
+                    st = sub_t.strip()
+                    if st and st not in titles:
+                        titles.append(st)
             info = classify_sap_attachments(titles, ticket_no=ticket_no)
             found_in_zfir = doc in zfir_results and bool(zfir_results[doc])
             need_bbbg = not info["has_bbbg"]

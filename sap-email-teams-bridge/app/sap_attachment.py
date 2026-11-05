@@ -1554,6 +1554,14 @@ def classify_sap_attachments(titles: List[str], ticket_no: str = "") -> Dict[str
 
     """Kiểm tra và phân loại trạng thái file đính kèm BBBG / VAT trên SAP cho một chứng từ DOC."""
 
+    clean_titles: List[str] = []
+    for t in (titles or []):
+        for sub_t in re.split(r"[,;]+", str(t)):
+            st = sub_t.strip()
+            if st and st not in clean_titles:
+                clean_titles.append(st)
+    titles = clean_titles
+
     if not titles:
 
         return {
@@ -3721,8 +3729,8 @@ class MigoAttachmentRunner:
                 need_v = item.get("need_vat")
 
                 if need_bb is not None and need_v is not None:
-                    # Đã có cờ chính xác từ Phase 1 ZFIR266: không cần mở popup GOS tốn thời gian!
-                    sap_titles = []
+                    # Đã có cờ chính xác từ Phase 1 ZFIR266: lấy lại sap_titles đã bóc tách từ Phase 1
+                    sap_titles = list(item.get("sap_titles") or [])
                     sap_bbbg = "ZFIR266" if not need_bb else None
                     sap_vat = "ZFIR266" if not need_v else None
                 else:
@@ -3739,10 +3747,12 @@ class MigoAttachmentRunner:
 
                 b_ok = False
 
-                if need_bb is False:
+                if need_bb is False and not bbbg_paths:
                     to_upload_bb, already_bb = [], ["ZFIR266"]
                 else:
                     to_upload_bb, already_bb, _ = match_files_to_sap(bbbg_paths, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
+                    if not to_upload_bb and not already_bb and sap_bbbg:
+                        already_bb = [sap_bbbg]
 
                 if not to_upload_bb and already_bb:
 
@@ -3806,10 +3816,12 @@ class MigoAttachmentRunner:
 
                 v_ok = False
 
-                if need_v is False:
+                if need_v is False and not vat_paths:
                     to_upload_vat, already_vat = [], ["ZFIR266"]
                 else:
                     to_upload_vat, already_vat, _ = match_files_to_sap(vat_paths, sap_titles, ticket_nums=ticket_nums, file_type="vat")
+                    if not to_upload_vat and not already_vat and sap_vat:
+                        already_vat = [sap_vat]
 
                 if not to_upload_vat and already_vat:
 
@@ -4124,11 +4136,18 @@ class MigoAttachmentRunner:
                 if it["found_in_zfir"]:
                     ticket_no = it.get("ticket_no", "")
                     ticket_nums, _ = extract_search_tokens(ticket_no)
-                    sap_titles = z_info.get("sap_titles") or []
+                    raw_sap_titles = z_info.get("sap_titles") or []
+                    sap_titles = []
+                    for t in raw_sap_titles:
+                        for sub_t in re.split(r"[,;]+", str(t)):
+                            st = sub_t.strip()
+                            if st and st not in sap_titles:
+                                sap_titles.append(st)
                     if not sap_titles and z_info.get("files_found"):
                         raw_f = z_info.get("files_found", "")
                         if raw_f and raw_f != "Không có file":
-                            sap_titles = [f.strip() for f in raw_f.split(",") if f.strip()]
+                            sap_titles = [f.strip() for f in re.split(r"[,;]+", raw_f) if f.strip()]
+                    it["sap_titles"] = sap_titles
 
                     # So khớp với file thực tế trong thư mục LAN nếu có
                     if has_folder:
@@ -4138,6 +4157,13 @@ class MigoAttachmentRunner:
 
                         to_upload_bb, _, _ = match_files_to_sap(local_bb, sap_titles, ticket_nums=ticket_nums, file_type="bbbg")
                         to_upload_vat, _, _ = match_files_to_sap(local_vat, sap_titles, ticket_nums=ticket_nums, file_type="vat")
+
+                        # Bù trừ chênh lệch (Smart Diff): Nếu local còn file chưa upload lên SAP
+                        # (kể cả file đánh số phụ (1), (2), _Dot2, _BS...), BẮT BUỘC bật cờ need_bbbg / need_vat = True
+                        if to_upload_bb:
+                            it["need_bbbg"] = True
+                        if to_upload_vat:
+                            it["need_vat"] = True
 
                         # Chỉ được bỏ qua khi: Không còn bất kỳ file local nào cần upload (len(to_upload) == 0)
                         # VÀ trên SAP thực sự đã có file BBBG/VAT nếu trong thư mục có yêu cầu
