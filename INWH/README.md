@@ -1,3 +1,21 @@
+# SAP IN WH v3.2 – Chọn bỏ trang trắng
+
+## Bản mới v3.2
+
+- [Tải INWH_TOOL_v3.2.zip](INWH_TOOL_v3.2.zip)
+- [File HTML độc lập](INWH_v3.2.html)
+- [Hướng dẫn](HUONG_DAN_V3.2.txt)
+
+Giữ giao diện V2 và thêm ô **Bỏ trang trắng (kể cả trang chỉ có số trang/ngày giờ)** bên dưới tiền tố/số bắt đầu. Mặc định tắt. Đổi lựa chọn rồi bấm Bắt đầu xử lý để tạo lại PDF và CSV.
+
+Bộ lọc giữ trang có nội dung, hình ảnh hoặc nét vẽ được phát hiện. Không dùng tiền tố mã vật tư để kết luận trang trắng. Trang trắng hoàn toàn ngoài WH được đối soát thành dòng riêng; không làm tăng số WH và không được đánh số phiếu. Trang nguồn được giữ theo thứ tự ban đầu. CSV có cả trang gốc, trang được giữ, trang bị bỏ và số trang đầu ra.
+
+Kiểm tra phần xử lý bằng PDF mẫu: tắt = 58 trang; bật = 50 trang; đều đủ 23 WH. Thêm một trang trắng thật: 59 → 50 khi bật (bỏ 9 trang). Chèn hình ảnh và nét vẽ lên hai trang ngày giờ: cả hai trang được giữ. Bốn trang tiếp nối còn vật tư không bị bỏ. Nội dung và ảnh kết xuất ngoài vùng thêm số khớp trang nguồn; CSV khớp số trang thực tế. Kiểm thử dùng Node và DOM mô phỏng; chưa xác minh thao tác trình duyệt thật do giới hạn môi trường.
+
+---
+
+## Các bản trước
+
 # SAP IN WH v3.1 – Giao diện V2
 
 ## Bản mới v3.1
