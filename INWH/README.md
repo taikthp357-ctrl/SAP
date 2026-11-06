@@ -1,3 +1,25 @@
+# INWH – Đánh số phiếu PDF
+
+## Bản HTML độc lập v2.0
+
+- [Tải gói INWH_TOOL_v2.0.zip](INWH_TOOL_v2.0.zip)
+- [File HTML tích hợp thư viện](INWH_v2.0.html) — tải về máy rồi mở bằng Edge/Chrome.
+- [Hướng dẫn v2.0](HUONG_DAN_INWH_v2.0.txt)
+
+Chọn PDF SAP, dán bảng WH – Số phiếu và xuất PDF đã đánh số. Không cần Excel, Python, Foxit, server hoặc mạng khi chạy. Bảng hai cột hỗ trợ kéo rộng cột, đổi chiều cao, copy/paste nhiều ô, tự thêm dòng và hoàn tác. Ghép theo WH đủ 10 chữ số; báo thiếu/thừa/trùng trước khi xuất. Giữ nguyên thứ tự PDF, toàn bộ trang và số bản có sẵn.
+
+Cách dùng: giải nén ZIP → mở `INWH_v2.0.html` → chọn PDF → dán WH/số phiếu → kiểm tra → xuất PDF. Nếu trình duyệt chưa tải tự động, bấm liên kết tải kết quả được tạo trong công cụ. Nếu PDF đã có hai bản mỗi WH, chọn 1 copy khi in.
+
+Kiểm tra đã thực hiện: cú pháp các module trong HTML đóng gói; logic ghép 23 WH trên 58 trang; dán 1/2 cột và đảo thứ tự WH; phát hiện lỗi; hoàn tác/làm lại; mô hình bảng 10.000 dòng; xuất PDF đúng số phiếu trên đủ 58 trang. Văn bản nguồn giữ nguyên, ảnh kết xuất ngoài vùng thêm số ở chân trang không đổi. Kiểm tra logic giao diện dùng môi trường mô phỏng DOM; chưa xác minh thao tác mở/tải file trực tiếp trên Edge/Chrome do giới hạn môi trường thử nghiệm.
+
+Hỗ trợ PDF có lớp văn bản theo mẫu Warehouse Order / Lệnh kho và Trang x/y. Không dùng OCR cho PDF scan. Trang xoay hoặc không đủ căn cứ nhận diện sẽ báo lỗi. Giấy phép thư viện nằm trong ZIP và thư mục [THU_VIEN_GIAY_PHEP](THU_VIEN_GIAY_PHEP).
+
+## Các phiên bản và tài liệu trước
+
+Phần bên dưới mô tả luồng Excel/engine trước đây; các tùy chọn lọc và sắp xếp của luồng đó không phải hành vi của HTML độc lập trên.
+
+---
+
 # SAP IN WH PORTABLE v1.0 - Xử Lý Lọc Trang Thừa & Đóng Số Phiếu Kho SAP
 
 Hệ thống tự động hóa xử lý file PDF phiếu lệnh kho (Warehouse Order - WH) xuất từ SAP EWM / ERP. Hỗ trợ đối soát theo danh sách copy/paste từ Excel, tự động nhận diện và loại bỏ trang thừa (chữ ký, ngày giờ in không có mã vật tư), bảo toàn 100% định dạng và mã vạch Barcode SAP, đóng dấu số đơn chuẩn xác ở góc dưới bên phải.

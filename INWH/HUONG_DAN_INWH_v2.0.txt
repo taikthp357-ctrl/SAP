@@ -1,0 +1,41 @@
+INWH v2.0 – BẢNG WH VÀ SỐ PHIẾU
+
+1. Giải nén ZIP. Mở INWH_v2.0.html bằng Microsoft Edge hoặc Google Chrome.
+2. Chọn PDF từ SAP. Bảng trống sẽ tự điền WH theo thứ tự trong PDF.
+3. Dán hai cột WH và Số phiếu vào A1; hoặc dán một cột số phiếu vào B1.
+4. Bấm Kiểm tra, sửa các lỗi được chỉ ra. Bấm Xuất PDF đã đánh số.
+5. Nếu trình duyệt không tự tải, bấm liên kết Tải PDF hiện sau khi tạo xong.
+
+Một file HTML đã tích hợp toàn bộ thư viện. Không cần Excel, Python, Foxit, mạng hay server.
+Không gửi dữ liệu lên mạng. PDF nguồn được chọn trên máy và không bị ghi đè.
+
+THAO TÁC BẢNG
+- Kéo mép phải tiêu đề WH/Số phiếu để thay đổi độ rộng từng cột.
+- Kéo đáy phải bảng để thay đổi chiều cao. Cuộn ngang/dọc khi cần.
+- Dán bằng Ctrl+V như Excel, giữ nguyên số phiếu dạng 06-01.
+- Shift+click hoặc Shift+mũi tên: chọn vùng; Ctrl+C: copy vùng; nút Xóa ô: xóa vùng.
+- Tab / Enter / mũi tên lên xuống: chuyển ô.
+- Ctrl+Z / Ctrl+Y hoặc nút Hoàn tác / Làm lại.
+- Dán nhanh: dán dữ liệu vào khung lớn rồi Đưa vào ô đang chọn.
+- Dán nhiều dòng sẽ tự tăng dòng; nút Thêm dòng hỗ trợ nhập tiếp.
+- Nút Điền WH từ PDF xếp lại theo thứ tự PDF, giữ số phiếu đã có theo WH.
+
+GHÉP VÀ XUẤT
+Ghép theo WH đủ 10 chữ số, không theo thứ tự dòng.
+WH thiếu/thừa/trùng, số phiếu thiếu/trùng hoặc sai ký tự được báo trước khi xuất.
+Cùng WH nhận cùng số trên mọi bản, kể cả trang tiếp nối. Không lọc bỏ trang.
+PDF có sẵn 2 bản/WH thì khi in chọn 1 copy. Kiểm tra góc dưới phải trước khi in.
+Vị trí/cỡ chữ có thể chỉnh trong phần Vị trí và cỡ số phiếu.
+
+PHẠM VI
+PDF SAP có lớp văn bản với Warehouse Order / Lệnh kho và Trang x/y.
+Không nhận PDF scan bằng OCR. PDF có trang xoay hoặc không đủ căn cứ nhận diện sẽ dừng báo lỗi.
+Bảng tối đa 100.000 dòng. Hiệu năng còn tùy số trang và bộ nhớ của máy.
+Đóng hoặc tải lại HTML sẽ mất dữ liệu đang nhập; có cảnh báo khi đã có số phiếu.
+
+THAY ĐỔI SO VỚI v1.0
+Sửa xung đột biến giữa PDF.js và giao diện. Tách phạm vi các thư viện và mã ứng dụng.
+Thêm thông báo khởi chạy, bảng hai cột co giãn, copy/paste vùng, hoàn tác, kiểm tra dữ liệu,
+và liên kết tải lại kết quả nếu trình duyệt chưa tải tự động. Bỏ yêu cầu chọn Excel.
+
+Thư viện: PDF.js (Apache-2.0), pdf-lib (MIT). Xem THU_VIEN_GIAY_PHEP.
