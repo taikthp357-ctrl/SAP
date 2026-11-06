@@ -1,3 +1,24 @@
+# INWH – Tự động đánh số phiếu PDF v3.0
+
+## Bản mới v3.0
+
+- [Tải INWH_TOOL_v3.0.zip](INWH_TOOL_v3.0.zip)
+- [File HTML độc lập](INWH_v3.0.html): tải về và mở bằng Edge/Chrome.
+- [Hướng dẫn](HUONG_DAN_V3.txt)
+- [Phân tích hai bản v2.0 và thay đổi của v3.0](PHAN_TICH_V3.md)
+
+Chế độ chính: chọn PDF → tự nhận diện WH → lập số theo tiền tố, số bắt đầu và số chữ số tối thiểu → tạo PDF → tải PDF/CSV. Bảng co giãn để dán hoặc sửa số riêng được giữ trong chế độ Nhập / chỉnh bảng.
+
+Có hai CSV: đối soát theo WH và đối chiếu từng trang. CSV chỉ lấy từ lần tạo PDF thành công; đổi dữ liệu hoặc thiết lập sẽ yêu cầu tạo PDF lại. Trong Excel, nhập cột WH/Số phiếu dạng Text để giữ nguyên nhãn như 06-01.
+
+Mặc định giữ toàn bộ trang và số bản có sẵn. Tùy chọn bỏ trang chỉ có số trang/ngày giờ được tắt sẵn. Không lấy số nhiệm vụ bất kỳ làm WH và không dùng trang đầu toàn bộ PDF để thay cho WH lỗi.
+
+Kiểm tra phần xử lý bằng PDF mẫu: 23 WH/58 trang khi giữ nguyên; 23 WH/50 trang khi bật bỏ 8 trang ngày giờ; sắp xếp theo bảng WH cho kết quả đúng; hai CSV khớp PDF. Cú pháp HTML đóng gói và mô hình bảng 10.000 dòng đã được kiểm tra. Kiểm thử giao diện dùng DOM mô phỏng; chưa xác minh thao tác tải trực tiếp trong Edge/Chrome vì giới hạn môi trường. Chi tiết trong báo cáo phân tích.
+
+---
+
+## Các bản trước
+
 # INWH – Đánh số phiếu PDF
 
 ## Bản HTML độc lập v2.0

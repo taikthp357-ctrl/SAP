@@ -1,0 +1,36 @@
+INWH v3.0 – TỰ ĐỘNG ĐÁNH SỐ VÀ XUẤT CSV
+
+1. Giải nén. Mở INWH_v3.0.html bằng Edge hoặc Chrome.
+2. Chọn chế độ Tự động từ PDF (mặc định). Đặt tiền tố, số bắt đầu và chữ số tối thiểu.
+3. Chọn/kéo thả PDF SAP. Công cụ tự đọc WH, lập số và hiện khoảng số.
+4. Kiểm tra khoảng số và số trang. Bấm Tạo PDF đã đánh số.
+5. Tải PDF, CSV đối soát theo WH hoặc CSV từng trang. Nếu trình duyệt chưa tải, bấm liên kết tải lại xuất hiện bên dưới.
+
+Ví dụ tiền tố 06-, bắt đầu 10, tối thiểu 2 chữ số: 06-10, 06-11…
+Bắt đầu 98 qua 100 sẽ là 06-98, 06-99, 06-100, không cắt bớt số.
+Tiền tố có thể bỏ trống. Không bắt buộc dùng ngày hiện tại.
+
+NHẬP / CHỈNH BẢNG
+Dùng khi cần số phiếu riêng từng WH hoặc đối soát từ Excel. Dán hai cột WH – Số phiếu vào A1; hoặc dán số phiếu vào B1 khi WH đã có.
+Kéo mép tiêu đề để thay độ rộng từng cột, kéo đáy bảng để tăng chiều cao. Bảng tự thêm dòng khi dán.
+Shift+click chọn vùng, Ctrl+C copy, Ctrl+V dán, Ctrl+Z hoàn tác. Dùng nút Xóa ô để xóa vùng.
+Mặc định giữ thứ tự PDF. Có thể chọn Theo thứ tự bảng WH trong Thiết lập đầu ra nếu cần.
+
+TRANG VÀ SỐ BẢN
+Mặc định giữ toàn bộ trang và số bản có sẵn. Một WH dùng cùng một số phiếu trên mọi bản và trang tiếp nối.
+Tùy chọn bỏ trang chỉ có số trang/ngày giờ mặc định TẮT. Không lọc theo tiền tố mã vật tư.
+Nếu PDF có sẵn hai bản/WH, khi in chọn 1 copy.
+
+CSV
+Chỉ tải CSV sau khi tạo PDF thành công. Đổi bảng hoặc thiết lập sẽ yêu cầu tạo lại PDF để CSV khớp.
+CSV đối soát: mỗi dòng một WH, số phiếu, số bản, số trang gốc/giữ/bỏ, trang kết quả.
+CSV từng trang: đầy đủ trang gốc, WH, số phiếu, trang đầu ra hoặc lý do bỏ.
+CSV là UTF-8 BOM. Trong Excel, dùng Data → From Text/CSV và đặt cột WH/Số phiếu là Text để tránh đổi 06-01 thành ngày.
+
+Một HTML tích hợp thư viện, không cần mạng, server, Excel hay Python. Không gửi dữ liệu lên mạng.
+PDF nguồn không bị ghi đè. Số phiếu được đặt ở góc dưới phải, có thể chỉnh cỡ chữ/lề hoặc thêm khung không tô nền.
+Hỗ trợ PDF có lớp văn bản theo mẫu Warehouse Order / Lệnh kho và Trang x/y; không OCR PDF scan. Trang xoay hoặc không đủ căn cứ nhận diện sẽ báo lỗi.
+Đóng trang sẽ mất dữ liệu đang nhập. Kiểm tra PDF kết quả trước khi in.
+
+Xem PHAN_TICH_V3.md để biết so sánh hai bản, các lỗi đã xác định và giới hạn kiểm thử.
+Thư viện PDF.js (Apache-2.0), pdf-lib (MIT); giấy phép trong THU_VIEN_GIAY_PHEP.
