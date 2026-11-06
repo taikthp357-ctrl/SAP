@@ -1,0 +1,6 @@
+# Ignore large binary files from git commit (> 100MB exceeds GitHub limits)
+wh_engine.exe
+SAP_IN_WH_PORTABLE_v1.0.zip
+*.spec
+dist/
+build/
