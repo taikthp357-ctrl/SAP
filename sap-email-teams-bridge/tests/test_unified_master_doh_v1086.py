@@ -4,6 +4,7 @@
 import pytest
 from unittest.mock import MagicMock
 from decimal import Decimal
+from datetime import datetime, timedelta
 from app.nvl_master import NvlMasterService
 from app.nvl_service import NvlService
 from app.email_parser import SmartCommandParser
@@ -57,7 +58,7 @@ def test_fefo_fifo_and_target_bin_priority(tmp_path):
          "grDate": "01.10.2026", "grTime": "08:00:00", "hsd": "30.12.2026"},
         {"product": "MAT_FEFO_TEST", "batch": "LOT_FEFO_EXPIRING", "bin": "APFL-HR1-01-01-2", "availQty": 10,
          "unit": "PC", "plant": "3093", "sloc": "1005", "cat": "UNRESTRICTED",
-         "grDate": "20.10.2026", "grTime": "08:00:00", "hsd": "05.11.2026"},
+         "grDate": "20.10.2026", "grTime": "08:00:00", "hsd": (datetime.now() + timedelta(days=10)).strftime("%d.%m.%Y")},
         {"product": "MAT_FEFO_TEST", "batch": "LOT_TARGET_BIN", "bin": "APFL-ZF02-01-01", "availQty": 10,
          "unit": "PC", "plant": "3093", "sloc": "1005", "cat": "UNRESTRICTED",
          "grDate": "25.10.2026", "grTime": "08:00:00", "hsd": "30.12.2026"},

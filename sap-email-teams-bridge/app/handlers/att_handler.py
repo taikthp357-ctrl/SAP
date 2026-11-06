@@ -217,7 +217,7 @@ class AttHandler(BaseHandler):
                     "vat_status": "VAT",
                     "overall_status": "Trạng thái"
                 }
-                summary = f"Đính kèm VAT, BBBG & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công){turbo_badge}"
+                summary = f"Đính kèm file & Điền HeadText MIGO ({att_summary['total_success']}/{att_summary['total_items']} thành công){turbo_badge}"
 
             return CommandResult(
                 status=result_status,

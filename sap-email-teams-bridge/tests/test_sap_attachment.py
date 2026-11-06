@@ -965,13 +965,9 @@ def test_incremental_multi_vat_attachment():
 
         assert len(res["results"]) == 1
         r0 = res["results"][0]
-        # File BBBG 5122 đã có sẵn -> không upload lại
-        assert "BBBG 5122.pdf" not in uploaded_files
-        # File VAT_5122 đã có sẵn -> không upload lại
-        assert "VAT_5122.pdf" not in uploaded_files
-        # File VAT 5122(1).pdf chưa có -> ĐƯỢC UPLOAD THÊM!
+        # v1.1.20: Toàn bộ file trong thư mục khớp số phiếu đều được đính kèm trực tiếp
         assert "VAT 5122(1).pdf" in uploaded_files
-        assert r0["vat_status"] == "DONE (Đính thêm 1, đã có 1)"
+        assert "BBBG 5122.pdf" in uploaded_files
         assert r0["overall_status"] == "DONE"
         assert res["total_success"] == 1
 
