@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SAP IN WH v2.0 - Đóng Số & Lọc Trang Phiếu Kho (HTML Siêu Nhẹ)</title>
-    <!-- Offline Libraries (có fallback CDN nếu mở độc lập) -->
+    <title>SAP IN WH v2.1 - Đóng Số & Lọc Trang Phiếu Kho (Chuẩn 2 Liên / WH)</title>
+    <!-- Offline Libraries (có fallback CDN nếu mở độc lập ngoài thư mục lib) -->
     <script src="lib/pdf.min.js"></script>
     <script>
         if (window.pdfjsLib) {
@@ -52,7 +52,7 @@
 
         .container {
             width: 100%;
-            max-width: 1000px;
+            max-width: 1050px;
         }
 
         .header {
@@ -94,11 +94,17 @@
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
-        .grid-2 {
+        .grid-3 {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1.3fr;
             gap: 16px;
             margin-bottom: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-3 {
+                grid-template-columns: 1fr;
+            }
         }
 
         .form-group {
@@ -120,6 +126,7 @@
             font-size: 14px;
             outline: none;
             transition: all 0.2s;
+            background: #fff;
         }
 
         .form-control:focus {
@@ -165,7 +172,7 @@
             display: none;
             background: #dbeafe;
             color: #1e40af;
-            padding: 10px 16px;
+            padding: 12px 18px;
             border-radius: 8px;
             font-size: 13px;
             font-weight: 600;
@@ -213,6 +220,18 @@
             min-height: 80px;
             font-family: monospace;
             font-size: 13px;
+        }
+
+        /* Notice banner */
+        .notice-box {
+            background: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #1e3a8a;
+            margin-bottom: 16px;
+            line-height: 1.5;
         }
 
         /* Buttons */
@@ -272,7 +291,7 @@
         /* Stats bar */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
             margin-bottom: 20px;
         }
@@ -317,12 +336,14 @@
             font-weight: 600;
             color: #334155;
             border-bottom: 1px solid var(--border);
+            white-space: nowrap;
         }
 
         td {
             padding: 10px 14px;
             border-bottom: 1px solid var(--border);
             color: var(--text-main);
+            vertical-align: middle;
         }
 
         tr:last-child td {
@@ -354,6 +375,16 @@
         .status-extra {
             background: #fef3c7;
             color: #b45309;
+        }
+
+        .badge-lien {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            background: #e0e7ff;
+            color: #3730a3;
         }
 
         /* Loading Overlay */
@@ -388,15 +419,15 @@
     <!-- Header -->
     <div class="header">
         <div>
-            <h1>📄 XỬ LÝ & ĐÓNG SỐ PHIẾU KHO SAP</h1>
-            <p style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Tự động lọc trang thừa không có mã vật tư & đóng số phiếu trực tiếp</p>
+            <h1>📄 SAP IN WH - ĐÓNG SỐ PHIẾU KHO CHUẨN 2 LIÊN</h1>
+            <p style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Liên 1 và Liên 2 của cùng 1 WH luôn đóng CÙNG MỘT SỐ PHIẾU • Tự động lọc trang rác</p>
         </div>
-        <span class="badge-ver">v2.0 HTML SIÊU NHẸ (Zero-Install)</span>
+        <span class="badge-ver">v2.1 HTML Portable</span>
     </div>
 
     <!-- Cấu hình & Chọn File -->
     <div class="card">
-        <div class="grid-2">
+        <div class="grid-3">
             <div class="form-group">
                 <label>Tiền tố ngày (vd: 06-):</label>
                 <input type="text" id="dayPrefix" class="form-control" value="06-">
@@ -405,6 +436,19 @@
                 <label>Số thứ tự bắt đầu:</label>
                 <input type="number" id="startNum" class="form-control" value="1" min="1">
             </div>
+            <div class="form-group">
+                <label>Quy tắc bản in (Số liên / WH):</label>
+                <select id="copiesPerWH" class="form-control">
+                    <option value="2" selected>2 liên / đơn (Liên 1 & 2 CÙNG SỐ)</option>
+                    <option value="1">1 liên / đơn (Đánh số từng trang)</option>
+                    <option value="3">3 liên / đơn (Cả 3 liên CÙNG SỐ)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="notice-box">
+            <b>💡 Quy tắc nghiệp vụ kho:</b> Mỗi đơn hàng Warehouse Order (WH) in <b>2 liên</b> (Liên trước & Liên sau). 
+            Hệ thống đảm bảo <b>cả 2 liên nhận CÙNG MỘT SỐ ĐÁNH DẤU</b> (ví dụ: Liên 1 = <code>06-01</code>, Liên 2 = <code>06-01</code>). Số thứ tự chỉ tăng sang <code>06-02</code> khi chuyển sang đơn WH tiếp theo.
         </div>
 
         <!-- Mode selection -->
@@ -415,13 +459,13 @@
 
         <div id="tab-auto" class="tab-content active">
             <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-                💡 <b>Mặc định:</b> Bạn chỉ cần chọn file PDF xuất từ SAP. Hệ thống sẽ tự động bóc tách từng mã WH, tự gán số thứ tự 06-01, 06-02... và tự loại bỏ các trang rác.
+                Chỉ cần kéo thả file PDF xuất từ SAP. Công cụ sẽ tự động bóc tách từng đơn WH, gom 2 liên vào cùng số đơn, lọc bỏ trang rác không có mã vật tư và đóng số phiếu chuẩn.
             </p>
         </div>
 
         <div id="tab-manual" class="tab-content">
             <div class="form-group" style="margin-bottom: 12px;">
-                <label>Dán danh sách mã WH từ Excel vào đây (mỗi dòng 1 mã):</label>
+                <label>Dán danh sách mã WH từ Excel vào đây (mỗi dòng 1 mã WH):</label>
                 <textarea id="manualWHList" class="form-control" placeholder="6028720086&#10;6028720696&#10;6028721120..."></textarea>
             </div>
         </div>
@@ -435,8 +479,8 @@
         </div>
 
         <div class="file-info" id="fileInfo">
-            <span id="fileNameDisplay">Tệp: 3.pdf (24 trang)</span>
-            <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;" onclick="clearFile(event)">Chọn lại</button>
+            <span id="fileNameDisplay">Tệp đã chọn: Chưa có</span>
+            <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;" onclick="clearFile(event)">Chọn file khác</button>
         </div>
 
         <!-- Action Buttons -->
@@ -454,7 +498,7 @@
 
         <div class="loading" id="loadingIndicator">
             <div class="spinner"></div>
-            <span id="loadingText">Đang phân tích text & lọc trang PDF...</span>
+            <span id="loadingText">Đang phân tích text & gom nhóm liên PDF...</span>
         </div>
     </div>
 
@@ -480,7 +524,7 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3 style="font-size: 15px; font-weight: 700;">Bảng kê đối soát chi tiết</h3>
+            <h3 style="font-size: 15px; font-weight: 700;">Bảng kê đối soát chi tiết từng liên</h3>
             <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="exportCSV()">
                 📊 Tải bảng đối soát (.CSV)
             </button>
@@ -490,12 +534,12 @@
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 50px;">STT</th>
-                        <th style="width: 110px;">Số đánh dấu</th>
-                        <th style="width: 150px;">Mã Warehouse Order</th>
-                        <th style="width: 80px; text-align: center;">Trang gốc</th>
-                        <th style="width: 80px; text-align: center;">Trang giữ</th>
-                        <th style="width: 80px; text-align: center;">Trang bỏ</th>
+                        <th style="width: 50px;">STT Đơn</th>
+                        <th style="width: 120px;">Số đánh dấu</th>
+                        <th style="width: 160px;">Mã Warehouse Order</th>
+                        <th style="width: 100px; text-align: center;">Bản in (Liên)</th>
+                        <th style="width: 120px; text-align: center;">Trang gốc giữ</th>
+                        <th style="width: 100px; text-align: center;">Trang rác bỏ</th>
                         <th>Trạng thái đối soát</th>
                     </tr>
                 </thead>
@@ -580,7 +624,7 @@
     }
 
     function clearFile(e) {
-        e.stopPropagation();
+        if (e) e.stopPropagation();
         selectedFile = null;
         selectedFileBytes = null;
         document.getElementById('fileInput').value = '';
@@ -592,41 +636,109 @@
         document.getElementById('btnPrint').style.display = 'none';
     }
 
-    // 1. Trích xuất mã WH từ text
-    function extractWHNumber(text) {
-        const patterns = [
-            /(?:Warehouse\s*Order|WH\s*Order|WO|Số\s*WH|Order\s*No\.?|Lệnh\s*kho|Số\s*lệnh)[\s:#]*([0-9]{6,12})/i,
-            /\b(60[0-9]{8}|80[0-9]{8}|[0-9]{10})\b/,
-            /\b([0-9]{7,9})\b/
-        ];
-        for (const p of patterns) {
-            const m = text.match(p);
+    // 1. Tách các dòng văn bản theo tọa độ Y chuẩn xác (từ trên xuống dưới trang in)
+    function extractPageLines(textContent) {
+        if (!textContent || !textContent.items || textContent.items.length === 0) return [];
+        
+        const lineMap = new Map();
+        for (const item of textContent.items) {
+            const str = (item.str || '').trim();
+            if (!str) continue;
+            // Tọa độ Y trong PDF
+            const y = Math.round(item.transform[5]);
+            let matchedY = null;
+            for (const existingY of lineMap.keys()) {
+                if (Math.abs(existingY - y) <= 4) {
+                    matchedY = existingY;
+                    break;
+                }
+            }
+            if (matchedY !== null) {
+                lineMap.get(matchedY).push({ x: item.transform[4], str: str });
+            } else {
+                lineMap.set(y, [{ x: item.transform[4], str: str }]);
+            }
+        }
+
+        // Sắp xếp Y giảm dần (từ trên đỉnh trang xuống đáy trang)
+        const sortedYs = Array.from(lineMap.keys()).sort((a, b) => b - a);
+        const lines = [];
+        for (const y of sortedYs) {
+            const items = lineMap.get(y).sort((a, b) => a.x - b.x);
+            lines.push(items.map(it => it.str).join(' '));
+        }
+        return lines;
+    }
+
+    // 2. Nhận diện chuẩn xác mã Warehouse Order (WH)
+    function extractWHFromLines(lines) {
+        // Ưu tiên 1: Tìm theo nhãn định danh rõ ràng
+        const labelRegex = /(?:Warehouse\s*Order|WH\s*Order|WO|Số\s*WH|Order\s*No\.?|Lệnh\s*kho|Số\s*lệnh)[\s:#]*([0-9]{6,12})/i;
+        for (const line of lines) {
+            const m = line.match(labelRegex);
             if (m && m[1]) return m[1].trim();
         }
+
+        // Ưu tiên 2: Tìm ở 15 dòng đầu trang (Header) mã 10 số SAP chuẩn (60... hoặc 80...)
+        const topLines = lines.slice(0, 15);
+        const sap10Regex = /\b(60[0-9]{8}|80[0-9]{8})\b/;
+        for (const line of topLines) {
+            if (/(?:ngày|date|time|giờ|printed)/i.test(line)) continue;
+            const m = line.match(sap10Regex);
+            if (m && m[1]) return m[1].trim();
+        }
+
+        // Ưu tiên 3: Quét mã 10 số bất kỳ bắt đầu bằng 60 trên toàn trang
+        for (const line of lines) {
+            const m = line.match(/\b(60[0-9]{8})\b/);
+            if (m && m[1]) return m[1].trim();
+        }
+
+        // Ưu tiên 4: 10 chữ số bất kỳ không thuộc dòng ngày in
+        for (const line of lines) {
+            if (/(?:ngày|date|time|giờ|in\s*lúc)/i.test(line)) continue;
+            const m = line.match(/\b([0-9]{10})\b/);
+            if (m && m[1]) return m[1].trim();
+        }
+
         return "UNKNOWN_WH";
     }
 
-    // 2. Nhận diện trang có vật tư hay là trang chữ ký/ngày giờ rác
-    function hasMaterialItems(text) {
-        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    // 3. Nhận diện trang có dòng vật tư hay là trang chữ ký / ngày giờ rác
+    function checkPageHasMaterialItems(lines) {
+        if (!lines || lines.length === 0) return false;
+
         const ignoreKeywords = [
             "signature", "ký nhận", "người lập", "người giao", "người nhận",
             "printed by", "print date", "ngày in", "thời gian in", "page ", "trang ",
-            "xác nhận", "warehouse order", "wh order"
+            "xác nhận", "warehouse order", "wh order", "thủ kho", "bên giao", "bên nhận",
+            "tổng cộng", "total", "ghi chú", "note"
         ];
-        const matPattern = /\b(?=[A-Z0-9\-]{8,18}\b)(?=.*[A-Z])(?=.*[0-9])[A-Z0-9\-]+\b/;
-        const uomPattern = /\b(PC|PCS|EA|SET|KG|M|L|BOX|ROL|CAR|UN|THÙNG|BỘ|CHIẾC|CÁI)\b/i;
+
+        // Mã vật tư SAP: Thường kết hợp cả chữ và số (VD: BIW32026240, V04010...)
+        const matPattern = /\b(?=[A-Z0-9\-]{6,18}\b)(?=.*[A-Z])(?=.*[0-9])[A-Z0-9\-]+\b/;
+        // Đơn vị tính phổ biến đi kèm số lượng
+        const uomPattern = /\b(PC|PCS|EA|SET|KG|M|L|BOX|ROL|CAR|UN|THÙNG|BỘ|CHIẾC|CÁI|CUỘN)\b/i;
 
         for (const line of lines) {
             const low = line.toLowerCase();
-            if (ignoreKeywords.some(kw => low.includes(kw))) continue;
-            if (/^[0-9]{6,12}$/.test(line)) continue;
-            if (matPattern.test(line) || uomPattern.test(line)) return true;
+            // Nếu dòng chỉ là footer/chữ ký thì bỏ qua
+            if (ignoreKeywords.some(kw => low.includes(kw))) {
+                if (!matPattern.test(line)) continue;
+            }
+            // Bỏ qua dòng chỉ chứa mã số WH đơn thuần
+            if (/^[0-9]{6,12}$/.test(line.trim())) continue;
+
+            if (matPattern.test(line) || uomPattern.test(line)) {
+                return true;
+            }
         }
         return false;
     }
 
-    // Xử lý chính
+    // =========================================================================
+    // XỬ LÝ CHÍNH
+    // =========================================================================
     async function processPDF() {
         if (!selectedFileBytes) return;
 
@@ -635,47 +747,91 @@
         document.getElementById('btnProcess').disabled = true;
 
         try {
-            // Bước 1: Dùng PDF.js đọc text từng trang
+            const dayPrefix = document.getElementById('dayPrefix').value.trim();
+            const startNum = parseInt(document.getElementById('startNum').value) || 1;
+            const copiesPerWH = parseInt(document.getElementById('copiesPerWH').value) || 2;
+
+            // Bước 1: Dùng PDF.js đọc cấu trúc text từng trang
             const loadingTask = pdfjsLib.getDocument({ data: selectedFileBytes.slice(0) });
             const pdfDoc = await loadingTask.promise;
             const numPages = pdfDoc.numPages;
 
-            const pdfWhData = {};
-            const pdfWhOrder = [];
-            let lastWH = null;
-
+            const pageData = [];
             for (let pageIdx = 0; pageIdx < numPages; pageIdx++) {
-                document.getElementById('loadingText').textContent = `Đang đọc trang ${pageIdx + 1} / ${numPages}...`;
+                document.getElementById('loadingText').textContent = `Đang phân tích trang ${pageIdx + 1} / ${numPages}...`;
                 const page = await pdfDoc.getPage(pageIdx + 1);
                 const textContent = await page.getTextContent();
-                const pageText = textContent.items.map(item => item.str).join(' ');
+                const lines = extractPageLines(textContent);
 
-                let whNo = extractWHNumber(pageText);
-                if (whNo === "UNKNOWN_WH" && lastWH !== null) {
-                    whNo = lastWH;
-                } else if (whNo === "UNKNOWN_WH" && lastWH === null) {
-                    whNo = `DOC_${pageIdx + 1}`;
+                const detectedWH = extractWHFromLines(lines);
+                const hasItems = checkPageHasMaterialItems(lines);
+
+                pageData.push({
+                    pageIdx: pageIdx,
+                    whNo: detectedWH,
+                    hasItems: hasItems,
+                    lines: lines
+                });
+            }
+
+            // Bước 2: Gom nhóm theo Đơn hàng (WH) và 2 Liên
+            // Thuật toán Smart Pairing:
+            // - Gom các trang có cùng WH vào cùng 1 Order.
+            // - Nếu một trang có WH là UNKNOWN_WH, kế thừa WH của trang trước.
+            // - Nếu PDF chia theo cặp (Liên 1, Liên 2) hoặc theo chu kỳ copiesPerWH:
+            //   Đảm bảo cả 2 liên luôn được gộp vào cùng một đơn!
+
+            const orderGroups = []; // Array of { whNo: string, pages: [pageIdx...], droppedPages: [pageIdx...] }
+            let currentOrder = null;
+            let lastKnownWH = null;
+
+            for (let i = 0; i < pageData.length; i++) {
+                const p = pageData[i];
+                let wh = p.whNo;
+
+                if (wh === "UNKNOWN_WH" && lastKnownWH !== null) {
+                    wh = lastKnownWH;
+                } else if (wh === "UNKNOWN_WH" && lastKnownWH === null) {
+                    wh = `DOC_${Math.floor(i / copiesPerWH) + 1}`;
                 }
-                lastWH = whNo;
+                lastKnownWH = wh;
 
-                if (!pdfWhData[whNo]) {
-                    pdfWhData[whNo] = { pages: [], dropped: 0, total: 0 };
-                    pdfWhOrder.push(whNo);
+                // Kiểm tra xem đã có Order với mã WH này chưa
+                let existingOrder = orderGroups.find(o => o.whNo === wh);
+
+                // Nếu chưa có, tạo Order mới
+                if (!existingOrder) {
+                    existingOrder = {
+                        whNo: wh,
+                        allPageIndices: [],
+                        keptPages: [],
+                        droppedPages: []
+                    };
+                    orderGroups.push(existingOrder);
                 }
 
-                pdfWhData[whNo].total += 1;
-                if (hasMaterialItems(pageText)) {
-                    pdfWhData[whNo].pages.push(pageIdx);
+                existingOrder.allPageIndices.push(p.pageIdx);
+                if (p.hasItems) {
+                    existingOrder.keptPages.push(p.pageIdx);
                 } else {
-                    pdfWhData[whNo].dropped += 1;
+                    existingOrder.droppedPages.push(p.pageIdx);
                 }
             }
 
-            // Bước 2: Xác định bảng Mapping và thứ tự
-            const dayPrefix = document.getElementById('dayPrefix').value.trim();
-            const startNum = parseInt(document.getElementById('startNum').value) || 1;
+            // Bảo vệ an toàn: Nếu một đơn mà tất cả các trang đều bị coi là không có vật tư,
+            // giữ lại ít nhất các trang đầu của mỗi liên để không bị mất đơn in!
+            for (const order of orderGroups) {
+                if (order.keptPages.length === 0 && order.allPageIndices.length > 0) {
+                    // Giữ lại số trang tương ứng với số liên
+                    const pagesToKeep = order.allPageIndices.slice(0, Math.min(copiesPerWH, order.allPageIndices.length));
+                    order.keptPages = pagesToKeep;
+                    order.droppedPages = order.allPageIndices.filter(p => !pagesToKeep.includes(p));
+                }
+            }
+
+            // Bước 3: Xác định bảng Mapping và thứ tự đánh số
+            const mappingDict = {}; // whNo -> label (vd: 6028720086 -> 06-01)
             let finalWhSequence = [];
-            const mappingDict = {};
             let isManual = false;
 
             if (currentMode === 'manual') {
@@ -690,70 +846,66 @@
                         }
                     });
                     // Thêm các WH có trong PDF nhưng ngoài danh sách vào cuối
-                    pdfWhOrder.forEach(wh => {
-                        if (!finalWhSequence.includes(wh)) finalWhSequence.push(wh);
+                    orderGroups.forEach(og => {
+                        if (!finalWhSequence.includes(og.whNo)) finalWhSequence.push(og.whNo);
                     });
                 }
             }
 
             if (!isManual) {
-                // TỰ ĐỘNG 100%
-                finalWhSequence = [...pdfWhOrder];
+                // TỰ ĐỘNG 100%: Mỗi mã WH nhận DUY NHẤT 1 SỐ THỨ TỰ
                 let curSeq = startNum;
-                finalWhSequence.forEach(wh => {
-                    mappingDict[wh] = `${dayPrefix}${String(curSeq).padStart(2, '0')}`;
-                    curSeq++;
+                orderGroups.forEach(og => {
+                    finalWhSequence.push(og.whNo);
+                    mappingDict[og.whNo] = `${dayPrefix}${String(curSeq).padStart(2, '0')}`;
+                    curSeq++; // Chỉ tăng khi sang đơn WH TIẾP THEO!
                 });
             }
 
-            // Bước 3: Dùng pdf-lib tái cấu trúc PDF, lọc trang & đóng số
-            document.getElementById('loadingText').textContent = 'Đang đóng số thứ tự & tạo PDF chuẩn...';
+            // Bước 4: Tái cấu trúc PDF & Đóng số thứ tự chuẩn 2 liên
+            document.getElementById('loadingText').textContent = 'Đang đóng số thứ tự chuẩn 2 liên lên PDF...';
             const srcPdfLib = await PDFLib.PDFDocument.load(selectedFileBytes);
             const outPdfLib = await PDFLib.PDFDocument.create();
             const font = await outPdfLib.embedFont(PDFLib.StandardFonts.HelveticaBold);
 
             resultRecords = [];
-            let totalKept = 0;
-            let totalDropped = 0;
+            let totalKeptOverall = 0;
+            let totalDroppedOverall = 0;
 
             for (let idx = 0; idx < finalWhSequence.length; idx++) {
                 const whNo = finalWhSequence[idx];
                 const label = mappingDict[whNo] || "";
-                const inExcel = isManual ? (whNo in mappingDict) : true;
-                const inPdf = whNo in pdfWhData;
+                const matchedOrder = orderGroups.find(o => o.whNo === whNo);
 
-                let totalP = 0, keptP = 0, droppedP = 0, statusText = "", statusClass = "";
+                let statusText = "", statusClass = "";
+                let keptP = 0, droppedP = 0, origP = 0;
 
-                if (inExcel && inPdf) {
-                    const st = pdfWhData[whNo];
-                    totalP = st.total;
-                    if (st.pages.length === 0 && totalP > 0) {
-                        st.pages.push(0);
-                        st.dropped = Math.max(0, totalP - 1);
-                    }
-                    keptP = st.pages.length;
-                    droppedP = st.dropped;
-                    totalKept += keptP;
-                    totalDropped += droppedP;
+                if (matchedOrder) {
+                    origP = matchedOrder.allPageIndices.length;
+                    keptP = matchedOrder.keptPages.length;
+                    droppedP = matchedOrder.droppedPages.length;
+                    totalKeptOverall += keptP;
+                    totalDroppedOverall += droppedP;
 
-                    statusText = `Đã đóng số` + (droppedP > 0 ? ` (Lọc ${droppedP} trang rác)` : ``);
+                    statusText = `Đã đóng số ${label}` + (droppedP > 0 ? ` (Lọc ${droppedP} trang rác)` : ``);
                     statusClass = "status-ok";
 
-                    // Chèn trang và vẽ số vào góc dưới bên phải
-                    const copiedPages = await outPdfLib.copyPages(srcPdfLib, st.pages);
-                    for (const page of copiedPages) {
+                    // Chèn các trang giữ lại vào PDF xuất ra
+                    const copiedPages = await outPdfLib.copyPages(srcPdfLib, matchedOrder.keptPages);
+                    for (let pIdx = 0; pIdx < copiedPages.length; pIdx++) {
+                        const page = copiedPages[pIdx];
                         outPdfLib.addPage(page);
                         const { width, height } = page.getSize();
 
                         if (label) {
                             const fontSize = 16;
                             const textWidth = font.widthOfTextAtSize(label, fontSize);
-                            const boxWidth = Math.max(120, textWidth + 24);
+                            const boxWidth = Math.max(125, textWidth + 24);
                             const boxHeight = 32;
                             const boxX = width - boxWidth - 20;
                             const boxY = 16;
 
-                            // Vẽ nền trắng viền đen
+                            // Nền trắng viền đen
                             page.drawRectangle({
                                 x: boxX,
                                 y: boxY,
@@ -764,7 +916,7 @@
                                 color: PDFLib.rgb(1, 1, 1),
                             });
 
-                            // Vẽ số thứ tự
+                            // Số đánh dấu (CẢ 2 LIÊN CÙNG SỐ NÀY)
                             page.drawText(label, {
                                 x: boxX + (boxWidth - textWidth) / 2,
                                 y: boxY + 8,
@@ -774,30 +926,20 @@
                             });
                         }
                     }
-                } else if (inExcel && !inPdf) {
-                    statusText = `❌ THIẾU: Không tìm thấy trong PDF`;
-                    statusClass = "status-missing";
                 } else {
-                    const st = pdfWhData[whNo];
-                    totalP = st.total;
-                    keptP = st.pages.length;
-                    droppedP = st.dropped;
-                    totalKept += keptP;
-                    totalDropped += droppedP;
-                    statusText = `⚠️ THỪA: Có trong PDF nhưng chưa khai báo`;
-                    statusClass = "status-extra";
-
-                    const copiedPages = await outPdfLib.copyPages(srcPdfLib, st.pages);
-                    copiedPages.forEach(p => outPdfLib.addPage(p));
+                    statusText = `❌ THIẾU: Có trong Excel nhưng không thấy trong PDF`;
+                    statusClass = "status-missing";
                 }
 
+                // Ghi nhận báo cáo
                 resultRecords.push({
                     stt: idx + 1,
                     label: label,
                     wh: whNo,
-                    totalP: totalP,
-                    keptP: keptP,
-                    droppedP: droppedP,
+                    copiesText: (keptP >= 2 ? `${copiesPerWH} liên` : `1 liên`),
+                    origPages: matchedOrder ? matchedOrder.allPageIndices.map(p => p + 1).join(', ') : '-',
+                    keptPages: matchedOrder ? matchedOrder.keptPages.map(p => p + 1).join(', ') : '-',
+                    droppedPages: matchedOrder ? (matchedOrder.droppedPages.length > 0 ? matchedOrder.droppedPages.map(p => p + 1).join(', ') : '0') : '0',
                     statusText: statusText,
                     statusClass: statusClass
                 });
@@ -805,13 +947,13 @@
 
             resultPdfBytes = await outPdfLib.save();
 
-            // Bước 4: Hiển thị kết quả
+            // Bước 5: Hiển thị bảng kê & thời gian
             const endTime = performance.now();
             const duration = ((endTime - startTime) / 1000).toFixed(2);
 
             document.getElementById('statWHCount').textContent = finalWhSequence.length;
-            document.getElementById('statKeptPages').textContent = totalKept;
-            document.getElementById('statDroppedPages').textContent = totalDropped;
+            document.getElementById('statKeptPages').textContent = totalKeptOverall;
+            document.getElementById('statDroppedPages').textContent = totalDroppedOverall;
             document.getElementById('statTime').textContent = `${duration}s`;
 
             renderTable(resultRecords);
@@ -835,12 +977,12 @@
         records.forEach(r => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${r.stt}</td>
-                <td><b>${r.label || '-'}</b></td>
+                <td style="text-align: center; font-weight: 600;">${r.stt}</td>
+                <td><b style="color: var(--primary); font-size: 14px;">${r.label || '-'}</b></td>
                 <td><code>${r.wh}</code></td>
-                <td style="text-align: center;">${r.totalP}</td>
-                <td style="text-align: center; font-weight: 600; color: var(--success);">${r.keptP}</td>
-                <td style="text-align: center; color: var(--danger);">${r.droppedP}</td>
+                <td style="text-align: center;"><span class="badge-lien">${r.copiesText} (Cùng số)</span></td>
+                <td style="text-align: center; font-weight: 600; color: var(--success);">${r.keptPages}</td>
+                <td style="text-align: center; color: var(--danger);">${r.droppedPages}</td>
                 <td><span class="badge-status ${r.statusClass}">${r.statusText}</span></td>
             `;
             tbody.appendChild(tr);
@@ -854,7 +996,7 @@
         const a = document.createElement('a');
         const originalName = selectedFile ? selectedFile.name.replace(/\.pdf$/i, '') : 'WH_OUTPUT';
         a.href = url;
-        a.download = `${originalName}_DA_DONG_SO.pdf`;
+        a.download = `${originalName}_DA_DONG_SO_2LIEN.pdf`;
         a.click();
         URL.revokeObjectURL(url);
     }
@@ -875,15 +1017,15 @@
 
     function exportCSV() {
         if (!resultRecords || resultRecords.length === 0) return;
-        let csvContent = "\uFEFFSTT,Số đánh dấu,Mã Warehouse Order (WH),Trang gốc,Trang giữ,Trang bỏ,Trạng thái đối soát\n";
+        let csvContent = "\uFEFFSTT Đơn,Số đánh dấu (Cả 2 liên),Mã Warehouse Order (WH),Số liên,Trang gốc giữ lại,Trang rác đã bỏ,Trạng thái đối soát\n";
         resultRecords.forEach(r => {
-            csvContent += `"${r.stt}","${r.label}","${r.wh}","${r.totalP}","${r.keptP}","${r.droppedP}","${r.statusText}"\n`;
+            csvContent += `"${r.stt}","${r.label}","${r.wh}","${r.copiesText}","${r.keptPages}","${r.droppedPages}","${r.statusText}"\n`;
         });
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `BANG_DOI_SOAT_WH_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `BANG_DOI_SOAT_WH_2LIEN_${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         URL.revokeObjectURL(url);
     }
