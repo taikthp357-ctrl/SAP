@@ -1,0 +1,43 @@
+SAP WH - TOOL DANH SO VA BO TRANG KHONG CO MA VT (v2.0)
+=======================================================
+
+MUC DICH
+- Tu dong phat hien 1 WH, du PDF co nhieu trang va du da in 2 ban.
+- Danh so 06-01, 06-02... o goc duoi ben phai cac trang con duoc in.
+- Ca 2 ban cua cung 1 WH co cung so danh dau.
+- LOAI BO cac trang khong co dong ma vat tu (VD chi co ngay gio, o chu ky).
+- Giu cac trang tiep theo co ma VT, ke ca trang 2/2.
+- Khong thay doi so WH, barcode, batch, so luong hay noi dung trang con lai.
+- Chay hoan to tren may, khong phai chinh SAP hay ket noi mang.
+
+HUONG DAN SU DUNG TREN WINDOWS
+1. Xuat cac phieu WH tu SAP ra mot PDF, du dang da co 2 ban.
+2. Giai nen ZIP, bam dup CHAY_TOOL_WH.bat.
+3. Chon file PDF goc tu SAP.
+4. Kiem tra so WH, so trang duoc GIU va BO o danh sach xem truoc.
+5. Nhap Ngay (VD 06), Bat dau tu (VD 1), So ban co san (VD 2).
+6. Bam DANH SO + LUU PDF.
+7. Kiem tra PDF output truoc khi in; IN 1 COPY neu PDF goc da co 2 ban.
+
+DAU RA
+- <TEN_PDF_GOC>_DANH_SO.pdf
+- <TEN_PDF_GOC>_DANH_SO_DANH_SACH.csv
+
+LUU Y
+- Tool KHONG tu in ra may in; chi chuan bi PDF de in.
+- Cong cu nhan biet ma vat tu theo cot Material trong form SAP giong mau 3.pdf.
+- Neu PDF goc co 2 ban/WH, khi in PDF output chon Copies = 1.
+- Neu thieu ban in o trang co ma VT, tool DUNG va bao canh bao.
+- SAP co the van hien "Trang 1 / 2" du trang 2/2 rong da bi bo.
+- PDF da danh so khong nen cho chay lai.
+
+YEU CAU
+- Windows, Python 3 + Tkinter + PyMuPDF (module 'fitz').
+- Neu duoc cap phep cai: python -m pip install --user pymupdf
+- Day la tool Python local, CHUA PHAI .EXE portable.
+
+KIEM THU TREN 3.pdf NGAY 06/11/2026
+- 24 trang goc, 9 WH, 2 ban/WH.
+- Bo trang PDF goc: 5, 6, 9, 10.
+- Giu trang 15, 16 vi co ma BIW32026240 tren trang 2/2.
+- Con 20 trang. Danh so 06-01 -> 06-09.
