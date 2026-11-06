@@ -2,8 +2,8 @@ Attribute VB_Name = "ModWHMappingController"
 Option Explicit
 
 ' ==============================================================================
-' MODULE: ModWHMappingController - SAP IN WH PORTABLE v1.0
-' Giao dien Excel dan danh sach WH, gan so don va doi soat tu dong voi PDF SAP
+' MODULE: ModWHMappingController - SAP IN WH PORTABLE v1.1
+' Ho tro 2 che do: Tu dong quet PDF 100% HOAC Doi soat theo danh sach WH dan vao
 ' ==============================================================================
 
 Private Const SHEET_MAIN As String = "IN_PHIEU_WH"
@@ -36,14 +36,16 @@ Public Sub TuDongDienSoDonNhanh()
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
     If lastRow < DATA_START_ROW Then
-        MsgBox "Chua co danh sach Ma WH o cot C. Vui long dan danh sach WH truoc!", vbExclamation, "Thong bao"
+        MsgBox "Cot C dang trong. Ban co the de trong de tool TU DONG QUET truc tiep tu PDF, hoac dan danh sach WH vao day de gan so!", vbInformation, "Thong bao"
         Exit Sub
     End If
 
     Dim r As Long, seq As Long
     seq = 1
     For r = DATA_START_ROW To lastRow
-        If Trim(CStr(ws.Cells(r, "C").Value)) <> "" Then
+        Dim whVal As String
+        whVal = Trim(Replace(Replace(CStr(ws.Cells(r, "C").Value), Chr(160), " "), vbTab, " "))
+        If whVal <> "" And Len(whVal) >= 4 And LCase(whVal) <> "w" Then
             ws.Cells(r, "B").Value = seq
             ws.Cells(r, "D").NumberFormat = "@"
             ws.Cells(r, "D").Value = prefix & Format(seq, "00")
@@ -64,14 +66,14 @@ Public Sub XuLyVaDongSoTheoMapping()
         Exit Sub
     End If
 
+    Dim prefix As String
+    prefix = Trim(CStr(ws.Range("C4").Value))
+    If prefix = "" Then prefix = Format(Date, "dd") & "-"
+
+    ' Kiem tra xem nguoi dung co dan danh sach WH hop le khong
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
-    If lastRow < DATA_START_ROW Then
-        MsgBox "Danh sach WH o Cot C dang trong. Vui long dan danh sach WH can in!", vbExclamation, "Thong bao"
-        Exit Sub
-    End If
 
-    ' 1. Xuat mapping sang mapping_wh.csv
     Dim baseFolder As String, mappingCsv As String, outPdf As String, outCsv As String
     baseFolder = ThisWorkbook.Path & "\"
     mappingCsv = baseFolder & "mapping_wh.csv"
@@ -80,34 +82,56 @@ Public Sub XuLyVaDongSoTheoMapping()
 
     Dim fso As Object, ts As Object
     Set fso = CreateObject("Scripting.FileSystemObject")
-    Set ts = fso.CreateTextFile(mappingCsv, True, True)
-    ts.WriteLine "WH_NO,LABEL"
 
-    Dim r As Long, whVal As String, labelVal As String
-    For r = DATA_START_ROW To lastRow
-        whVal = Trim(CStr(ws.Cells(r, "C").Value))
-        labelVal = Trim(CStr(ws.Cells(r, "D").Value))
-        If whVal <> "" Then
-            ts.WriteLine whVal & "," & labelVal
-        End If
-    Next r
-    ts.Close
+    Dim validWHCount As Long
+    validWHCount = 0
 
-    ' 2. Xac dinh Engine portable hoac python
+    If lastRow >= DATA_START_ROW Then
+        Set ts = fso.CreateTextFile(mappingCsv, True, True)
+        ts.WriteLine "WH_NO,LABEL"
+
+        Dim r As Long, whVal As String, labelVal As String
+        For r = DATA_START_ROW To lastRow
+            whVal = Trim(Replace(Replace(CStr(ws.Cells(r, "C").Value), Chr(160), " "), vbTab, " "))
+            labelVal = Trim(CStr(ws.Cells(r, "D").Value))
+            ' Chi chap nhan ma WH hop le (do dai >= 4, khong phai chu 'w' don le)
+            If whVal <> "" And Len(whVal) >= 4 And LCase(whVal) <> "w" Then
+                ts.WriteLine whVal & "," & labelVal
+                validWHCount = validWHCount + 1
+            End If
+        Next r
+        ts.Close
+    End If
+
+    ' Neu khong co WH hop le nao trong Excel, xoa file mapping de Engine chay che do TU DONG QUET 100%
+    If validWHCount = 0 Then
+        If fso.FileExists(mappingCsv) Then fso.DeleteFile mappingCsv, True
+    End If
+
+    ' Xac dinh engine
     Dim engineExe As String, enginePy As String, cmd As String
     engineExe = baseFolder & "wh_engine.exe"
     enginePy = baseFolder & "wh_engine.py"
 
+    Dim mappingParam As String
+    If validWHCount > 0 Then
+        mappingParam = " --mapping """ & mappingCsv & """"
+    Else
+        mappingParam = ""
+    End If
+
     If Dir(engineExe) <> "" Then
-        cmd = """" & engineExe & """ --input """ & pdfInput & """ --mapping """ & mappingCsv & """ --out-pdf """ & outPdf & """ --out-csv """ & outCsv & """"
+        cmd = """" & engineExe & """ --input """ & pdfInput & """" & mappingParam & _
+              " --day """ & prefix & """ --start 1 --out-pdf """ & outPdf & """ --out-csv """ & outCsv & """"
     ElseIf Dir(enginePy) <> "" Then
-        cmd = "python """ & enginePy & """ --input """ & pdfInput & """ --mapping """ & mappingCsv & """ --out-pdf """ & outPdf & """ --out-csv """ & outCsv & """"
+        cmd = "python """ & enginePy & """ --input """ & pdfInput & """" & mappingParam & _
+              " --day """ & prefix & """ --start 1 --out-pdf """ & outPdf & """ --out-csv """ & outCsv & """"
     Else
         MsgBox "Khong tim thay wh_engine.exe hoac wh_engine.py trong thu muc!", vbCritical, "Loi"
         Exit Sub
     End If
 
-    ws.Range("C7").Value = "Dang xu ly phan tich va dong so PDF..."
+    ws.Range("C7").Value = "Dang phan tich & dong so PDF..."
     DoEvents
 
     Dim wsh As Object, exitCode As Long
@@ -116,19 +140,24 @@ Public Sub XuLyVaDongSoTheoMapping()
 
     If exitCode <> 0 Or Dir(outCsv) = "" Then
         ws.Range("C7").Value = "Loi khi xu ly (Ma loi: " & exitCode & ")"
-        MsgBox "Co loi xay ra khi xu ly file PDF. Vui long kiem tra lai!", vbCritical, "Loi"
+        MsgBox "Co loi xay ra khi xu ly file PDF. Vui long kiem tra lai file dau vao!", vbCritical, "Loi"
         Exit Sub
     End If
 
-    ' 3. Doc file CSV doi chieu va cap nhat vao cac cot
+    ' Cap nhat ket qua tu file CSV ra Sheet
     CapNhatKetQuaVaoSheet outCsv
 
     ws.Range("C6").Value = outPdf
-    ws.Range("C7").Value = "Hoan tat doi soat va dong so!"
-    MsgBox "Da xu ly xong! Hay kiem tra bang doi soat o cac cot ben phai.", vbInformation, "Thanh cong"
+    If validWHCount = 0 Then
+        ws.Range("C7").Value = "Hoan tat: Da tu dong quet tu PDF & dong so!"
+        MsgBox "Da tu dong quet toan bo ma WH tu PDF, gop nhom va dong so thanh cong!", vbInformation, "Thanh cong"
+    Else
+        ws.Range("C7").Value = "Hoan tat doi soat va dong so theo danh sach!"
+        MsgBox "Da doi soat theo danh sach va dong so hoan tat!", vbInformation, "Thanh cong"
+    End If
 End Sub
 
-' Cap nhat trang thai tu CSV vao cot E, F, G, H
+' Cap nhat trang thai tu CSV vao bang
 Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets(SHEET_MAIN)
@@ -146,11 +175,12 @@ Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
     Dim lines() As String
     lines = Split(rawText, vbLf)
 
+    ' Xoa sach bang cu truoc khi dien
     Dim maxR As Long
-    maxR = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
-    If maxR >= DATA_START_ROW Then
-        ws.Range("B" & DATA_START_ROW & ":H" & (maxR + 50)).ClearContents
-    End If
+    maxR = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+    If maxR < DATA_START_ROW Then maxR = DATA_START_ROW + 50
+    ws.Range("B" & DATA_START_ROW & ":H" & (maxR + 50)).ClearContents
+    ws.Range("B" & DATA_START_ROW & ":H" & (maxR + 50)).Interior.Color = xlNone
 
     Dim i As Long, curRow As Long
     curRow = DATA_START_ROW
@@ -182,7 +212,9 @@ Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
         End If
     Next i
 
-    ws.Range("B" & DATA_START_ROW & ":H" & (curRow - 1)).Borders.LineStyle = xlContinuous
+    If curRow > DATA_START_ROW Then
+        ws.Range("B" & DATA_START_ROW & ":H" & (curRow - 1)).Borders.LineStyle = xlContinuous
+    End If
 End Sub
 
 ' Nut [2. MO PDF KET QUA DE IN]
