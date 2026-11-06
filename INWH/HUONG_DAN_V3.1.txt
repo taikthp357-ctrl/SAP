@@ -1,0 +1,30 @@
+SAP IN WH v3.1 – GIAO DIỆN SAP_IN_WH_HTML_v2.0
+
+1. Giải nén, mở INWH_v3.1.html bằng Edge/Chrome.
+2. Nhập tiền tố số phiếu (có thể để trống) và số bắt đầu.
+3. Chọn PDF hoặc kéo thả vào khung.
+4. Bấm BẮT ĐẦU XỬ LÝ & ĐÓNG SỐ PHIẾU.
+5. Bấm TẢI FILE PDF KẾT QUẢ, MỞ PDF ĐỂ IN hoặc Tải bảng đối soát (.CSV).
+
+Giao diện dùng nguyên cấu trúc và CSS của bản SAP_IN_WH_HTML_v2.0 trên Release.
+Đã bỏ hoàn toàn bảng nhập kiểu Excel, nút thêm dòng, chọn ô và hoàn tác.
+Bảng cuối chỉ là bảng kết quả đối soát, không có ô nhập.
+
+TỰ ĐỘNG: chọn PDF, công cụ nhận diện WH và tăng số theo thứ tự xuất hiện.
+ĐỐI SOÁT: dán danh sách WH, mỗi dòng một mã đủ 10 chữ số. Có thể dán thêm cột số phiếu bằng dấu Tab.
+Phải có đủ WH trong PDF, không được thiếu/thừa/trùng. Số phiếu riêng không được trùng.
+Thứ tự trang PDF được giữ nguyên, dù danh sách đối soát có thứ tự khác.
+
+Giữ toàn bộ trang và số bản có sẵn. Cùng WH dùng cùng số phiếu trên mọi bản/trang tiếp nối.
+PDF đã có hai bản/WH thì khi in chỉ chọn 1 copy. Nút Mở PDF để in mở trình xem, sau đó nhấn Ctrl+P.
+Không ghi đè PDF nguồn. Đổi tiền tố/số bắt đầu/danh sách sẽ yêu cầu xử lý lại để PDF và CSV khớp nhau.
+CSV UTF-8 BOM, escape dấu nháy/phẩy; nhập cột Số đánh dấu dạng Text trong Excel để giữ 06-01.
+Các giá trị bắt đầu bằng ký tự công thức được thêm dấu nháy đơn khi xuất CSV.
+
+Một HTML tích hợp đủ thư viện, chạy cục bộ, không cần Excel/Python/Foxit/server/mạng.
+Hỗ trợ PDF SAP có lớp văn bản, trường Warehouse Order / Lệnh kho và Trang x/y; không OCR bản scan.
+Trang xoay hoặc không đủ căn cứ nhận diện sẽ báo lỗi.
+
+Kiểm tra cú pháp trên HTML đóng gói, logic xử lý bằng Node với DOM mô phỏng và PDF 58 trang / 23 WH.
+Chưa xác minh thao tác tải và giao diện trong trình duyệt thật do giới hạn môi trường kiểm thử.
+Thư viện PDF.js (Apache-2.0), pdf-lib (MIT); giấy phép trong THU_VIEN_GIAY_PHEP.

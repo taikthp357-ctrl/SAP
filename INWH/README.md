@@ -1,3 +1,23 @@
+# SAP IN WH v3.1 – Giao diện V2
+
+## Bản mới v3.1
+
+- [Tải INWH_TOOL_v3.1.zip](INWH_TOOL_v3.1.zip)
+- [File HTML độc lập](INWH_v3.1.html)
+- [Hướng dẫn](HUONG_DAN_V3.1.txt)
+
+Dùng bố cục và CSS gốc của `SAP_IN_WH_HTML_v2.0.zip` trên Release: hai ô tiền tố/số bắt đầu, hai chế độ, khung kéo thả PDF, nút xử lý/tải/in và bảng thống kê đối soát. Đã bỏ hoàn toàn bảng nhập dạng Excel, nút thêm dòng, chọn ô, co giãn cột và hoàn tác. Bảng cuối chỉ hiển thị kết quả, không có ô nhập.
+
+Cách dùng: mở HTML bằng Edge/Chrome → đặt tiền tố và số bắt đầu → chọn PDF → Bắt đầu xử lý → tải PDF/CSV. Tab đối soát dùng ô dán danh sách WH; có thể dán thêm cột số phiếu bằng Tab nếu cần số riêng. PDF luôn giữ thứ tự nguồn, đủ mọi trang và số bản có sẵn. Nếu đã có hai bản/WH thì khi in chọn 1 copy.
+
+Phần xử lý giữ kiểm tra WH đầy đủ, trang tiếp nối, số phiếu thiếu/trùng và CSV gắn với lần tạo PDF thành công. Không dùng nhánh nhận nhầm WT làm WH hoặc lấy trang đầu PDF thay cho WH lỗi. HTML đã tích hợp thư viện, không dùng CDN.
+
+Đã kiểm tra cú pháp HTML đóng gói, các handler bằng DOM mô phỏng, PDF 58 trang/23 WH, số bắt đầu 98 qua 100, danh sách đảo thứ tự, dữ liệu thiếu/thừa/trùng, CSV và tính nguyên vẹn nguồn PDF. CSS nền được đối chiếu với CSS gốc V2. Chưa xác minh giao diện và tải file trong trình duyệt thật do giới hạn môi trường thử nghiệm.
+
+---
+
+## Các bản trước
+
 # INWH – Tự động đánh số phiếu PDF v3.0
 
 ## Bản mới v3.0
