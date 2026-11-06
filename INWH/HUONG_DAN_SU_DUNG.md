@@ -19,7 +19,7 @@ Tài liệu này dành cho nhân viên điều độ kho, quản lý đơn hàng
    - Nhấn nút **"Chọn File PDF..."** và duyệt tìm file PDF vừa xuất từ SAP (ví dụ: `3.pdf`).
 4. **Nhập danh sách mã WH:**
    - Copy danh sách các số WH cần in từ file Excel kế hoạch/điều độ (ví dụ: `6028720086`, `6028720696`...).
-   - Dán (Paste) vào **Cột C (Mã Warehouse Order)** bắt đầu từ dòng 10 trở đi.
+   - Dán (Paste) vào **Cột C (Mã Warehouse Order)** bắt đầu từ **dòng 12** trở đi.
 5. **Gán số đơn cần in:**
    - Cách 1: Nhấn nút **"Tự điền số đơn nhanh"** $\rightarrow$ Hệ thống tự động điền `06-01`, `06-02`, ... `06-20` vào cột D theo đúng thứ tự bạn vừa dán.
    - Cách 2: Bạn có thể nhập tay hoặc sửa lại bất kỳ ô nào ở cột D theo quy ước riêng của ca làm việc (ví dụ: `06-01A`, `06-05_GAP`...).

@@ -7,93 +7,17 @@ Option Explicit
 ' ==============================================================================
 
 Private Const SHEET_MAIN As String = "IN_PHIEU_WH"
-
-' Khoi tao hoac lam moi bang dieu khien & nut bam tren Sheet
-Public Sub KhoiTaoGiaoDien(Optional ByVal isSilent As Boolean = False)
-    Dim ws As Worksheet
-    Application.ScreenUpdating = False
-
-    On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(SHEET_MAIN)
-    On Error GoTo 0
-    If ws Is Nothing Then
-        Set ws = ThisWorkbook.Worksheets.Add(Before:=ThisWorkbook.Worksheets(1))
-        ws.Name = SHEET_MAIN
-    End If
-
-    ws.Cells.Clear
-    ws.Range("B2").Value = "HỆ THỐNG XỬ LÝ & ĐÓNG SỐ PHIẾU KHO SAP THEO BẢNG ĐỐI CHIẾU (PORTABLE v1.0)"
-    ws.Range("B2").Font.Size = 13
-    ws.Range("B2").Font.Bold = True
-
-    ' Khu vuc cau hinh chung
-    ws.Range("B4").Value = "Tiền tố ngày (vd: 06-):"
-    ws.Range("C4").NumberFormat = "@"
-    ws.Range("C4").Value = Format(Date, "dd") & "-"
-
-    ws.Range("B5").Value = "File PDF gốc từ SAP:"
-    ws.Range("C5").Value = ""
-
-    ws.Range("B6").Value = "File PDF kết quả in:"
-    ws.Range("C6").Value = ""
-
-    ws.Range("B7").Value = "Trạng thái:"
-    ws.Range("C7").Value = "Sẵn sàng"
-    ws.Range("C7").Font.Bold = True
-
-    ' Tieu de bang doi chieu (Dong 9)
-    Dim headers As Variant
-    headers = Array("STT", "Mã Warehouse Order (WH)", "Số đơn gán (Số in)", "Trang gốc", "Trang giữ", "Trang bỏ", "Trạng thái đối soát")
-    Dim i As Long
-    For i = 0 To UBound(headers)
-        ws.Cells(9, i + 2).Value = headers(i)
-        ws.Cells(9, i + 2).Font.Bold = True
-        ws.Cells(9, i + 2).Interior.Color = RGB(220, 230, 241)
-    Next i
-
-    ' Do rong cac cot
-    ws.Columns("B:B").ColumnWidth = 8   ' STT
-    ws.Columns("C:C").ColumnWidth = 24  ' Ma WH (Dan vao day)
-    ws.Columns("D:D").ColumnWidth = 20  ' So don gan
-    ws.Columns("E:E").ColumnWidth = 12  ' Trang goc
-    ws.Columns("F:F").ColumnWidth = 12  ' Trang giu
-    ws.Columns("G:G").ColumnWidth = 12  ' Trang bo
-    ws.Columns("H:H").ColumnWidth = 45  ' Trang thai
-
-    ' Tao cac nut bam thao tac
-    Dim btnPick As Button, btnAutoLabel As Button, btnRun As Button, btnPrint As Button
-    ws.Buttons.Delete
-
-    Set btnPick = ws.Buttons.Add(ws.Range("D5").Left, ws.Range("D5").Top, 120, 22)
-    btnPick.OnAction = "ChonFilePDF"
-    btnPick.Caption = "Chọn File PDF..."
-
-    Set btnAutoLabel = ws.Buttons.Add(ws.Range("D4").Left, ws.Range("D4").Top, 160, 22)
-    btnAutoLabel.OnAction = "TuDongDienSoDonNhanh"
-    btnAutoLabel.Caption = "Tự điền số đơn nhanh"
-
-    Set btnRun = ws.Buttons.Add(ws.Range("B8").Left, ws.Range("B8").Top, 200, 28)
-    btnRun.OnAction = "XuLyVaDongSoTheoMapping"
-    btnRun.Caption = "▶ 1. XỬ LÝ & ĐỐI SOÁT PDF"
-
-    Set btnPrint = ws.Buttons.Add(ws.Range("D8").Left, ws.Range("D8").Top, 200, 28)
-    btnPrint.OnAction = "MoPDFKetQuaDeIn"
-    btnPrint.Caption = "🖨 2. MỞ PDF KẾT QUẢ ĐỂ IN"
-
-    Application.ScreenUpdating = True
-    If Not isSilent Then
-        MsgBox "Đã khởi tạo giao diện thành công! Hãy copy danh sách WH dán vào Cột C.", vbInformation, "Thông báo"
-    End If
-End Sub
+Private Const DATA_START_ROW As Long = 12
 
 ' Nut [Chon File PDF...]
 Public Sub ChonFilePDF()
     Dim fd As FileDialog
     Set fd = Application.FileDialog(msoFileDialogFilePicker)
     With fd
-        .Title = "Chọn file PDF phiếu WH xuất từ SAP"
+        .Title = "Chon file PDF phieu WH xuat tu SAP"
         .Filters.Clear
         .Filters.Add "PDF Files (*.pdf)", "*.pdf"
+        .AllowMultiSelect = False
         If .Show = -1 Then
             ThisWorkbook.Worksheets(SHEET_MAIN).Range("C5").Value = .SelectedItems(1)
         End If
@@ -111,14 +35,14 @@ Public Sub TuDongDienSoDonNhanh()
 
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
-    If lastRow < 10 Then
-        MsgBox "Chưa có danh sách Mã WH ở cột C. Vui lòng dán danh sách WH trước!", vbExclamation
+    If lastRow < DATA_START_ROW Then
+        MsgBox "Chua co danh sach Ma WH o cot C. Vui long dan danh sach WH truoc!", vbExclamation, "Thong bao"
         Exit Sub
     End If
 
     Dim r As Long, seq As Long
     seq = 1
-    For r = 10 To lastRow
+    For r = DATA_START_ROW To lastRow
         If Trim(CStr(ws.Cells(r, "C").Value)) <> "" Then
             ws.Cells(r, "B").Value = seq
             ws.Cells(r, "D").NumberFormat = "@"
@@ -128,7 +52,7 @@ Public Sub TuDongDienSoDonNhanh()
     Next r
 End Sub
 
-' Nut [▶ 1. XU LY & DOI SOAT PDF]
+' Nut [1. XU LY & DOI SOAT PDF]
 Public Sub XuLyVaDongSoTheoMapping()
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Worksheets(SHEET_MAIN)
@@ -136,18 +60,18 @@ Public Sub XuLyVaDongSoTheoMapping()
     Dim pdfInput As String
     pdfInput = Trim(CStr(ws.Range("C5").Value))
     If pdfInput = "" Or Dir(pdfInput) = "" Then
-        MsgBox "Vui lòng chọn file PDF gốc xuất từ SAP!", vbExclamation
+        MsgBox "Vui long chon file PDF goc xuat tu SAP!", vbExclamation, "Thong bao"
         Exit Sub
     End If
 
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
-    If lastRow < 10 Then
-        MsgBox "Danh sách WH ở Cột C đang trống. Vui lòng dán danh sách WH cần in!", vbExclamation
+    If lastRow < DATA_START_ROW Then
+        MsgBox "Danh sach WH o Cot C dang trong. Vui long dan danh sach WH can in!", vbExclamation, "Thong bao"
         Exit Sub
     End If
 
-    ' 1. Xuat mapping sang mapping_wh.csv (UTF-8)
+    ' 1. Xuat mapping sang mapping_wh.csv
     Dim baseFolder As String, mappingCsv As String, outPdf As String, outCsv As String
     baseFolder = ThisWorkbook.Path & "\"
     mappingCsv = baseFolder & "mapping_wh.csv"
@@ -160,7 +84,7 @@ Public Sub XuLyVaDongSoTheoMapping()
     ts.WriteLine "WH_NO,LABEL"
 
     Dim r As Long, whVal As String, labelVal As String
-    For r = 10 To lastRow
+    For r = DATA_START_ROW To lastRow
         whVal = Trim(CStr(ws.Cells(r, "C").Value))
         labelVal = Trim(CStr(ws.Cells(r, "D").Value))
         If whVal <> "" Then
@@ -179,11 +103,11 @@ Public Sub XuLyVaDongSoTheoMapping()
     ElseIf Dir(enginePy) <> "" Then
         cmd = "python """ & enginePy & """ --input """ & pdfInput & """ --mapping """ & mappingCsv & """ --out-pdf """ & outPdf & """ --out-csv """ & outCsv & """"
     Else
-        MsgBox "Không tìm thấy wh_engine.exe hoặc wh_engine.py trong thư mục!", vbCritical
+        MsgBox "Khong tim thay wh_engine.exe hoac wh_engine.py trong thu muc!", vbCritical, "Loi"
         Exit Sub
     End If
 
-    ws.Range("C7").Value = "Đang xử lý phân tích và đóng số PDF..."
+    ws.Range("C7").Value = "Dang xu ly phan tich va dong so PDF..."
     DoEvents
 
     Dim wsh As Object, exitCode As Long
@@ -191,8 +115,8 @@ Public Sub XuLyVaDongSoTheoMapping()
     exitCode = wsh.Run(cmd, 0, True)
 
     If exitCode <> 0 Or Dir(outCsv) = "" Then
-        ws.Range("C7").Value = "Lỗi khi xử lý (Mã lỗi: " & exitCode & ")"
-        MsgBox "Có lỗi xảy ra khi xử lý file PDF. Vui lòng kiểm tra lại!", vbCritical
+        ws.Range("C7").Value = "Loi khi xu ly (Ma loi: " & exitCode & ")"
+        MsgBox "Co loi xay ra khi xu ly file PDF. Vui long kiem tra lai!", vbCritical, "Loi"
         Exit Sub
     End If
 
@@ -200,8 +124,8 @@ Public Sub XuLyVaDongSoTheoMapping()
     CapNhatKetQuaVaoSheet outCsv
 
     ws.Range("C6").Value = outPdf
-    ws.Range("C7").Value = "Hoàn tất đối soát & đóng số!"
-    MsgBox "Đã xử lý xong! Hãy kiểm tra bảng đối soát ở các cột bên phải.", vbInformation, "Thành công"
+    ws.Range("C7").Value = "Hoan tat doi soat va dong so!"
+    MsgBox "Da xu ly xong! Hay kiem tra bang doi soat o cac cot ben phai.", vbInformation, "Thanh cong"
 End Sub
 
 ' Cap nhat trang thai tu CSV vao cot E, F, G, H
@@ -224,12 +148,12 @@ Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
 
     Dim maxR As Long
     maxR = ws.Cells(ws.Rows.Count, "C").End(xlUp).Row
-    If maxR >= 10 Then
-        ws.Range("B10:H" & (maxR + 50)).ClearContents
+    If maxR >= DATA_START_ROW Then
+        ws.Range("B" & DATA_START_ROW & ":H" & (maxR + 50)).ClearContents
     End If
 
     Dim i As Long, curRow As Long
-    curRow = 10
+    curRow = DATA_START_ROW
     For i = 1 To UBound(lines)
         If Trim(lines(i)) <> "" Then
             Dim cols() As String
@@ -245,9 +169,9 @@ Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
                 ws.Cells(curRow, "G").Value = cols(5) ' Trang bo
                 ws.Cells(curRow, "H").Value = cols(6) ' Trang thai
 
-                If InStr(cols(6), "THIẾU") > 0 Then
+                If InStr(cols(6), "THIẾU") > 0 Or InStr(cols(6), "THIEU") > 0 Then
                     ws.Range(ws.Cells(curRow, "B"), ws.Cells(curRow, "H")).Interior.Color = RGB(255, 204, 204)
-                ElseIf InStr(cols(6), "THỪA") > 0 Then
+                ElseIf InStr(cols(6), "THỪA") > 0 Or InStr(cols(6), "THUA") > 0 Then
                     ws.Range(ws.Cells(curRow, "B"), ws.Cells(curRow, "H")).Interior.Color = RGB(255, 255, 204)
                 Else
                     ws.Range(ws.Cells(curRow, "B"), ws.Cells(curRow, "H")).Interior.Color = xlNone
@@ -258,16 +182,16 @@ Private Sub CapNhatKetQuaVaoSheet(ByVal csvPath As String)
         End If
     Next i
 
-    ws.Range("B10:H" & (curRow - 1)).Borders.LineStyle = xlContinuous
+    ws.Range("B" & DATA_START_ROW & ":H" & (curRow - 1)).Borders.LineStyle = xlContinuous
 End Sub
 
-' Nut [🖨 2. MO PDF KET QUA DE IN]
+' Nut [2. MO PDF KET QUA DE IN]
 Public Sub MoPDFKetQuaDeIn()
     Dim outPdf As String
     outPdf = Trim(CStr(ThisWorkbook.Worksheets(SHEET_MAIN).Range("C6").Value))
 
     If outPdf = "" Or Dir(outPdf) = "" Then
-        MsgBox "Chưa có file PDF kết quả. Vui lòng bấm [1. XỬ LÝ & ĐỐI SOÁT PDF] trước!", vbExclamation
+        MsgBox "Chua co file PDF ket qua. Vui long bam [1. XU LY & DOI SOAT PDF] truoc!", vbExclamation, "Thong bao"
         Exit Sub
     End If
 
