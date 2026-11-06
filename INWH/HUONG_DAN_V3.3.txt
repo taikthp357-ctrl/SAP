@@ -1,0 +1,48 @@
+SAP IN WH v3.3 – GIAO DIỆN SAP_IN_WH_HTML_v2.0
+
+1. Giải nén, mở INWH_v3.3.html bằng Edge/Chrome.
+2. Nhập tiền tố số phiếu (có thể để trống) và số bắt đầu.
+3. Chọn PDF hoặc kéo thả vào khung.
+4. Bấm BẮT ĐẦU XỬ LÝ & ĐÓNG SỐ PHIẾU.
+5. Bấm TẢI FILE PDF KẾT QUẢ, MỞ PDF ĐỂ IN hoặc Tải bảng đối soát (.CSV).
+
+Giao diện dùng nguyên cấu trúc và CSS của bản SAP_IN_WH_HTML_v2.0 trên Release.
+Đã bỏ hoàn toàn bảng nhập kiểu Excel, nút thêm dòng, chọn ô và hoàn tác.
+Bảng cuối chỉ là bảng kết quả đối soát, không có ô nhập.
+
+TỰ ĐỘNG: chọn PDF, công cụ nhận diện WH và tăng số theo thứ tự xuất hiện.
+ĐỐI SOÁT: dán danh sách WH, mỗi dòng một mã đủ 10 chữ số. Có thể dán thêm cột số phiếu bằng dấu Tab.
+Phải có đủ WH trong PDF, không được thiếu/thừa/trùng. Số phiếu riêng không được trùng.
+Thứ tự các trang được giữ trong PDF đầu ra theo nguồn, dù danh sách đối soát có thứ tự khác.
+Đổi ô Bỏ trang trắng sẽ vô hiệu hóa PDF/CSV cũ, cần bấm Bắt đầu xử lý lại.
+CSV có trang gốc, trang được giữ, trang bị bỏ và số trang PDF kết quả để đối chiếu.
+Nếu bỏ trang tiếp nối, số Trang x/y in sẵn trên form SAP vẫn giữ nguyên.
+
+Mặc định giữ toàn bộ trang và số bản có sẵn. Tích Bỏ trang trắng để bỏ trang trắng hoặc trang tiếp nối chỉ có số trang/ngày giờ.
+Trang có nội dung, hình ảnh hoặc nét vẽ được giữ lại. Không nhận diện trắng chỉ dựa vào tiền tố mã vật tư.
+Cùng WH dùng cùng số phiếu trên mọi bản/trang tiếp nối được giữ.
+PDF đã có hai bản/WH thì khi in chỉ chọn 1 copy. Nút Mở PDF để in mở trình xem, sau đó nhấn Ctrl+P.
+Không ghi đè PDF nguồn. Đổi tiền tố/số bắt đầu/danh sách sẽ yêu cầu xử lý lại để PDF và CSV khớp nhau.
+CSV UTF-8 BOM, escape dấu nháy/phẩy; nhập cột Số đánh dấu dạng Text trong Excel để giữ 06-01.
+Các giá trị bắt đầu bằng ký tự công thức được thêm dấu nháy đơn khi xuất CSV.
+
+Một HTML tích hợp đủ thư viện, chạy cục bộ, không cần Excel/Python/Foxit/server/mạng.
+Hỗ trợ PDF SAP có lớp văn bản, trường Warehouse Order / Lệnh kho và Trang x/y; không OCR bản scan.
+Trang xoay hoặc không đủ căn cứ nhận diện sẽ báo lỗi.
+
+Kiểm tra cú pháp trên HTML đóng gói, logic xử lý bằng Node với DOM mô phỏng và PDF 58 trang / 23 WH.
+Chưa xác minh thao tác tải và giao diện trong trình duyệt thật do giới hạn môi trường kiểm thử.
+Thư viện PDF.js (Apache-2.0), pdf-lib (MIT); giấy phép trong THU_VIEN_GIAY_PHEP.
+
+CHỈNH VỊ TRÍ VÀ KIỂU SỐ PHIẾU (v3.3)
+Chọn PDF rồi mở phần Chỉnh vị trí và kiểu số phiếu. Chọn vị trí theo góc hoặc Tự đặt.
+Có thể chỉnh tọa độ tính bằng mm từ mép trái/trên của vùng trang hiển thị, cỡ chữ, font, kiểu đậm/nghiêng, màu, khung chữ nhật/bầu dục, độ dày và đệm quanh chữ.
+Mặc định chừa lề 10 mm, cỡ 18 pt, góc dưới phải. Toàn bộ chữ và khung được tính theo font PDF và giới hạn bên trong vùng Media/Crop/Trim giao nhau có trừ lề an toàn.
+Bấm Xem trước trên PDF. Có thể kéo khung nét đứt của số đến vị trí muốn đặt; thả chuột sẽ cập nhật ảnh xem trước. Viền vàng là vùng an toàn, viền nét đứt xanh chỉ phục vụ chỉnh vị trí, không in lên PDF.
+Phím mũi tên dịch 0,2 mm; giữ Shift dịch 1 mm.
+Tọa độ Tự đặt áp dụng cùng số mm trên các trang; trang nhỏ hơn sẽ được điều chỉnh vào vùng an toàn và có thông báo.
+Số phiếu không vừa vùng an toàn sẽ báo lỗi thay vì xuất chữ bị cắt. Không tự giảm cỡ chữ đã chọn.
+Tô nền trắng có thể che nội dung bên dưới, chỉ bật khi vị trí đó không có thông tin cần giữ.
+Ảnh xem trước lấy từ PDF một trang đã đóng số bằng cùng hàm với đầu ra. Thiết lập áp dụng cho toàn bộ trang có WH.
+Đổi thiết lập phải tạo lại PDF/CSV. Nút Đặt lại mặc định khôi phục góc dưới phải, lề 10 mm và 18 pt.
+Lề in thực tế còn tùy máy in. Chưa có PDF/bản in lỗi của người dùng nên chưa xác nhận nguyên nhân duy nhất. Khi in, kiểm tra giấy A4 và hướng theo PDF; chọn Vừa trang/Fit nếu trình xem của máy in cắt mép.

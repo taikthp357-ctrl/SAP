@@ -1,3 +1,25 @@
+# SAP IN WH v3.3 – Chỉnh vị trí và kiểu số phiếu
+
+## Bản mới v3.3
+
+- [Tải INWH_TOOL_v3.3.zip](INWH_TOOL_v3.3.zip)
+- [File HTML độc lập](INWH_v3.3.html)
+- [Hướng dẫn](HUONG_DAN_V3.3.txt)
+
+Giữ giao diện V2, tùy chọn bỏ trang trắng và đối soát CSV; bổ sung phần **Chỉnh vị trí và kiểu số phiếu**. Chọn góc hoặc tọa độ mm; cỡ chữ 8–72 pt; Helvetica/Times/Courier; thường/đậm/nghiêng; màu; khung chữ nhật hoặc bầu dục; độ dày, khoảng đệm và nền trắng tùy chọn.
+
+Mặc định chừa lề an toàn 10 mm, cỡ 18 pt, góc dưới phải. Toàn bộ chữ và khung được tính theo kích thước font, có dự phòng phần nghiêng và biên chữ; vị trí được giới hạn trong phần giao nhau của Media/Crop/Trim đã trừ lề. Vị trí vượt mép được đưa về bên trong, số quá lớn không vừa sẽ báo lỗi thay vì xuất chữ bị cắt.
+
+Chọn PDF rồi bấm **Xem trước trên PDF** trong phần chỉnh số. Trang xem trước được tạo bằng cùng hàm đóng số với PDF đầu ra. Kéo khung nét đứt xanh để chỉnh vị trí, thả chuột để cập nhật. Viền vàng là vùng lề an toàn; hai viền hướng dẫn không in lên PDF. Thiết lập áp dụng cho mọi trang có WH. Thay đổi thiết lập yêu cầu tạo lại PDF/CSV.
+
+Đã kiểm tra cú pháp HTML đóng gói; xử lý 23 WH/58 trang và 50 trang khi bỏ trang trắng; các tọa độ cực trị; 12 kiểu font × 6 vị trí; Media/Crop/Trim lệch gốc; giới hạn cỡ số; pipeline tạo trang xem trước và controller kéo thả bằng DOM/canvas mô phỏng. PDF thực tế đã được kết xuất và kiểm tra toàn bộ nhãn nằm trong lề an toàn cho ba trường hợp mặc định, khung chữ nhật và khung bầu dục.
+
+Chưa xác minh giao diện/renderer trên trình duyệt thật hoặc máy in của người dùng. Chưa có PDF vừa in lỗi nên chưa khẳng định nguyên nhân duy nhất của việc bị cắt số. Kiểm tra giấy/hướng theo PDF và dùng Vừa trang/Fit nếu bản xem trước của máy in cắt mép. Nên thử một trang trước khi in cả tập.
+
+---
+
+## Các bản trước
+
 # SAP IN WH v3.2 – Chọn bỏ trang trắng
 
 ## Bản mới v3.2
