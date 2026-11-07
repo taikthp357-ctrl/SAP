@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-SAP ZONE Standalone Application Entry Point
+SAP ZONE Standalone Application Entry Point (v1.6)
+Mặc định: Giao diện Web UI Hiện Đại (Edge Chromium / PyWebView)
+Hỗ trợ fallback: Tkinter legacy (--tk) & Smoke test (--smoke-test)
 """
 
 import sys
 import os
-import tkinter as tk
-from sap_zone_gui import SapZoneApp
 
 def main():
     # Đảm bảo thư mục hiện hành là thư mục chứa file exe/script
@@ -24,9 +24,18 @@ def main():
         print(f"SMOKE_TEST_OK: mappings={len(zm.mappings)}, cfg_whse={cfg.get('ewm_warehouse')}")
         sys.exit(0)
 
-    root = tk.Tk()
-    app = SapZoneApp(root)
-    root.mainloop()
+    # Chế độ GUI Tkinter cũ nếu có cờ --tk
+    if len(sys.argv) > 1 and sys.argv[1] == "--tk":
+        import tkinter as tk
+        from sap_zone_gui import SapZoneApp
+        root = tk.Tk()
+        app = SapZoneApp(root)
+        root.mainloop()
+        return
+
+    # Mặc định: Giao diện Web UI Hiện Đại
+    from sap_zone_web import run_app
+    run_app()
 
 if __name__ == "__main__":
     main()

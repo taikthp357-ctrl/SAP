@@ -6,7 +6,7 @@ set PYTHON_EXE=C:\Users\taikt\.gemini\antigravity\brain\09dccbf3-c1cd-456a-bbe5-
 set PYINSTALLER_EXE=C:\Users\taikt\.gemini\antigravity\brain\09dccbf3-c1cd-456a-bbe5-1e523440b2c4\scratch\build_env\Scripts\pyinstaller.exe
 
 echo ===============================================================
-echo          DONG GOI SAP_ZONE.EXE STANDALONE (v1.6)
+echo      DONG GOI SAP_ZONE.EXE STANDALONE (v1.6 MODERN WEB UI)
 echo ===============================================================
 
 "%PYINSTALLER_EXE%" --noconfirm --clean ^
@@ -14,6 +14,9 @@ echo ===============================================================
     --windowed ^
     --name "SAP_ZONE" ^
     --add-data "zone_map.json;." ^
+    --collect-all "webview" ^
+    --collect-all "pythonnet" ^
+    --collect-all "clr_loader" ^
     main.py
 
 if %ERRORLEVEL% EQU 0 (

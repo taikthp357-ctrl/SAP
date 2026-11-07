@@ -17,12 +17,14 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 # COM & Win32
 try:
     import win32com.client
+    import pythoncom
     import win32gui
     import win32con
     import win32print
     import win32clipboard
 except ImportError:
     win32com = None
+    pythoncom = None
     win32gui = None
     win32con = None
     win32print = None
@@ -181,49 +183,93 @@ class ZoneManager:
 # ==============================================================================
 
 class SapConnector:
-    """Quản lý kết nối tới phiên SAP GUI đang mở."""
+    """Quản lý kết nối tới phiên SAP GUI theo chuẩn SAP_EMAIL_TEAMS_BRIDGE v1.1.12."""
 
     @staticmethod
-    def get_session(session_idx: int = 0):
+    def init_thread_com():
+        """Bắt buộc gọi trong mọi Worker Thread Windows trước khi dùng COM."""
+        if pythoncom is not None:
+            try:
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+
+    @staticmethod
+    def get_session(session_idx: int = -1):
+        SapConnector.init_thread_com()
         if win32com is None:
-            raise RuntimeError("pywin32 chưa được cài đặt!")
-        
+            raise RuntimeError("Thư viện pywin32 chưa được cài đặt!")
+
         try:
             sap_gui_auto = win32com.client.GetObject("SAPGUI")
-        except Exception:
-            raise RuntimeError("Không tìm thấy tiến trình SAP GUI! Vui lòng đăng nhập SAP trước.")
+        except Exception as ex:
+            raise RuntimeError(f"Không tìm thấy tiến trình SAP GUI! Vui lòng mở SAP Logon và đăng nhập trước ({ex}).")
 
-        application = sap_gui_auto.GetScriptingEngine
+        application = getattr(sap_gui_auto, "GetScriptingEngine", None)
         if not application:
-            raise RuntimeError("Scripting Engine bị tắt hoặc không được phép trên SAP GUI!")
+            raise RuntimeError("Scripting Engine bị tắt hoặc không được phép trên SAP GUI! Vui lòng bật Scripting trong Options của SAP Logon.")
 
-        connection_count = application.Children.Count
-        if connection_count == 0:
-            raise RuntimeError("Chưa có kết nối (Connection) nào được mở trong SAP!")
+        conn_count = getattr(application.Children, "Count", 0)
+        if conn_count == 0:
+            raise RuntimeError("Chưa có kết nối nào được mở trong SAP GUI! Hãy đăng nhập vào hệ thống.")
 
-        connection = application.Children(0)
-        session_count = connection.Children.Count
-        if session_count == 0:
-            raise RuntimeError("Chưa có phiên làm việc (Session) nào được mở trong SAP!")
+        # Quét tìm kết nối có phiên làm việc (Session) đang mở
+        active_conn = None
+        for c_i in range(conn_count):
+            cand_conn = application.Children(c_i)
+            if getattr(cand_conn.Children, "Count", 0) > 0:
+                active_conn = cand_conn
+                break
+        if active_conn is None:
+            active_conn = application.Children(0)
 
-        if session_idx >= session_count:
-            session_idx = 0
+        total_sessions = getattr(active_conn.Children, "Count", 0)
+        if total_sessions == 0:
+            raise RuntimeError("Không tìm thấy phiên làm việc (Session) nào trong kết nối SAP hiện tại.")
 
-        session = connection.Children(session_idx)
-        return session
+        # 1. Nếu chỉ định cụ thể index hợp lệ và không Busy
+        if 0 <= session_idx < total_sessions:
+            sess = active_conn.Children(session_idx)
+            if not bool(getattr(sess, "Busy", False)):
+                return sess
+
+        # 2. Quét tìm phiên rảnh (Busy == False) và ưu tiên màn hình SESSION_MANAGER hoặc Easy Access
+        for s_i in range(total_sessions):
+            sess = active_conn.Children(s_i)
+            try:
+                if not bool(getattr(sess, "Busy", False)):
+                    info = getattr(sess, "Info", None)
+                    tcode = str(getattr(info, "Transaction", "")).strip().upper() if info else ""
+                    if tcode in ("SESSION_MANAGER", ""):
+                        return sess
+            except Exception:
+                pass
+
+        # 3. Quét tìm bất kỳ phiên nào không bận (Busy == False)
+        for s_i in range(total_sessions):
+            sess = active_conn.Children(s_i)
+            try:
+                if not bool(getattr(sess, "Busy", False)):
+                    return sess
+            except Exception:
+                pass
+
+        # 4. Fallback về phiên 0
+        return active_conn.Children(0)
 
     @staticmethod
-    def test_connection(session_idx: int = 0) -> Dict[str, Any]:
+    def test_connection(session_idx: int = -1) -> Dict[str, Any]:
+        SapConnector.init_thread_com()
         try:
             session = SapConnector.get_session(session_idx)
-            info = session.Info
+            info = getattr(session, "Info", None)
             return {
                 "ok": True,
-                "system": info.SystemName,
-                "client": info.Client,
-                "user": info.User,
-                "tcode": info.Transaction,
-                "program": info.Program
+                "system": getattr(info, "SystemName", "") if info else "Unknown",
+                "client": getattr(info, "Client", "") if info else "Unknown",
+                "user": getattr(info, "User", "") if info else "Unknown",
+                "tcode": getattr(info, "Transaction", "") if info else "",
+                "program": getattr(info, "Program", "") if info else ""
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1006,6 +1052,7 @@ class SapZonePipeline:
         is_mock: bool = False
     ) -> Dict[str, Any]:
         """Thực thi toàn bộ luồng nghiệp vụ."""
+        SapConnector.init_thread_com()
         self.stop_requested = False
         summary: Dict[str, Any] = {
             "success": False,
