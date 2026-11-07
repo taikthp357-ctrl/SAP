@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SAP ZONE GUI Application (v1.6)
+SAP ZONE GUI Application (v1.6 Pro - Revised)
 Giao diện trực quan 2 Tab tối giản, tự động hóa quy trình:
 - Tab 1: Vận hành chính (1-Click Run, Nhận diện dữ liệu, Xem & Sao chép 3 cột kết quả)
 - Tab 2: Cấu hình hệ thống (SAP, EWM, Gom nhóm, In ấn & Zone Mapping)
@@ -14,6 +14,7 @@ import threading
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from typing import Optional, List, Dict, Any
 
 from sap_zone_core import (
     ConfigManager,
@@ -24,19 +25,18 @@ from sap_zone_core import (
     parse_paste_data
 )
 
-SAMPLE_INPUT = """BIW32011852HA\t12\tOP10
-BIW32011853HA\t24\tOP20
+SAMPLE_INPUT = """BIW32211725AA\t300\tHùng/Long
+BIW32211727AA\t300\tHùng/Long
 BIW32011854HA\t6\tZone 3.1
-BIW32011855HA\t15\tOP40
-BIW32011856HA\t30\tOP50"""
+BIW32011855HA\t15\t1.2"""
 
 
 class SapZoneApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("SAP ZONE — Ra Đơn & In Phiếu Tự Động (v1.6)")
-        self.root.geometry("1020x720")
-        self.root.minsize(880, 600)
+        self.root.title("SAP ZONE — Ra Đơn & In Phiếu Tự Động (v1.6 Pro)")
+        self.root.geometry("1060x740")
+        self.root.minsize(900, 620)
 
         # Cấu hình & Dữ liệu
         self.config = ConfigManager.load_config()
@@ -46,7 +46,7 @@ class SapZoneApp:
         self.is_running = False
 
         # Kết quả chạy gần nhất
-        self.current_results = []
+        self.current_results: List[Dict[str, str]] = []
         self.current_pdf_folder = self.config.get("pdf_output_folder", os.path.abspath("./OUTPUT_PDF"))
 
         # Thiết lập giao diện
@@ -98,11 +98,11 @@ class SapZoneApp:
         lbl_title = tk.Label(
             header_frame,
             text="⚡ SAP ZONE — TỰ ĐỘNG RA ĐƠN & IN PHIẾU",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 13, "bold"),
             fg="#ffffff",
             bg="#1e3a8a"
         )
-        lbl_title.pack(side="left", padx=16, pady=10)
+        lbl_title.pack(side="left", padx=15, pady=12)
 
         lbl_sub = tk.Label(
             header_frame,
@@ -111,28 +111,28 @@ class SapZoneApp:
             fg="#93c5fd",
             bg="#1e3a8a"
         )
-        lbl_sub.pack(side="left", padx=4, pady=12)
+        lbl_sub.pack(side="left", padx=(0, 15), pady=12)
 
-        # SAP Status Badge trên Header
+        # Trạng thái SAP Badge
         self.sap_badge_var = tk.StringVar(value="⏳ Đang kiểm tra SAP...")
         self.lbl_sap_badge = tk.Label(
             header_frame,
             textvariable=self.sap_badge_var,
             font=("Segoe UI", 9, "bold"),
             fg="#ffffff",
-            bg="#475569",
-            padx=10,
+            bg="#334155",
+            padx=12,
             pady=4,
             relief="flat"
         )
-        self.lbl_sap_badge.pack(side="right", padx=16, pady=12)
+        self.lbl_sap_badge.pack(side="right", padx=15, pady=12)
 
-        # 2. Main Notebook (2 Tabs)
+        # 2. Main Notebook (2 Tab)
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=12, pady=10)
+        self.notebook.pack(fill="both", expand=True, padx=8, pady=(4, 8))
 
-        self.tab_main = ttk.Frame(self.notebook)
-        self.tab_config = ttk.Frame(self.notebook)
+        self.tab_main = tk.Frame(self.notebook, bg="#f8fafc")
+        self.tab_config = tk.Frame(self.notebook, bg="#f8fafc")
 
         self.notebook.add(self.tab_main, text="  🚀 VẬN HÀNH CHÍNH  ")
         self.notebook.add(self.tab_config, text="  ⚙️ CẤU HÌNH HỆ THỐNG  ")
@@ -141,63 +141,67 @@ class SapZoneApp:
         self._build_tab_config()
 
     # ==========================================================================
-    # TAB 1: VẬN HÀNH CHÍNH (1-CLICK RUN & BẢNG KẾT QUẢ 3 CỘT)
+    # TAB 1: VẬN HÀNH CHÍNH
     # ==========================================================================
     def _build_tab_main(self):
-        # Chia layout 2 phần: Trên (Dán dữ liệu & Nút Chạy), Dưới (Bảng kết quả 3 cột)
-        paned = ttk.PanedWindow(self.tab_main, orient="vertical")
-        paned.pack(fill="both", expand=True, padx=8, pady=8)
+        paned = tk.PanedWindow(self.tab_main, orient="vertical", bg="#f8fafc", sashrelief="flat", sashwidth=4)
+        paned.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # --- KHUNG TRÊN: NHẬP LIỆU & ĐIỀU KHIỂN ---
+        # --- KHUNG TRÊN: NHẬP DỮ LIỆU DÁN ---
         top_frame = ttk.LabelFrame(paned, text=" 1. Dán Dữ Liệu Yêu Cầu Ra Đơn (Từ Excel) ", style="Card.TLabelframe")
         paned.add(top_frame, weight=2)
 
-        # Khung nút thao tác nhanh trên ô nhập
+        # Toolbar nhập liệu
         input_toolbar = tk.Frame(top_frame, bg="#ffffff")
         input_toolbar.pack(fill="x", padx=10, pady=(6, 4))
 
         lbl_hint = tk.Label(
             input_toolbar,
-            text="Định dạng cột: [Mã hàng]  [Số lượng]  [Trạm] (Ngăn cách bởi Tab hoặc Khoảng trắng)",
-            font=("Segoe UI", 9, "italic"),
+            text="Định dạng cột: [Mã hàng]  [Số lượng]  [Trạm]  [Zone tùy chọn] (Ngăn cách bởi Tab hoặc Khoảng trắng)\n• Ưu tiên: Zone nhập vào > zone_map.json > Gom nhóm tự động theo Trạm (vd: Hùng/Long)",
+            font=("Segoe UI", 9),
             fg="#64748b",
-            bg="#ffffff"
+            bg="#ffffff",
+            justify="left"
         )
         lbl_hint.pack(side="left")
 
-        btn_clear = ttk.Button(input_toolbar, text="🗑 Xóa", command=self._clear_input, width=7)
-        btn_clear.pack(side="right", padx=2)
+        btn_clear = ttk.Button(input_toolbar, text="🗑 Xóa", width=8, command=self._clear_input)
+        btn_clear.pack(side="right", padx=3)
 
-        btn_sample = ttk.Button(input_toolbar, text="📝 Nạp mẫu thử", command=self._load_sample, width=13)
-        btn_sample.pack(side="right", padx=2)
+        btn_sample = ttk.Button(input_toolbar, text="📝 Nạp mẫu thử", width=14, command=self._load_sample)
+        btn_sample.pack(side="right", padx=3)
 
-        btn_paste = ttk.Button(input_toolbar, text="📋 Dán từ Clipboard", command=self._paste_clipboard, width=16)
-        btn_paste.pack(side="right", padx=2)
+        btn_paste = ttk.Button(input_toolbar, text="📋 Dán từ Clipboard", width=18, command=self._paste_clipboard)
+        btn_paste.pack(side="right", padx=3)
 
-        # Ô Text nhập dữ liệu
-        text_frame = tk.Frame(top_frame, bg="#ffffff")
-        text_frame.pack(fill="both", expand=True, padx=10, pady=4)
+        # Khung Textarea
+        text_container = tk.Frame(top_frame, bg="#ffffff")
+        text_container.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         self.txt_input = tk.Text(
-            text_frame,
-            height=6,
-            font=("Consolas", 10),
+            text_container,
             wrap="none",
+            font=("Consolas", 10),
+            bg="#f8fafc",
+            fg="#0f172a",
             relief="solid",
             borderwidth=1,
-            bg="#f8fafc"
+            height=6
         )
-        scroll_y = ttk.Scrollbar(text_frame, orient="vertical", command=self.txt_input.yview)
-        scroll_x = ttk.Scrollbar(text_frame, orient="horizontal", command=self.txt_input.xview)
-        self.txt_input.configure(xscrollcommand=scroll_x.set, yscrollcommand=scroll_y.set)
+        scroll_y = ttk.Scrollbar(text_container, orient="vertical", command=self.txt_input.yview)
+        scroll_x = ttk.Scrollbar(text_container, orient="horizontal", command=self.txt_input.xview)
+        self.txt_input.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
 
         scroll_y.pack(side="right", fill="y")
         scroll_x.pack(side="bottom", fill="x")
         self.txt_input.pack(side="left", fill="both", expand=True)
 
-        # Khung điều khiển: Nút Chạy to & Tiến trình
+        # Nạp dữ liệu mẫu ban đầu
+        self.txt_input.insert("1.0", SAMPLE_INPUT)
+
+        # Khung điều khiển chạy & Tiến trình
         ctrl_frame = tk.Frame(top_frame, bg="#ffffff")
-        ctrl_frame.pack(fill="x", padx=10, pady=(6, 8))
+        ctrl_frame.pack(fill="x", padx=10, pady=(4, 8))
 
         # Checkbox Chế độ Mô phỏng (Mock mode)
         self.mock_mode_var = tk.BooleanVar(value=False)
@@ -256,7 +260,7 @@ class SapZoneApp:
 
         self.lbl_row_count = tk.Label(
             table_toolbar,
-            text="Tổng cộng: 0 dòng",
+            text="Tổng cộng: 0 dòng kết quả",
             font=("Segoe UI", 9, "bold"),
             fg="#475569",
             bg="#ffffff"
@@ -278,8 +282,8 @@ class SapZoneApp:
             activebackground="#16a34a",
             activeforeground="#ffffff",
             relief="flat",
-            padx=10,
-            pady=4,
+            padx=12,
+            pady=5,
             cursor="hand2",
             command=self._copy_3_columns_to_clipboard
         )
@@ -314,7 +318,6 @@ class SapZoneApp:
     # TAB 2: CẤU HÌNH HỆ THỐNG
     # ==========================================================================
     def _build_tab_config(self):
-        # Scrollable container cho Tab cấu hình
         canvas = tk.Canvas(self.tab_config, bg="#f8fafc", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.tab_config, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg="#f8fafc")
@@ -326,158 +329,149 @@ class SapZoneApp:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True, padx=4, pady=4)
         scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
 
-        # 1. Khung Kết nối SAP
-        grp_sap = ttk.LabelFrame(scrollable_frame, text=" 1. Kết Nối SAP GUI ", style="Card.TLabelframe")
-        grp_sap.pack(fill="x", padx=12, pady=6)
+        content_pad = 16
 
-        row1 = tk.Frame(grp_sap, bg="#ffffff")
-        row1.pack(fill="x", padx=10, pady=6)
+        # KHỐI 1: Kết nối SAP GUI
+        grp_sap = ttk.LabelFrame(scrollable_frame, text=" 1. Cấu Hình Kết Nối SAP GUI ", style="Card.TLabelframe")
+        grp_sap.pack(fill="x", padx=content_pad, pady=(content_pad, 8))
 
-        tk.Label(row1, text="Hệ thống (System):", bg="#ffffff", width=18, anchor="w").pack(side="left")
-        self.cfg_sap_sys = ttk.Entry(row1, width=12)
-        self.cfg_sap_sys.insert(0, str(self.config.get("sap_system", "PRD")))
-        self.cfg_sap_sys.pack(side="left", padx=4)
+        f_sap = tk.Frame(grp_sap, bg="#ffffff", padx=12, pady=10)
+        f_sap.pack(fill="x")
 
-        tk.Label(row1, text="Client:", bg="#ffffff", width=8, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_sap_client = ttk.Entry(row1, width=10)
-        self.cfg_sap_client.insert(0, str(self.config.get("sap_client", "300")))
-        self.cfg_sap_client.pack(side="left", padx=4)
+        tk.Label(f_sap, text="System (Tên hệ thống):", bg="#ffffff").grid(row=0, column=0, sticky="w", pady=4)
+        self.cfg_sap_sys = ttk.Entry(f_sap, width=15)
+        self.cfg_sap_sys.insert(0, self.config.get("sap_system", "PSV"))
+        self.cfg_sap_sys.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-        tk.Label(row1, text="Session Index:", bg="#ffffff", width=14, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_sap_idx = ttk.Spinbox(row1, from_=0, to=5, width=6)
-        self.cfg_sap_idx.set(str(self.config.get("sap_session_idx", 0)))
-        self.cfg_sap_idx.pack(side="left", padx=4)
+        tk.Label(f_sap, text="Client (Phân hệ):", bg="#ffffff").grid(row=0, column=2, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_sap_client = ttk.Entry(f_sap, width=10)
+        self.cfg_sap_client.insert(0, self.config.get("sap_client", "908"))
+        self.cfg_sap_client.grid(row=0, column=3, sticky="w", padx=6, pady=4)
 
-        btn_test_sap = ttk.Button(row1, text="🔌 Thử Kết Nối", command=self._test_sap_connection)
-        btn_test_sap.pack(side="right", padx=4)
+        tk.Label(f_sap, text="Session Index (-1 = tự động tìm):", bg="#ffffff").grid(row=0, column=4, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_sap_idx = ttk.Entry(f_sap, width=8)
+        self.cfg_sap_idx.insert(0, str(self.config.get("sap_session_idx", -1)))
+        self.cfg_sap_idx.grid(row=0, column=5, sticky="w", padx=6, pady=4)
 
-        # 2. Khung Tham số EWM & Kho
-        grp_ewm = ttk.LabelFrame(scrollable_frame, text=" 2. Tham Số Kho EWM & Ra Đơn ", style="Card.TLabelframe")
-        grp_ewm.pack(fill="x", padx=12, pady=6)
+        btn_test_sap = ttk.Button(f_sap, text="🔌 Thử Kết Nối", command=self._test_sap_connection)
+        btn_test_sap.grid(row=0, column=6, sticky="e", padx=(20, 0), pady=4)
 
-        row2 = tk.Frame(grp_ewm, bg="#ffffff")
-        row2.pack(fill="x", padx=10, pady=6)
+        # KHỐI 2: Tham số EWM & Kho MIGO
+        grp_ewm = ttk.LabelFrame(scrollable_frame, text=" 2. Tham Số Kho EWM & MIGO 311 ", style="Card.TLabelframe")
+        grp_ewm.pack(fill="x", padx=content_pad, pady=8)
 
-        tk.Label(row2, text="Mã kho (Warehouse):", bg="#ffffff", width=18, anchor="w").pack(side="left")
-        self.cfg_whse = ttk.Entry(row2, width=12)
-        self.cfg_whse.insert(0, str(self.config.get("ewm_warehouse", "VF02")))
-        self.cfg_whse.pack(side="left", padx=4)
+        f_ewm = tk.Frame(grp_ewm, bg="#ffffff", padx=12, pady=10)
+        f_ewm.pack(fill="x")
 
-        tk.Label(row2, text="Storage Type:", bg="#ffffff", width=14, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_storage = ttk.Entry(row2, width=12)
-        self.cfg_storage.insert(0, str(self.config.get("ewm_storage_type", "APFL")))
-        self.cfg_storage.pack(side="left", padx=4)
+        tk.Label(f_ewm, text="Mã kho EWM (Warehouse):", bg="#ffffff").grid(row=0, column=0, sticky="w", pady=4)
+        self.cfg_whse = ttk.Entry(f_ewm, width=12)
+        self.cfg_whse.insert(0, self.config.get("ewm_warehouse", "VF02"))
+        self.cfg_whse.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-        tk.Label(row2, text="Chủ hàng (Owner):", bg="#ffffff", width=16, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_owner = ttk.Entry(row2, width=12)
-        self.cfg_owner.insert(0, str(self.config.get("ewm_owner", "3093")))
-        self.cfg_owner.pack(side="left", padx=4)
+        tk.Label(f_ewm, text="Storage Type tồn:", bg="#ffffff").grid(row=0, column=2, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_storage = ttk.Entry(f_ewm, width=12)
+        self.cfg_storage.insert(0, self.config.get("ewm_storage_type", "APFL"))
+        self.cfg_storage.grid(row=0, column=3, sticky="w", padx=6, pady=4)
 
-        row2b = tk.Frame(grp_ewm, bg="#ffffff")
-        row2b.pack(fill="x", padx=10, pady=(0, 6))
+        tk.Label(f_ewm, text="Chủ hàng (Owner):", bg="#ffffff").grid(row=0, column=4, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_owner = ttk.Entry(f_ewm, width=12)
+        self.cfg_owner.insert(0, self.config.get("ewm_owner", "3093"))
+        self.cfg_owner.grid(row=0, column=5, sticky="w", padx=6, pady=4)
 
-        tk.Label(row2b, text="Plant MIGO:", bg="#ffffff", width=18, anchor="w").pack(side="left")
-        self.cfg_plant = ttk.Entry(row2b, width=12)
-        self.cfg_plant.insert(0, str(self.config.get("plant", "3093")))
-        self.cfg_plant.pack(side="left", padx=4)
+        # Hàng 2: Plant & SLoc tách biệt
+        tk.Label(f_ewm, text="Plant MIGO:", bg="#ffffff").grid(row=1, column=0, sticky="w", pady=6)
+        self.cfg_plant = ttk.Entry(f_ewm, width=12)
+        self.cfg_plant.insert(0, self.config.get("plant", "3093"))
+        self.cfg_plant.grid(row=1, column=1, sticky="w", padx=6, pady=6)
 
-        tk.Label(row2b, text="SLoc Xuất:", bg="#ffffff", width=10, anchor="w").pack(side="left", padx=(12, 0))
-        self.cfg_sloc_from = ttk.Entry(row2b, width=8)
-        self.cfg_sloc_from.insert(0, str(self.config.get("sloc_from", "1005")))
-        self.cfg_sloc_from.pack(side="left", padx=4)
+        tk.Label(f_ewm, text="Kho xuất (From SLoc):", bg="#ffffff").grid(row=1, column=2, sticky="w", padx=(20, 0), pady=6)
+        self.cfg_sloc_from = ttk.Entry(f_ewm, width=12)
+        self.cfg_sloc_from.insert(0, self.config.get("sloc_from", "1005"))
+        self.cfg_sloc_from.grid(row=1, column=3, sticky="w", padx=6, pady=6)
 
-        tk.Label(row2b, text="SLoc Nhận:", bg="#ffffff", width=10, anchor="w").pack(side="left", padx=(12, 0))
-        self.cfg_sloc_to = ttk.Entry(row2b, width=8)
-        self.cfg_sloc_to.insert(0, str(self.config.get("sloc_to", "3001")))
-        self.cfg_sloc_to.pack(side="left", padx=4)
+        tk.Label(f_ewm, text="Kho nhận (To SLoc):", bg="#ffffff").grid(row=1, column=4, sticky="w", padx=(20, 0), pady=6)
+        self.cfg_sloc_to = ttk.Entry(f_ewm, width=12)
+        self.cfg_sloc_to.insert(0, self.config.get("sloc_to", "3001"))
+        self.cfg_sloc_to.grid(row=1, column=5, sticky="w", padx=6, pady=6)
 
-        # 3. Khung Giới hạn Gom nhóm & Phân bổ FIFO
-        grp_group = ttk.LabelFrame(scrollable_frame, text=" 3. Quy Tắc Gom Nhóm Đơn & Phân Bổ FIFO ", style="Card.TLabelframe")
-        grp_group.pack(fill="x", padx=12, pady=6)
+        # KHỐI 3: Quy tắc gom nhóm & Phân bổ
+        grp_alloc = ttk.LabelFrame(scrollable_frame, text=" 3. Quy Tắc Gom Nhóm & Chiến Lược Phân Bổ ", style="Card.TLabelframe")
+        grp_alloc.pack(fill="x", padx=content_pad, pady=8)
 
-        row3 = tk.Frame(grp_group, bg="#ffffff")
-        row3.pack(fill="x", padx=10, pady=6)
+        f_alloc = tk.Frame(grp_alloc, bg="#ffffff", padx=12, pady=10)
+        f_alloc.pack(fill="x")
 
-        tk.Label(row3, text="Số mã tối đa / OB:", bg="#ffffff", width=18, anchor="w").pack(side="left")
-        self.cfg_max_mats = ttk.Spinbox(row3, from_=1, to=20, width=6)
-        self.cfg_max_mats.set(str(self.config.get("max_materials_per_group", 5)))
-        self.cfg_max_mats.pack(side="left", padx=4)
+        tk.Label(f_alloc, text="Số mã tối đa / OB:", bg="#ffffff").grid(row=0, column=0, sticky="w", pady=4)
+        self.cfg_max_mats = ttk.Entry(f_alloc, width=8)
+        self.cfg_max_mats.insert(0, str(self.config.get("max_materials_per_group", 5)))
+        self.cfg_max_mats.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-        tk.Label(row3, text="Số dòng tối đa / OB:", bg="#ffffff", width=18, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_max_lines = ttk.Spinbox(row3, from_=1, to=50, width=6)
-        self.cfg_max_lines.set(str(self.config.get("max_lines_per_group", 20)))
-        self.cfg_max_lines.pack(side="left", padx=4)
+        tk.Label(f_alloc, text="Số dòng tối đa / OB:", bg="#ffffff").grid(row=0, column=2, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_max_lines = ttk.Entry(f_alloc, width=8)
+        self.cfg_max_lines.insert(0, str(self.config.get("max_lines_per_group", 20)))
+        self.cfg_max_lines.grid(row=0, column=3, sticky="w", padx=6, pady=4)
 
-        tk.Label(row3, text="Chiến lược:", bg="#ffffff", width=12, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_strategy = ttk.Combobox(row3, values=["FIFO", "FEFO"], width=8, state="readonly")
-        self.cfg_strategy.set(str(self.config.get("allocation_strategy", "FIFO")))
-        self.cfg_strategy.pack(side="left", padx=4)
+        tk.Label(f_alloc, text="Chiến lược xuất:", bg="#ffffff").grid(row=0, column=4, sticky="w", padx=(20, 0), pady=4)
+        self.cfg_strategy = ttk.Combobox(f_alloc, values=["FIFO", "FEFO"], width=8, state="readonly")
+        self.cfg_strategy.set(self.config.get("allocation_strategy", "FIFO"))
+        self.cfg_strategy.grid(row=0, column=5, sticky="w", padx=6, pady=4)
 
-        # 4. Khung In ấn & Lưu PDF
-        grp_print = ttk.LabelFrame(scrollable_frame, text=" 4. Cấu Hình In Phiếu SAP (F00112) & Xuất PDF ", style="Card.TLabelframe")
-        grp_print.pack(fill="x", padx=12, pady=6)
+        # KHỐI 4: In ấn phiếu SAP F00112 & Lưu PDF
+        grp_print = ttk.LabelFrame(scrollable_frame, text=" 4. In Phiếu SAP (F00112) & Xuất File PDF ", style="Card.TLabelframe")
+        grp_print.pack(fill="x", padx=content_pad, pady=8)
 
-        row4 = tk.Frame(grp_print, bg="#ffffff")
-        row4.pack(fill="x", padx=10, pady=6)
+        f_print = tk.Frame(grp_print, bg="#ffffff", padx=12, pady=10)
+        f_print.pack(fill="x")
 
-        tk.Label(row4, text="Số bản in SAP (Copies):", bg="#ffffff", width=20, anchor="w").pack(side="left")
-        self.cfg_copies = ttk.Spinbox(row4, from_=1, to=5, width=6)
-        self.cfg_copies.set(str(self.config.get("sap_print_copies", 2)))
-        self.cfg_copies.pack(side="left", padx=4)
+        tk.Label(f_print, text="Số bản in SAP:", bg="#ffffff").grid(row=0, column=0, sticky="w", pady=4)
+        self.cfg_copies = ttk.Entry(f_print, width=8)
+        self.cfg_copies.insert(0, str(self.config.get("sap_print_copies", 2)))
+        self.cfg_copies.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-        self.cfg_auto_print = tk.BooleanVar(value=bool(self.config.get("auto_print_pdf", True)))
+        self.cfg_auto_print = tk.BooleanVar(value=self.config.get("auto_print_pdf", True))
         chk_auto_print = tk.Checkbutton(
-            row4,
-            text="Tự động gọi in và lưu PDF khi hoàn thành",
+            f_print,
+            text="Tự động gọi in và lưu PDF khi hoàn thành đơn",
             variable=self.cfg_auto_print,
-            font=("Segoe UI", 9),
             bg="#ffffff"
         )
-        chk_auto_print.pack(side="left", padx=16)
+        chk_auto_print.grid(row=0, column=2, columnspan=2, sticky="w", padx=(20, 0), pady=4)
 
-        row4b = tk.Frame(grp_print, bg="#ffffff")
-        row4b.pack(fill="x", padx=10, pady=(0, 6))
+        tk.Label(f_print, text="Thư mục lưu PDF:", bg="#ffffff").grid(row=1, column=0, sticky="w", pady=6)
+        self.cfg_pdf_dir = ttk.Entry(f_print, width=40)
+        self.cfg_pdf_dir.insert(0, self.config.get("pdf_output_folder", os.path.abspath("./OUTPUT_PDF")))
+        self.cfg_pdf_dir.grid(row=1, column=1, columnspan=3, sticky="we", padx=6, pady=6)
 
-        tk.Label(row4b, text="Thư mục lưu PDF:", bg="#ffffff", width=20, anchor="w").pack(side="left")
-        self.cfg_pdf_dir = ttk.Entry(row4b, width=45)
-        self.cfg_pdf_dir.insert(0, str(self.config.get("pdf_output_folder", os.path.abspath("./OUTPUT_PDF"))))
-        self.cfg_pdf_dir.pack(side="left", padx=4, fill="x", expand=True)
+        btn_browse_pdf = ttk.Button(f_print, text="📁 Chọn Thư Mục", command=self._browse_pdf_dir)
+        btn_browse_pdf.grid(row=1, column=4, sticky="w", padx=6, pady=6)
 
-        btn_browse_pdf = ttk.Button(row4b, text="📂 Chọn...", width=9, command=self._browse_pdf_dir)
-        btn_browse_pdf.pack(side="left", padx=4)
+        # KHỐI 5: Zone Mapping
+        grp_zone = ttk.LabelFrame(scrollable_frame, text=" 5. Danh Mục Ánh Xạ Zone (zone_map.json) ", style="Card.TLabelframe")
+        grp_zone.pack(fill="x", padx=content_pad, pady=8)
 
-        # 5. Khung Zone Mapping
-        grp_zone = ttk.LabelFrame(scrollable_frame, text=" 5. Dữ Liệu Ánh Xạ Trạm & Zone (zone_map.json) ", style="Card.TLabelframe")
-        grp_zone.pack(fill="x", padx=12, pady=6)
+        f_zone = tk.Frame(grp_zone, bg="#ffffff", padx=12, pady=10)
+        f_zone.pack(fill="x")
 
-        row5 = tk.Frame(grp_zone, bg="#ffffff")
-        row5.pack(fill="x", padx=10, pady=6)
-
-        zone_count = len(self.zone_mgr.mappings)
         self.lbl_zone_status = tk.Label(
-            row5,
-            text=f"Hiện có: {zone_count} quy tắc ánh xạ Mã hàng / Trạm -> Zone -> Tổ trưởng.",
-            font=("Segoe UI", 9),
-            fg="#0f172a",
-            bg="#ffffff"
+            f_zone,
+            text=f"Hiện có: {len(self.zone_mgr.mappings)} quy tắc ánh xạ Mã hàng / Trạm -> Zone -> Tổ trưởng.",
+            bg="#ffffff",
+            fg="#334155"
         )
         self.lbl_zone_status.pack(side="left")
 
-        btn_reload_zone = ttk.Button(row5, text="🔄 Tải Lại", command=self._reload_zone_map)
-        btn_reload_zone.pack(side="right", padx=4)
+        btn_reload_zone = ttk.Button(f_zone, text="🔄 Nạp Lại File", command=self._reload_zone_map)
+        btn_reload_zone.pack(side="right", padx=3)
 
-        btn_open_zone = ttk.Button(row5, text="📝 Xem File JSON", command=self._open_zone_file)
-        btn_open_zone.pack(side="right", padx=4)
+        btn_open_zone = ttk.Button(f_zone, text="📝 Mở File zone_map.json", command=self._open_zone_file)
+        btn_open_zone.pack(side="right", padx=3)
 
-        # Nút Lưu Cấu Hình
-        save_frame = tk.Frame(scrollable_frame, bg="#f8fafc")
-        save_frame.pack(fill="x", padx=12, pady=16)
-
+        # NÚT LƯU CẤU HÌNH
         btn_save_cfg = tk.Button(
-            save_frame,
+            scrollable_frame,
             text="💾  LƯU CẤU HÌNH HỆ THỐNG",
             font=("Segoe UI", 11, "bold"),
             bg="#15803d",
@@ -485,15 +479,15 @@ class SapZoneApp:
             activebackground="#16a34a",
             activeforeground="#ffffff",
             relief="flat",
-            padx=20,
-            pady=8,
+            padx=25,
+            pady=10,
             cursor="hand2",
             command=self._save_config
         )
-        btn_save_cfg.pack(side="right")
+        btn_save_cfg.pack(pady=(12, 24))
 
     # ==========================================================================
-    # LOGIC TAB 1: THAO TÁC NHẬP LIỆU & CHẠY TIẾN TRÌNH
+    # CÁC HÀM XỬ LÝ SỰ KIỆN TAB 1
     # ==========================================================================
     def _clear_input(self):
         self.txt_input.delete("1.0", tk.END)
@@ -507,9 +501,9 @@ class SapZoneApp:
             cb_text = self.root.clipboard_get()
             if cb_text:
                 self.txt_input.delete("1.0", tk.END)
-                self.txt_input.insert("1.0", cb_text)
+                self.txt_input.insert("1.0", cb_text.strip())
         except Exception as e:
-            messagebox.showwarning("Clipboard", f"Không đọc được nội dung bộ nhớ đệm: {e}")
+            messagebox.showwarning("Clipboard", f"Không đọc được nội dung Clipboard:\n{e}")
 
     def _on_btn_run_clicked(self):
         if self.is_running:
@@ -533,7 +527,7 @@ class SapZoneApp:
         # Xác nhận chạy
         mock_mode = self.mock_mode_var.get()
         mode_str = "MÔ PHỎNG (TEST)" if mock_mode else "TRỰC TIẾP TRÊN SAP"
-        confirm_msg = f"Xác nhận thực hiện quy trình ({mode_str}) cho {len(requests)} dòng yêu cầu?\n\nHệ thống sẽ:\n1. Đọc tồn MON (APFL)\n2. Phân bổ FIFO & Gom nhóm theo Zone\n3. Tạo MIGO 311\n4. Tra cứu WHO cho từng Material\n5. In phiếu SAP 2 bản lưu PDF"
+        confirm_msg = f"Xác nhận thực hiện quy trình ({mode_str}) cho {len(requests)} dòng yêu cầu?\n\nHệ thống sẽ:\n1. Đọc tồn MON (APFL, Owner 3093)\n2. Phân bổ FIFO & Gom nhóm theo 4 tầng ưu tiên Zone\n3. Tạo MIGO 311 (1005 -> 3001)\n4. Tra cứu WHO cho từng Material\n5. In phiếu SAP 2 bản lưu PDF"
         if not messagebox.askyesno("Xác nhận chạy", confirm_msg):
             return
 
@@ -605,7 +599,7 @@ class SapZoneApp:
         self.is_running = False
         self.btn_run.configure(text="▶  BẮT ĐẦU CHẠY: RA ĐƠN & IN PHIẾU", bg="#1e40af", activebackground="#1d4ed8")
         self.status_text_var.set(f"Lỗi: {err_msg}")
-        messagebox.showerror("Lỗi Nghiêm Trọng", f"Tiến trình bị dừng do ngoại lệ:\n{err_msg}")
+        messagebox.showerror("Thông Báo Lỗi", f"Tiến trình bị dừng do ngoại lệ:\n{err_msg}")
 
     # ==========================================================================
     # CÁC NÚT THAO TÁC TRÊN BẢNG KẾT QUẢ
@@ -664,18 +658,22 @@ class SapZoneApp:
     def _check_sap_status_async(self):
         """Kiểm tra nền trạng thái kết nối SAP khi vừa mở app."""
         def check():
-            res = SapConnector.test_connection(
-                session_idx=int(self.config.get("sap_session_idx", -1)),
-                preferred_sys=self.config.get("sap_system", ""),
-                preferred_client=self.config.get("sap_client", "")
-            )
-            if res.get("ok"):
-                txt = f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')} - User: {res.get('user')})"
-                bg_color = "#15803d"
-            else:
-                txt = "🔴 Chưa Kết Nối SAP"
-                bg_color = "#b91c1c"
-            self.root.after(0, lambda: self._update_sap_badge(txt, bg_color))
+            SapConnector.init_thread_com()
+            try:
+                res = SapConnector.test_connection(
+                    session_idx=int(self.config.get("sap_session_idx", -1)),
+                    preferred_sys=self.config.get("sap_system", "PSV"),
+                    preferred_client=self.config.get("sap_client", "908")
+                )
+                if res.get("ok"):
+                    txt = f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')} - User: {res.get('user')})"
+                    bg_color = "#15803d"
+                else:
+                    txt = "🔴 Chưa Kết Nối SAP"
+                    bg_color = "#b91c1c"
+                self.root.after(0, lambda: self._update_sap_badge(txt, bg_color))
+            finally:
+                SapConnector.uninit_thread_com()
 
         threading.Thread(target=check, daemon=True).start()
 
@@ -684,28 +682,32 @@ class SapZoneApp:
         self.lbl_sap_badge.configure(bg=bg_color)
 
     def _test_sap_connection(self):
+        SapConnector.init_thread_com()
         try:
-            s_idx = int(self.cfg_sap_idx.get())
-        except ValueError:
-            s_idx = 0
-        res = SapConnector.test_connection(
-            session_idx=s_idx,
-            preferred_sys=self.cfg_sap_sys.get().strip(),
-            preferred_client=self.cfg_sap_client.get().strip()
-        )
-        if res.get("ok"):
-            self._update_sap_badge(f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')})", "#15803d")
-            messagebox.showinfo(
-                "Kết Nối SAP",
-                f"Kết nối SAP thành công!\n\n"
-                f"• Hệ thống (System): {res.get('system')}\n"
-                f"• Phân hệ (Client): {res.get('client')}\n"
-                f"• Tài khoản (User): {res.get('user')}\n"
-                f"• Giao dịch hiện tại: {res.get('tcode') or '(Easy Access)'}"
+            try:
+                s_idx = int(self.cfg_sap_idx.get())
+            except ValueError:
+                s_idx = -1
+            res = SapConnector.test_connection(
+                session_idx=s_idx,
+                preferred_sys=self.cfg_sap_sys.get().strip(),
+                preferred_client=self.cfg_sap_client.get().strip()
             )
-        else:
-            self._update_sap_badge("🔴 Chưa Kết Nối SAP", "#b91c1c")
-            messagebox.showerror("Lỗi Kết Nối", f"Không thể kết nối phiên SAP:\n{res.get('error')}")
+            if res.get("ok"):
+                self._update_sap_badge(f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')})", "#15803d")
+                messagebox.showinfo(
+                    "Kết Nối SAP",
+                    f"Kết nối SAP thành công!\n\n"
+                    f"• Hệ thống (System): {res.get('system')}\n"
+                    f"• Phân hệ (Client): {res.get('client')}\n"
+                    f"• Tài khoản (User): {res.get('user')}\n"
+                    f"• Giao dịch hiện tại: {res.get('tcode') or '(Easy Access)'}"
+                )
+            else:
+                self._update_sap_badge("🔴 Chưa Kết Nối SAP", "#b91c1c")
+                messagebox.showerror("Lỗi Kết Nối", f"Không thể kết nối phiên SAP:\n{res.get('error')}")
+        finally:
+            SapConnector.uninit_thread_com()
 
     def _browse_pdf_dir(self):
         d = filedialog.askdirectory(initialdir=self.cfg_pdf_dir.get())
