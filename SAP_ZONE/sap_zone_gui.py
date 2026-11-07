@@ -149,7 +149,10 @@ class SapZoneApp:
 
         # --- KHUNG TRÊN: NHẬP DỮ LIỆU DÁN ---
         top_frame = ttk.LabelFrame(paned, text=" 1. Dán Dữ Liệu Yêu Cầu Ra Đơn (Từ Excel) ", style="Card.TLabelframe")
-        paned.add(top_frame, weight=2)
+        try:
+            paned.add(top_frame, weight=2)
+        except Exception:
+            paned.add(top_frame)
 
         # Toolbar nhập liệu
         input_toolbar = tk.Frame(top_frame, bg="#ffffff")
@@ -252,7 +255,10 @@ class SapZoneApp:
 
         # --- KHUNG DƯỚI: BẢNG KẾT QUẢ 3 CỘT CHUẨN ---
         bottom_frame = ttk.LabelFrame(paned, text=" 2. Bảng Kết Quả Theo Dõi (3 Cột Chuẩn: Số OB • Mã Hàng • Số Đơn) ", style="Card.TLabelframe")
-        paned.add(bottom_frame, weight=3)
+        try:
+            paned.add(bottom_frame, weight=3)
+        except Exception:
+            paned.add(bottom_frame)
 
         # Thanh công cụ bảng kết quả
         table_toolbar = tk.Frame(bottom_frame, bg="#ffffff")

@@ -1,16 +1,33 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
 
 datas = [('zone_map.json', '.')]
 binaries = []
-hiddenimports = ['win32gui', 'win32con', 'win32clipboard', 'win32process', 'pythoncom', 'win32com', 'win32com.client', 'sqlite3', 'openpyxl']
-tmp_ret = collect_all('webview')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pythonnet')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('clr_loader')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-
+hiddenimports = [
+    'win32gui',
+    'win32con',
+    'win32clipboard',
+    'win32process',
+    'win32print',
+    'pythoncom',
+    'win32com',
+    'win32com.client',
+    'sqlite3',
+    'openpyxl'
+]
+excludes = [
+    'webview',
+    'pythonnet',
+    'clr_loader',
+    'numpy',
+    'matplotlib',
+    'scipy',
+    'pandas',
+    'IPython',
+    'PIL',
+    'pytest',
+    'test',
+    'unittest'
+]
 
 a = Analysis(
     ['main.py'],
@@ -21,9 +38,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 
