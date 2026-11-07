@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-SAP ZONE Modern Web UI Application (v1.6)
-Giao diện Web App hiện đại (HTML5/CSS3/Tailwind-Glassmorphism Style)
-Chạy trên Edge Chromium WebView2 hoặc Local Web App Mode.
-Kết nối SAP chuẩn SAP_EMAIL_TEAMS_BRIDGE v1.1.12.
+SAP ZONE Modern Web UI Application (v1.6 Pro)
+Giao diện Web App hiện đại (HTML5/CSS3/Glassmorphism/Card Design).
+Chạy trên Edge Chromium WebView2 hoặc Local Web App Mode (Edge/Browser).
+Kết nối SAP chuẩn SAP_EMAIL_TEAMS_BRIDGE v1.1.12 & Journal SQLite v1.6.
 """
 
 import os
@@ -13,7 +13,7 @@ import time
 import threading
 import subprocess
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Core logic
 from sap_zone_core import (
@@ -23,6 +23,7 @@ from sap_zone_core import (
     SapZonePipeline,
     ExcelResultExporter,
     MonStockService,
+    JournalService,
     parse_paste_data,
     get_base_dir
 )
@@ -42,7 +43,7 @@ HTML_UI = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SAP ZONE — Tự Động Ra Đơn & In Phiếu (v1.6)</title>
+    <title>SAP ZONE — Ra Đơn & In Phiếu Tự Động (v1.6 Pro)</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -252,38 +253,34 @@ HTML_UI = """<!DOCTYPE html>
 
         .tab-page {
             display: none;
+            flex-direction: column;
+            gap: 16px;
         }
 
         .tab-page.active {
-            display: block;
+            display: flex;
         }
 
         /* 4. CARDS & SECTIONS */
         .card {
             background: #ffffff;
+            border-radius: var(--radius-md);
             border: 1px solid var(--slate-200);
-            border-radius: var(--radius-lg);
             box-shadow: var(--shadow-sm);
-            margin-bottom: 20px;
             overflow: hidden;
-            transition: border-color 0.2s ease;
-        }
-
-        .card:hover {
-            border-color: var(--slate-300);
         }
 
         .card-header {
-            padding: 14px 20px;
-            border-bottom: 1px solid var(--slate-200);
+            padding: 12px 20px;
             background: var(--slate-50);
+            border-bottom: 1px solid var(--slate-200);
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
 
         .card-header h2 {
-            font-size: 14.5px;
+            font-size: 14px;
             font-weight: 700;
             color: var(--slate-800);
             display: flex;
@@ -298,34 +295,34 @@ HTML_UI = """<!DOCTYPE html>
         }
 
         .card-body {
-            padding: 18px 20px;
+            padding: 16px 20px;
         }
 
-        /* 5. INPUT AREA */
+        /* 5. INPUT TEXTAREA */
         .textarea-wrapper {
             position: relative;
+            width: 100%;
         }
 
-        textarea.input-box {
+        .input-box {
             width: 100%;
             height: 120px;
-            padding: 12px 14px;
-            font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+            padding: 12px;
+            border: 1px solid var(--slate-300);
+            border-radius: var(--radius-sm);
             font-size: 13px;
+            font-family: "Consolas", "Courier New", monospace;
             line-height: 1.5;
-            color: var(--slate-900);
-            background: var(--slate-50);
-            border: 1.5px solid var(--slate-200);
-            border-radius: var(--radius-md);
+            color: var(--slate-800);
+            background-color: #ffffff;
             resize: vertical;
-            outline: none;
-            transition: all 0.2s ease;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
-        textarea.input-box:focus {
-            background: #ffffff;
+        .input-box:focus {
+            outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
         }
 
         .input-meta-bar {
@@ -339,9 +336,8 @@ HTML_UI = """<!DOCTYPE html>
 
         .meta-tag {
             background: var(--slate-100);
-            border: 1px solid var(--slate-200);
-            padding: 3px 10px;
-            border-radius: 999px;
+            padding: 2px 8px;
+            border-radius: 4px;
             font-weight: 600;
             color: var(--slate-700);
         }
@@ -352,18 +348,29 @@ HTML_UI = """<!DOCTYPE html>
             align-items: center;
             justify-content: center;
             gap: 6px;
-            padding: 8px 14px;
+            padding: 8px 16px;
             font-size: 13px;
             font-weight: 600;
             border-radius: var(--radius-sm);
-            border: 1px solid transparent;
+            border: none;
             cursor: pointer;
-            transition: all 0.15s ease;
+            transition: all 0.2s ease;
         }
 
         .btn-sm {
-            padding: 5px 10px;
+            padding: 5px 12px;
             font-size: 12px;
+        }
+
+        .btn-secondary {
+            background: #ffffff;
+            border: 1px solid var(--slate-300);
+            color: var(--slate-700);
+        }
+
+        .btn-secondary:hover {
+            background: var(--slate-100);
+            border-color: var(--slate-400);
         }
 
         .btn-primary {
@@ -373,17 +380,6 @@ HTML_UI = """<!DOCTYPE html>
 
         .btn-primary:hover {
             background: var(--primary-dark);
-        }
-
-        .btn-secondary {
-            background: var(--slate-100);
-            color: var(--slate-700);
-            border-color: var(--slate-200);
-        }
-
-        .btn-secondary:hover {
-            background: var(--slate-200);
-            color: var(--slate-900);
         }
 
         .btn-success {
@@ -400,21 +396,15 @@ HTML_UI = """<!DOCTYPE html>
             color: #ffffff;
         }
 
-        .btn-danger:hover {
-            background: #b91c1c;
-        }
-
-        /* Nút Chạy Hero to nổi bật */
+        /* 7. HERO ACTION BAR (1-Click Run) */
         .hero-action-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 16px;
-            padding: 14px 20px;
+            padding: 12px 18px;
             background: #ffffff;
+            border-radius: var(--radius-md);
             border: 1px solid var(--slate-200);
-            border-radius: var(--radius-lg);
-            margin-bottom: 20px;
             box-shadow: var(--shadow-sm);
         }
 
@@ -423,31 +413,35 @@ HTML_UI = """<!DOCTYPE html>
             align-items: center;
             gap: 8px;
             font-size: 13px;
-            font-weight: 500;
             color: var(--slate-700);
             cursor: pointer;
         }
 
+        .mock-toggle input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
         .btn-hero-run {
-            padding: 12px 28px;
-            font-size: 15px;
+            background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+            color: #ffffff;
+            font-size: 14.5px;
             font-weight: 700;
-            letter-spacing: -0.2px;
+            padding: 12px 32px;
             border-radius: var(--radius-md);
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            color: white;
             border: none;
-            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 10px;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
             transition: all 0.2s ease;
         }
 
         .btn-hero-run:hover {
             transform: translateY(-1px);
-            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.45);
         }
 
         .btn-hero-run:active {
@@ -455,48 +449,45 @@ HTML_UI = """<!DOCTYPE html>
         }
 
         .btn-hero-run.running {
-            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-            box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+            background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
         }
 
-        /* 7. PROGRESS BAR & STEP TICKER */
+        /* 8. PROGRESS & PIPELINE STATUS */
         .progress-card {
             background: #ffffff;
+            border-radius: var(--radius-md);
             border: 1px solid var(--slate-200);
-            border-radius: var(--radius-lg);
-            padding: 16px 20px;
-            margin-bottom: 20px;
+            padding: 14px 20px;
             display: none;
+            flex-direction: column;
+            gap: 10px;
         }
 
         .progress-card.active {
-            display: block;
+            display: flex;
         }
 
         .progress-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 10px;
             font-size: 13px;
             font-weight: 600;
         }
 
         .progress-track {
-            width: 100%;
-            height: 10px;
-            background: var(--slate-100);
+            height: 8px;
+            background-color: var(--slate-200);
             border-radius: 999px;
             overflow: hidden;
-            border: 1px solid var(--slate-200);
-            margin-bottom: 12px;
+            width: 100%;
         }
 
         .progress-fill {
             height: 100%;
+            background: linear-gradient(90deg, #2563eb, #38bdf8);
             width: 0%;
-            background: linear-gradient(90deg, #2563eb, #3b82f6);
-            border-radius: 999px;
             transition: width 0.3s ease;
         }
 
@@ -504,18 +495,15 @@ HTML_UI = """<!DOCTYPE html>
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px dashed var(--slate-200);
+            margin-top: 4px;
         }
 
         .step-item {
+            font-size: 11.5px;
+            color: var(--slate-400);
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 11.5px;
-            font-weight: 500;
-            color: var(--slate-400);
+            gap: 5px;
         }
 
         .step-item.active {
@@ -525,17 +513,19 @@ HTML_UI = """<!DOCTYPE html>
 
         .step-item.done {
             color: var(--success);
+            font-weight: 600;
         }
 
         .step-icon {
             width: 18px;
             height: 18px;
             border-radius: 50%;
-            background: var(--slate-200);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 10px;
+            background: var(--slate-200);
+            color: var(--slate-600);
         }
 
         .step-item.active .step-icon {
@@ -548,88 +538,88 @@ HTML_UI = """<!DOCTYPE html>
             color: white;
         }
 
-        /* 8. RESULT TABLE */
+        /* 9. DATA TABLE (3-Column Minimalist) */
         .table-responsive {
-            width: 100%;
-            overflow-x: auto;
-            max-height: 380px;
+            max-height: 420px;
             overflow-y: auto;
-            border-radius: var(--radius-md);
             border: 1px solid var(--slate-200);
+            border-radius: var(--radius-sm);
         }
 
-        table.data-table {
+        .data-table {
             width: 100%;
             border-collapse: collapse;
-            text-align: left;
             font-size: 13px;
+            text-align: left;
         }
 
-        table.data-table thead th {
-            position: sticky;
-            top: 0;
-            background: #f8fafc;
+        .data-table thead th {
+            background: var(--slate-100);
             color: var(--slate-700);
             font-weight: 700;
             padding: 10px 14px;
-            border-bottom: 1.5px solid var(--slate-200);
-            white-space: nowrap;
+            border-bottom: 2px solid var(--slate-300);
+            position: sticky;
+            top: 0;
             z-index: 10;
         }
 
-        table.data-table tbody td {
+        .data-table tbody td {
             padding: 10px 14px;
             border-bottom: 1px solid var(--slate-200);
-            color: var(--slate-900);
+            color: var(--slate-800);
         }
 
-        table.data-table tbody tr:hover {
-            background-color: #f1f5f9;
+        .data-table tbody tr:hover {
+            background-color: var(--primary-light);
+        }
+
+        .data-table tbody tr:nth-child(even) {
+            background-color: var(--slate-50);
         }
 
         .ob-pill {
-            font-family: monospace;
-            font-weight: 700;
-            color: #1e40af;
-            background: #dbeafe;
-            padding: 3px 8px;
-            border-radius: 6px;
             display: inline-block;
-        }
-
-        .mat-code {
-            font-family: monospace;
+            background: #dbeafe;
+            color: #1e40af;
             font-weight: 700;
-            color: var(--slate-900);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
         }
 
         .who-pill {
-            font-family: monospace;
-            font-weight: 600;
-            color: #065f46;
-            background: #d1fae5;
-            padding: 3px 8px;
-            border-radius: 6px;
             display: inline-block;
+            background: #fef3c7;
+            color: #92400e;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        .mat-code {
+            font-weight: 600;
+            color: var(--slate-900);
+            font-family: monospace;
         }
 
         .empty-state {
-            text-align: center;
             padding: 40px 20px;
+            text-align: center;
             color: var(--slate-400);
         }
 
         .empty-state-icon {
-            font-size: 36px;
+            font-size: 32px;
             margin-bottom: 8px;
-            opacity: 0.6;
         }
 
-        /* 9. SETTINGS TAB (GRID) */
+        /* 10. SETTINGS TAB */
         .settings-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
         }
 
         .form-row {
@@ -641,60 +631,58 @@ HTML_UI = """<!DOCTYPE html>
         }
 
         .form-row label {
-            font-weight: 500;
             color: var(--slate-700);
-            flex: 1;
+            font-weight: 500;
         }
 
-        .form-row input[type="text"],
-        .form-row input[type="number"],
-        .form-row select {
-            width: 160px;
+        .form-row input, .form-row select {
             padding: 6px 10px;
             border: 1px solid var(--slate-300);
             border-radius: var(--radius-sm);
             font-size: 13px;
-            outline: none;
-            background: #ffffff;
+            width: 170px;
         }
 
         .form-row input:focus, .form-row select:focus {
+            outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
         }
 
-        /* 10. TOAST NOTIFICATION */
+        /* 11. TOAST NOTIFICATION */
         .toast-container {
             position: fixed;
             bottom: 24px;
             right: 24px;
-            z-index: 9999;
+            z-index: 100;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            pointer-events: none;
+            gap: 10px;
         }
 
         .toast {
-            background: #0f172a;
-            color: white;
+            background: #ffffff;
+            color: var(--slate-800);
+            border-radius: var(--radius-sm);
             padding: 12px 18px;
-            border-radius: var(--radius-md);
             font-size: 13px;
             font-weight: 500;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--slate-200);
             display: flex;
             align-items: center;
             gap: 10px;
-            opacity: 0;
-            transform: translateY(20px);
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            pointer-events: auto;
+            animation: slideIn 0.3s ease;
         }
 
-        .toast.show {
-            opacity: 1;
-            transform: translateY(0);
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
 
         .toast.success {
@@ -866,15 +854,15 @@ HTML_UI = """<!DOCTYPE html>
                         </div>
                         <div class="form-row">
                             <label>Session Index (Vị trí tab):</label>
-                            <input type="number" id="cfg-sap-idx" value="0" min="0" max="5">
+                            <input type="number" id="cfg-sap-idx" value="0" min="-1" max="5">
                         </div>
                         <p style="font-size: 11.5px; color: var(--slate-400); margin-top: 6px;">
-                            * Hệ thống tự động nhận diện danh tính phiên thực tế (PSV/PRD, 908/300) khi kết nối.
+                            * Tự động quét và khớp phiên rảnh theo System (PSV) & Client (908), bỏ qua tab đang bận.
                         </p>
                     </div>
                 </div>
 
-                <!-- Khung 2: Kho EWM & MIGO -->
+                <!-- Khung 2: Kho EWM & MIGO 311 -->
                 <div class="card">
                     <div class="card-header">
                         <h2><span>🏭</span> 2. Tham Số Kho EWM & Ra Đơn</h2>
@@ -897,8 +885,12 @@ HTML_UI = """<!DOCTYPE html>
                             <input type="text" id="cfg-plant" value="3093">
                         </div>
                         <div class="form-row">
-                            <label>SLoc MIGO:</label>
-                            <input type="text" id="cfg-sloc" value="3093">
+                            <label>Kho Xuất (SLoc From):</label>
+                            <input type="text" id="cfg-sloc-from" value="1005" title="Kho APFL xuất NVL">
+                        </div>
+                        <div class="form-row">
+                            <label>Kho Nhận (SLoc To):</label>
+                            <input type="text" id="cfg-sloc-to" value="3001" title="Kho Trạm / Chuyền nhận NVL">
                         </div>
                     </div>
                 </div>
@@ -949,27 +941,27 @@ HTML_UI = """<!DOCTYPE html>
                 </div>
 
                 <!-- Khung 5: Zone Mapping -->
-                <div class="card" style="grid-column: 1 / -1;">
+                <div class="card" style="grid-column: span 2;">
                     <div class="card-header">
-                        <h2><span>🗺️</span> 5. Dữ Liệu Ánh Xạ Trạm & Zone (zone_map.json)</h2>
+                        <h2><span>🗺️</span> 5. Dữ Liệu Ánh Xạ Zone (zone_map.json)</h2>
                         <div class="card-header-actions">
-                            <button class="btn btn-secondary btn-sm" onclick="openZoneFile()">📝 Xem File JSON</button>
-                            <button class="btn btn-secondary btn-sm" onclick="reloadZoneMap()">🔄 Nạp Lại Dữ Liệu</button>
+                            <button class="btn btn-secondary btn-sm" onclick="reloadZoneMap()">🔄 Nạp Lại Bảng Zone</button>
+                            <button class="btn btn-secondary btn-sm" onclick="openZoneFile()">📂 Mở File JSON</button>
                         </div>
                     </div>
                     <div class="card-body">
                         <p id="zone-status-text" style="font-size: 13px; color: var(--slate-700);">
-                            Đang tải thông tin quy tắc ánh xạ...
+                            Đang tải quy tắc ánh xạ Zone...
                         </p>
                     </div>
                 </div>
 
             </div>
 
-            <!-- Nút Lưu Cấu Hình -->
-            <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
-                <button class="btn btn-success" style="padding: 12px 24px; font-size: 14px;" onclick="saveConfig()">
-                    💾 LƯU CẤU HÌNH HỆ THỐNG
+            <!-- Nút Lưu cấu hình -->
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn btn-primary" onclick="saveConfig()" style="padding: 10px 28px; font-size: 14px;">
+                    💾 Lưu Cấu Hình
                 </button>
             </div>
         </section>
@@ -979,23 +971,52 @@ HTML_UI = """<!DOCTYPE html>
     <!-- Toast Notifications Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <!-- JAVASCRIPT LOGIC -->
+    <!-- JAVASCRIPT LOGIC (Universal Dual-Bridge) -->
     <script>
-        let currentResults = [];
+        // State
         let isRunning = false;
         let pollTimer = null;
+        let currentResults = [];
 
-        // --- 1. TOAST NOTIFICATION ---
-        function showToast(message, type = 'info') {
+        // --- 0. UNIVERSAL API BRIDGE (PyWebView + HTTP REST) ---
+        async function callApi(method, ...args) {
+            // 1. PyWebView in-process API
+            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api[method] === 'function') {
+                try {
+                    return await window.pywebview.api[method](...args);
+                } catch (e) {
+                    console.error('pywebview API error:', method, e);
+                    throw e;
+                }
+            }
+            // 2. HTTP Server fallback (Edge App Mode / Local Browser)
+            try {
+                const resp = await fetch('/api/' + method, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(args)
+                });
+                if (resp.ok) {
+                    return await resp.json();
+                }
+            } catch (err) {
+                console.error('HTTP API fetch error:', method, err);
+            }
+            return null;
+        }
+
+        // --- 1. TOAST HELPERS ---
+        function showToast(msg, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
-            toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+            const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+            toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${msg}</span>`;
             container.appendChild(toast);
-            setTimeout(() => toast.classList.add('show'), 20);
             setTimeout(() => {
-                toast.classList.remove('show');
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.3s ease';
                 setTimeout(() => toast.remove(), 300);
             }, 3500);
         }
@@ -1021,7 +1042,7 @@ HTML_UI = """<!DOCTYPE html>
         }
 
         function loadSampleData() {
-            const sample = "BIW32211725AA\t300\tHùng/Long\\nBIW32211727AA\t300\tHùng/Long";
+            const sample = "BIW32211725AA\\t300\\tHùng/Long\\nBIW32211727AA\\t300\\tHùng/Long";
             document.getElementById('raw-input').value = sample;
             updateInputStats();
             showToast('Đã nạp dữ liệu mẫu thử nghiệm!', 'info');
@@ -1029,20 +1050,20 @@ HTML_UI = """<!DOCTYPE html>
 
         async function pasteClipboard() {
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const text = await window.pywebview.api.get_clipboard_text();
-                    if (text) {
-                        document.getElementById('raw-input').value = text;
-                        updateInputStats();
-                        showToast('Đã dán dữ liệu từ Clipboard!', 'success');
-                        return;
-                    }
-                }
-                const text = await navigator.clipboard.readText();
+                const text = await callApi('get_clipboard_text');
                 if (text) {
                     document.getElementById('raw-input').value = text;
                     updateInputStats();
                     showToast('Đã dán dữ liệu từ Clipboard!', 'success');
+                    return;
+                }
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    const cbText = await navigator.clipboard.readText();
+                    if (cbText) {
+                        document.getElementById('raw-input').value = cbText;
+                        updateInputStats();
+                        showToast('Đã dán dữ liệu từ Clipboard!', 'success');
+                    }
                 }
             } catch (err) {
                 showToast('Không thể đọc Clipboard: ' + err, 'error');
@@ -1081,17 +1102,16 @@ HTML_UI = """<!DOCTYPE html>
             pillText.innerText = 'Đang kiểm tra...';
 
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const res = await window.pywebview.api.get_sap_status();
-                    if (res.ok) {
-                        pillText.innerText = `SAP: ${res.system}/${res.client} (${res.user})`;
-                        dot.className = 'pulse-dot';
-                        showToast(`Kết nối SAP thành công: ${res.system}/${res.client} - User: ${res.user}`, 'success');
-                    } else {
-                        pillText.innerText = 'Chưa Kết Nối SAP';
-                        dot.className = 'pulse-dot offline';
-                        showToast('Chưa kết nối SAP: ' + (res.error || 'Vui lòng mở SAP Logon'), 'error');
-                    }
+                const res = await callApi('get_sap_status');
+                if (res && res.ok) {
+                    pillText.innerText = `SAP: ${res.system}/${res.client} (${res.user})`;
+                    dot.className = 'pulse-dot';
+                    showToast(`Kết nối SAP thành công: ${res.system}/${res.client} - User: ${res.user}`, 'success');
+                } else {
+                    pillText.innerText = 'Chưa Kết Nối SAP';
+                    dot.className = 'pulse-dot offline';
+                    const err = (res && res.error) ? res.error : 'Vui lòng mở SAP Logon';
+                    showToast('Chưa kết nối SAP: ' + err, 'error');
                 }
             } catch (ex) {
                 pillText.innerText = 'Lỗi kết nối';
@@ -1102,10 +1122,7 @@ HTML_UI = """<!DOCTYPE html>
         // --- 5. RUN PIPELINE ---
         async function toggleRun() {
             if (isRunning) {
-                // Request stop
-                if (window.pywebview && window.pywebview.api) {
-                    await window.pywebview.api.stop_pipeline();
-                }
+                await callApi('stop_pipeline');
                 showToast('Đang yêu cầu dừng tiến trình...', 'warning');
                 return;
             }
@@ -1130,10 +1147,12 @@ HTML_UI = """<!DOCTYPE html>
             updateProgressUI(0, 'Bắt đầu xử lý...', 1);
 
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    await window.pywebview.api.start_pipeline(rawText, isMock);
-                    // Start polling status
+                const ok = await callApi('start_pipeline', rawText, isMock);
+                if (ok) {
                     startPolling();
+                } else {
+                    stopRunningUI();
+                    showToast('Không thể khởi chạy quy trình!', 'error');
                 }
             } catch (ex) {
                 stopRunningUI();
@@ -1144,9 +1163,10 @@ HTML_UI = """<!DOCTYPE html>
         function startPolling() {
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = setInterval(async () => {
-                if (!window.pywebview || !window.pywebview.api) return;
                 try {
-                    const prog = await window.pywebview.api.get_progress();
+                    const prog = await callApi('get_progress');
+                    if (!prog) return;
+
                     updateProgressUI(prog.percent, prog.status_text, prog.step_index);
 
                     if (!prog.is_running) {
@@ -1232,11 +1252,7 @@ HTML_UI = """<!DOCTYPE html>
             const tsv = currentResults.map(r => `${r.ob}\\t${r.material}\\t${r.who}`).join('\\r\\n');
 
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    await window.pywebview.api.copy_text(tsv);
-                } else {
-                    await navigator.clipboard.writeText(tsv);
-                }
+                await callApi('copy_text', tsv);
                 showToast(`Đã sao chép ${currentResults.length} dòng vào Clipboard! Mở Excel và bấm Ctrl+V.`, 'success');
             } catch (ex) {
                 showToast('Lỗi sao chép: ' + ex, 'error');
@@ -1249,13 +1265,11 @@ HTML_UI = """<!DOCTYPE html>
                 return;
             }
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const res = await window.pywebview.api.export_excel(currentResults);
-                    if (res.ok) {
-                        showToast('Đã xuất Excel: ' + res.path, 'success');
-                    } else {
-                        showToast('Lỗi xuất Excel: ' + res.error, 'error');
-                    }
+                const res = await callApi('export_excel', currentResults);
+                if (res && res.ok) {
+                    showToast('Đã xuất Excel: ' + res.path, 'success');
+                } else {
+                    showToast('Lỗi xuất Excel: ' + (res ? res.error : 'Không rõ'), 'error');
                 }
             } catch (ex) {
                 showToast('Lỗi xuất Excel: ' + ex, 'error');
@@ -1264,9 +1278,7 @@ HTML_UI = """<!DOCTYPE html>
 
         async function openPdfFolder() {
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    await window.pywebview.api.open_pdf_folder();
-                }
+                await callApi('open_pdf_folder');
             } catch (ex) {
                 showToast('Lỗi mở thư mục: ' + ex, 'error');
             }
@@ -1275,26 +1287,27 @@ HTML_UI = """<!DOCTYPE html>
         // --- 8. CONFIG HELPERS ---
         async function loadConfigUI() {
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const cfg = await window.pywebview.api.get_config();
-                    if (cfg) {
-                        document.getElementById('cfg-sap-sys').value = cfg.sap_system || 'PSV';
-                        document.getElementById('cfg-sap-client').value = cfg.sap_client || '908';
-                        document.getElementById('cfg-sap-idx').value = cfg.sap_session_idx || 0;
-                        document.getElementById('cfg-whse').value = cfg.ewm_warehouse || 'VF02';
-                        document.getElementById('cfg-storage').value = cfg.ewm_storage_type || 'APFL';
-                        document.getElementById('cfg-owner').value = cfg.ewm_owner || '3093';
-                        document.getElementById('cfg-plant').value = cfg.plant || '3093';
-                        document.getElementById('cfg-sloc').value = cfg.sloc || '3093';
-                        document.getElementById('cfg-max-mats').value = cfg.max_materials_per_group || 5;
-                        document.getElementById('cfg-max-lines').value = cfg.max_lines_per_group || 20;
-                        document.getElementById('cfg-strategy').value = cfg.allocation_strategy || 'FIFO';
-                        document.getElementById('cfg-copies').value = cfg.sap_print_copies || 2;
-                        document.getElementById('cfg-auto-print').checked = !!cfg.auto_print_pdf;
-                        document.getElementById('cfg-pdf-dir').value = cfg.pdf_output_folder || '';
-                    }
+                const cfg = await callApi('get_config');
+                if (cfg) {
+                    document.getElementById('cfg-sap-sys').value = cfg.sap_system || 'PSV';
+                    document.getElementById('cfg-sap-client').value = cfg.sap_client || '908';
+                    document.getElementById('cfg-sap-idx').value = cfg.sap_session_idx !== undefined ? cfg.sap_session_idx : -1;
+                    document.getElementById('cfg-whse').value = cfg.ewm_warehouse || 'VF02';
+                    document.getElementById('cfg-storage').value = cfg.ewm_storage_type || 'APFL';
+                    document.getElementById('cfg-owner').value = cfg.ewm_owner || '3093';
+                    document.getElementById('cfg-plant').value = cfg.plant || '3093';
+                    document.getElementById('cfg-sloc-from').value = cfg.sloc_from || '1005';
+                    document.getElementById('cfg-sloc-to').value = cfg.sloc_to || '3001';
+                    document.getElementById('cfg-max-mats').value = cfg.max_materials_per_group || 5;
+                    document.getElementById('cfg-max-lines').value = cfg.max_lines_per_group || 20;
+                    document.getElementById('cfg-strategy').value = cfg.allocation_strategy || 'FIFO';
+                    document.getElementById('cfg-copies').value = cfg.sap_print_copies || 2;
+                    document.getElementById('cfg-auto-print').checked = !!cfg.auto_print_pdf;
+                    document.getElementById('cfg-pdf-dir').value = cfg.pdf_output_folder || '';
+                }
 
-                    const zoneInfo = await window.pywebview.api.get_zone_info();
+                const zoneInfo = await callApi('get_zone_info');
+                if (zoneInfo) {
                     document.getElementById('zone-status-text').innerText = 
                         `Hiện có: ${zoneInfo.count} quy tắc ánh xạ Trạm -> Zone -> Tổ trưởng từ file zone_map.json.`;
                 }
@@ -1307,12 +1320,13 @@ HTML_UI = """<!DOCTYPE html>
             const cfg = {
                 sap_system: document.getElementById('cfg-sap-sys').value.trim(),
                 sap_client: document.getElementById('cfg-sap-client').value.trim(),
-                sap_session_idx: parseInt(document.getElementById('cfg-sap-idx').value) || 0,
+                sap_session_idx: parseInt(document.getElementById('cfg-sap-idx').value),
                 ewm_warehouse: document.getElementById('cfg-whse').value.trim(),
                 ewm_storage_type: document.getElementById('cfg-storage').value.trim(),
                 ewm_owner: document.getElementById('cfg-owner').value.trim(),
                 plant: document.getElementById('cfg-plant').value.trim(),
-                sloc: document.getElementById('cfg-sloc').value.trim(),
+                sloc_from: document.getElementById('cfg-sloc-from').value.trim(),
+                sloc_to: document.getElementById('cfg-sloc-to').value.trim(),
                 max_materials_per_group: parseInt(document.getElementById('cfg-max-mats').value) || 5,
                 max_lines_per_group: parseInt(document.getElementById('cfg-max-lines').value) || 20,
                 allocation_strategy: document.getElementById('cfg-strategy').value,
@@ -1322,13 +1336,11 @@ HTML_UI = """<!DOCTYPE html>
             };
 
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const ok = await window.pywebview.api.save_config(cfg);
-                    if (ok) {
-                        showToast('Đã lưu cấu hình vào config.json!', 'success');
-                    } else {
-                        showToast('Không thể lưu file config.json!', 'error');
-                    }
+                const ok = await callApi('save_config', cfg);
+                if (ok) {
+                    showToast('Đã lưu cấu hình vào config.json!', 'success');
+                } else {
+                    showToast('Không thể lưu file config.json!', 'error');
                 }
             } catch (ex) {
                 showToast('Lỗi lưu cấu hình: ' + ex, 'error');
@@ -1337,8 +1349,8 @@ HTML_UI = """<!DOCTYPE html>
 
         async function reloadZoneMap() {
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    const res = await window.pywebview.api.reload_zone_map();
+                const res = await callApi('reload_zone_map');
+                if (res) {
                     document.getElementById('zone-status-text').innerText = 
                         `Hiện có: ${res.count} quy tắc ánh xạ Trạm -> Zone -> Tổ trưởng.`;
                     showToast(`Đã nạp lại ${res.count} quy tắc Zone Mapping!`, 'success');
@@ -1350,27 +1362,31 @@ HTML_UI = """<!DOCTYPE html>
 
         async function openZoneFile() {
             try {
-                if (window.pywebview && window.pywebview.api) {
-                    await window.pywebview.api.open_zone_file();
-                }
+                await callApi('open_zone_file');
             } catch (ex) {
                 showToast('Lỗi mở file: ' + ex, 'error');
             }
         }
 
-        // --- INIT ---
-        window.addEventListener('pywebviewready', () => {
-            checkSapStatus();
-            loadConfigUI();
-        });
-
-        // Fallback init
-        setTimeout(() => {
-            if (window.pywebview) {
-                checkSapStatus();
-                loadConfigUI();
+        // --- 9. INIT APP & RESTORE JOURNAL ---
+        async function initApp() {
+            await checkSapStatus();
+            await loadConfigUI();
+            try {
+                const latest = await callApi('get_latest_results');
+                if (latest && latest.length > 0) {
+                    currentResults = latest;
+                    renderResults(currentResults);
+                }
+            } catch (e) {
+                console.log('No previous results to restore');
             }
-        }, 1000);
+        }
+
+        window.addEventListener('pywebviewready', initApp);
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(initApp, 400);
+        });
     </script>
 </body>
 </html>
@@ -1404,7 +1420,11 @@ class SapZoneWebBackend:
     def get_sap_status(self) -> Dict[str, Any]:
         """Kiểm tra và tự động bắt tay phiên SAP theo chuẩn SAP_EMAIL_TEAMS_BRIDGE v1.1.12."""
         s_idx = int(self.config.get("sap_session_idx", -1))
-        res = SapConnector.test_connection(s_idx)
+        res = SapConnector.test_connection(
+            session_idx=s_idx,
+            preferred_sys=self.config.get("sap_system", "PSV"),
+            preferred_client=self.config.get("sap_client", "908")
+        )
         return res
 
     def get_config(self) -> Dict[str, Any]:
@@ -1445,6 +1465,7 @@ class SapZoneWebBackend:
             return text or ""
         except Exception:
             try:
+                import win32clipboard
                 win32clipboard.CloseClipboard()
             except Exception:
                 pass
@@ -1479,6 +1500,13 @@ class SapZoneWebBackend:
         else:
             return {"ok": False, "error": "Lỗi khi ghi file Excel"}
 
+    def get_latest_results(self) -> List[Dict[str, str]]:
+        """Lấy các dòng kết quả từ lần chạy gần nhất lưu trong SQLite Journal."""
+        try:
+            return JournalService.get_latest_results()
+        except Exception:
+            return []
+
     def start_pipeline(self, raw_text: str, is_mock: bool = False) -> bool:
         if self.progress_state["is_running"]:
             return False
@@ -1508,7 +1536,6 @@ class SapZoneWebBackend:
         return True
 
     def _worker_run(self, requests, is_mock):
-        # Đảm bảo COM được khởi tạo trong Thread con
         SapConnector.init_thread_com()
 
         def prog_cb(pct):
@@ -1545,6 +1572,8 @@ class SapZoneWebBackend:
             self.progress_state["is_running"] = False
             self.progress_state["success"] = False
             self.progress_state["error"] = str(ex)
+        finally:
+            SapConnector.uninit_thread_com()
 
     def get_progress(self) -> Dict[str, Any]:
         return self.progress_state
@@ -1567,7 +1596,7 @@ def run_app():
     if webview is not None:
         try:
             window = webview.create_window(
-                title="SAP ZONE — Ra Đơn & In Phiếu Tự Động (v1.6)",
+                title="SAP ZONE — Ra Đơn & In Phiếu Tự Động (v1.6 Pro)",
                 html=HTML_UI,
                 js_api=backend,
                 width=1120,
@@ -1593,18 +1622,44 @@ def run_app():
 
     class WebHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/" or self.path == "/index.html":
+            if self.path in ("/", "/index.html"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(HTML_UI.encode("utf-8"))
             elif self.path == "/api/status":
-                data = backend.get_sap_status()
-                self._send_json(data)
+                self._send_json(backend.get_sap_status())
             elif self.path == "/api/progress":
-                data = backend.get_progress()
-                self._send_json(data)
+                self._send_json(backend.get_progress())
+            elif self.path == "/api/config":
+                self._send_json(backend.get_config())
+            elif self.path == "/api/latest_results":
+                self._send_json(backend.get_latest_results())
             else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            if self.path.startswith("/api/"):
+                method_name = self.path[len("/api/"):].strip()
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "[]"
+                try:
+                    args = json.loads(body) if body else []
+                    if not isinstance(args, list):
+                        args = [args]
+                except Exception:
+                    args = []
+
+                if hasattr(backend, method_name):
+                    try:
+                        fn = getattr(backend, method_name)
+                        result = fn(*args)
+                        self._send_json(result)
+                        return
+                    except Exception as ex:
+                        self._send_json({"ok": False, "error": str(ex)})
+                        return
                 self.send_response(404)
                 self.end_headers()
 

@@ -1,44 +1,40 @@
-# ⚡ SAP ZONE v1.6 — TỰ ĐỘNG RA ĐƠN NVL, MIGO 311 & IN PHIẾU WHO
+# ⚡ SAP ZONE v1.6 Pro — TỰ ĐỘNG RA ĐƠN NVL, MIGO 311 & IN PHIẾU WHO
 
-Ứng dụng độc lập Windows Executable (Standalone EXE) thay thế hoàn toàn file Excel VBA `260810_RA_DON_NVL_V31_ZONE(2).xlsm`.
+Ứng dụng độc lập Windows Executable (Standalone EXE) hiện đại thay thế hoàn toàn file Excel VBA `260810_RA_DON_NVL_V31_ZONE(2).xlsm`.
 
 ---
 
-## 🚀 Tính Năng & Cải Tiến Nổi Bật (Bản 1.6)
+## 🚀 Tính Năng & Sửa Lỗi Trọng Điểm (Bản v1.6 Pro)
 
-1. **Giao Diện Tối Giản 2 Tab Chuẩn Công Nghiệp**:
-   - **Tab 1 — 🚀 Vận Hành Chính (1-Click Run)**:
-     - Nhập liệu thông minh: Dán trực tiếp từ Excel (hỗ trợ phân tách Tab, khoảng trắng, CSV).
-     - Nút bấm duy nhất: `[ ▶ BẮT ĐẦU CHẠY: RA ĐƠN & IN PHIẾU ]` kích hoạt toàn bộ chu trình ngầm.
-     - Bảng kết quả 3 cột chuẩn: `Số OB | Mã hàng (Material) | Số đơn (WHO)` (gộp nhiều WHO bằng dấu `/`, ví dụ: `6028711569/6028711570`).
-     - Nút `[ 📋 Sao Chép 3 Cột ]`: Đưa dữ liệu định dạng Tab vào Clipboard, chỉ cần mở file Excel theo dõi và nhấn `Ctrl + V`.
-     - Xuất Excel và mở thư mục chứa file PDF với 1 click.
-   - **Tab 2 — ⚙️ Cấu Hình Hệ Thống**:
-     - Cô lập toàn bộ thiết lập SAP GUI, kho EWM (VF02, APFL, Owner 3093, Plant 3093, SLoc 3093).
-     - Tùy chỉnh giới hạn gom nhóm (Max 5 mã, Max 20 dòng, FIFO/FEFO).
-     - Thiết lập in 2 bản và thư mục lưu PDF.
-     - Quản lý và nạp lại dữ liệu Zone Mapping (`zone_map.json`).
+1. **Khắc Phục Triệt Để Lỗi Kết Nối SAP GUI (Thread COM Initialization)**:
+   - Áp dụng chuẩn kết nối đa luồng từ **`SAP_EMAIL_TEAMS_BRIDGE v1.1.12`**.
+   - Khởi tạo căn hộ COM (`pythoncom.CoInitialize()`) tự động trong toàn bộ Worker Thread Windows và giải phóng an toàn khi hoàn tất.
+   - Cơ chế quét phiên thông minh: Ràng buộc danh tính **System (PSV)** và **Client (908)**, tự động bỏ qua các tab SAP đang bận (`Busy == True`), ưu tiên các tab `SESSION_MANAGER` (Easy Access).
+   - Cơ chế thử lại (Retry Loop) 5 lần khi lấy Scripting Engine từ COM.
 
-2. **Đọc Tồn Kho Siêu Tốc Từ /SCWM/MON**:
-   - Loại bỏ giao diện `/SCWM/POST` gây đơ lag.
-   - Truy vấn trực tiếp từ Node `N000000139` (Available Stock) lọc theo `APFL` và Owner `3093`.
-   - Tính toán lượng khả dụng chuẩn (`Available Qty BUoM`), không bị trừ lặp `Outgoing`.
+2. **Nâng Cấp Giao Diện Web UI Hiện Đại (Modern Glassmorphism & Universal Dual-Bridge)**:
+   - Giao diện Web App chuyên nghiệp xây dựng trên Edge Chromium WebView2 với CSS3 Glassmorphism, Stepper 6 bước trực quan và bảng dữ liệu phản hồi nhanh.
+   - **Universal Dual-Bridge**: Tự động nhận diện môi trường, chạy mượt mà trên cả WebView2 nhúng và chế độ Edge App Mode (`msedge.exe --app=...`) thông qua HTTP REST API nội bộ.
+   - Bảng kết quả 3 cột chuẩn: `Số OB | Mã Hàng | Số Đơn (WHO)`, nút `📋 Sao Chép 3 Cột` đưa dữ liệu phân tách Tab vào Clipboard để dán trực tiếp vào file Excel theo dõi (`Ctrl + V`).
 
-3. **Gom Nhóm Zone & Phân Bổ FIFO/FEFO**:
-   - Dựa trên bảng ánh xạ `zone_map.json` (33 quy tắc).
-   - Tự động chia nhóm tối đa 5 mã hàng, tối đa 20 dòng để tối ưu công suất nhặt hàng tại xưởng.
+3. **Tách Bạch Kho Xuất (1005) & Kho Nhận (3001) Cho MIGO 311**:
+   - Khắc phục lỗi MIGO 311 cùng kho (`3093 == 3093`) khiến SAP từ chối chuyển kho.
+   - Cấu hình chuẩn công nghiệp: Kho xuất SLoc `1005` (APFL NVL) $\rightarrow$ Kho nhận SLoc `3001` (Line sản xuất / Trạm).
+   - Kiểm tra chặt chẽ giá trị ghi vào từng ô bảng MIGO (`_set_cell`), nếu SAP từ chối ghi ô sẽ dừng ngay và báo lỗi, không bao giờ post chứng từ rỗng.
+   - Quy trình 2 pha (Phase 1 điền dữ liệu chung, Phase 2 điền Batch) chuẩn xác 100%.
 
-4. **Tạo Chứng Từ MIGO 311 Tự Động**:
-   - Chạy Transfer Posting $\rightarrow$ Other $\rightarrow$ Movement Type 311.
-   - Tự động điền dữ liệu dòng, check và post chứng từ, trích xuất số OB chính xác.
+4. **Nhật Ký SQLite Journal Bền Vững (`data/sap_zone_journal.db`)**:
+   - Lưu trữ toàn bộ lịch sử các lần chạy (`runs`), nhóm đơn (`groups`) và kết quả ra đơn (`results`).
+   - Tự động khôi phục bảng kết quả của lần chạy gần nhất ngay khi khởi động ứng dụng, không lo mất dữ liệu khi vô tình đóng app.
 
-5. **Tra Cứu WHO Triệt Tiêu Lỗi Nhân Chéo (Cross-Join)**:
-   - Tra cứu `/SCWM/MON` (Node `N000000010`) theo từng OB.
-   - Gắn đúng số đơn WHO vào từng Material cụ thể.
+5. **Đọc Tồn MON Chuẩn FIFO & Không Trừ Lặp**:
+   - Truy vấn `/SCWM/MON` (Node `N000000139`, Storage Type `APFL`, Owner `3093`).
+   - Đọc cột Available Stock thực tế (`ABSQUAN` / `AVAILABLE_QTY`), không trừ thêm cột Outgoing đã được SAP tính sẵn.
+   - Sắp xếp chuẩn FIFO theo ngày giờ nhập kho (`GR Date + Time`).
 
-6. **In Phiếu SAP F00112 (2 Bản) & Tự Động Bắt PDF**:
-   - Gọi F00112 in 2 bản (`SSFPP-TDCOPIES = 2`).
-   - Tiểu trình Win32 Watchdog chạy ngầm tự động nhận diện cửa sổ in Windows `Save Print Output As` và lưu file PDF mà không cần thao tác tay.
+6. **Tra Cứu WHO & In Phiếu SAP F00112 (2 Bản) Tự Động Bắt PDF**:
+   - Tra cứu `/SCWM/MON` (Node `N000000010`) theo từng OB, gắn chính xác số đơn WHO vào từng Material (triệt tiêu hoàn toàn lỗi nhân chéo cross-join).
+   - In 2 bản tự động qua Win32 Watchdog, xác thực file PDF thực tế (> 500 bytes) trước khi báo thành công.
 
 ---
 
@@ -46,5 +42,5 @@
 
 | Tệp tải về | Dung lượng | Mô tả |
 | :--- | :--- | :--- |
-| **`SAP_ZONE.exe`** | ~26 MB | File chạy trực tiếp không cần cài đặt Python hay môi trường |
-| **`SAP_ZONE_v1.6_PORTABLE.zip`** | ~25.7 MB | Gói đầy đủ gồm file EXE + `zone_map.json` + file Hướng dẫn sử dụng |
+| **`SAP_ZONE.exe`** | ~29 MB | File chạy trực tiếp không cần cài đặt Python hay bất kỳ phần mềm phụ trợ nào |
+| **`SAP_ZONE_v1.6_PORTABLE.zip`** | ~28.5 MB | Gói đầy đủ gồm file EXE + `zone_map.json` + `HUONG_DAN_SU_DUNG.md` |

@@ -384,10 +384,15 @@ class SapZoneApp:
         self.cfg_plant.insert(0, str(self.config.get("plant", "3093")))
         self.cfg_plant.pack(side="left", padx=4)
 
-        tk.Label(row2b, text="SLoc MIGO:", bg="#ffffff", width=14, anchor="w").pack(side="left", padx=(16, 0))
-        self.cfg_sloc = ttk.Entry(row2b, width=12)
-        self.cfg_sloc.insert(0, str(self.config.get("sloc", "3093")))
-        self.cfg_sloc.pack(side="left", padx=4)
+        tk.Label(row2b, text="SLoc Xuất:", bg="#ffffff", width=10, anchor="w").pack(side="left", padx=(12, 0))
+        self.cfg_sloc_from = ttk.Entry(row2b, width=8)
+        self.cfg_sloc_from.insert(0, str(self.config.get("sloc_from", "1005")))
+        self.cfg_sloc_from.pack(side="left", padx=4)
+
+        tk.Label(row2b, text="SLoc Nhận:", bg="#ffffff", width=10, anchor="w").pack(side="left", padx=(12, 0))
+        self.cfg_sloc_to = ttk.Entry(row2b, width=8)
+        self.cfg_sloc_to.insert(0, str(self.config.get("sloc_to", "3001")))
+        self.cfg_sloc_to.pack(side="left", padx=4)
 
         # 3. Khung Giới hạn Gom nhóm & Phân bổ FIFO
         grp_group = ttk.LabelFrame(scrollable_frame, text=" 3. Quy Tắc Gom Nhóm Đơn & Phân Bổ FIFO ", style="Card.TLabelframe")
@@ -553,6 +558,7 @@ class SapZoneApp:
 
     def _run_pipeline_worker(self, requests, mock_mode):
         try:
+            SapConnector.init_thread_com()
             res = self.pipeline.run(
                 requests=requests,
                 progress_cb=self._update_progress_from_worker,
@@ -562,6 +568,8 @@ class SapZoneApp:
             self.root.after(0, self._on_pipeline_finished, res)
         except Exception as ex:
             self.root.after(0, self._on_pipeline_error, str(ex))
+        finally:
+            SapConnector.uninit_thread_com()
 
     def _update_progress_from_worker(self, pct: int):
         self.root.after(0, lambda: self.progress_bar.configure(value=pct))
@@ -656,7 +664,11 @@ class SapZoneApp:
     def _check_sap_status_async(self):
         """Kiểm tra nền trạng thái kết nối SAP khi vừa mở app."""
         def check():
-            res = SapConnector.test_connection(int(self.config.get("sap_session_idx", 0)))
+            res = SapConnector.test_connection(
+                session_idx=int(self.config.get("sap_session_idx", -1)),
+                preferred_sys=self.config.get("sap_system", ""),
+                preferred_client=self.config.get("sap_client", "")
+            )
             if res.get("ok"):
                 txt = f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')} - User: {res.get('user')})"
                 bg_color = "#15803d"
@@ -676,7 +688,11 @@ class SapZoneApp:
             s_idx = int(self.cfg_sap_idx.get())
         except ValueError:
             s_idx = 0
-        res = SapConnector.test_connection(s_idx)
+        res = SapConnector.test_connection(
+            session_idx=s_idx,
+            preferred_sys=self.cfg_sap_sys.get().strip(),
+            preferred_client=self.cfg_sap_client.get().strip()
+        )
         if res.get("ok"):
             self._update_sap_badge(f"🟢 SAP Sẵn Sàng ({res.get('system')}/{res.get('client')})", "#15803d")
             messagebox.showinfo(
@@ -723,7 +739,8 @@ class SapZoneApp:
                 "ewm_storage_type": self.cfg_storage.get().strip(),
                 "ewm_owner": self.cfg_owner.get().strip(),
                 "plant": self.cfg_plant.get().strip(),
-                "sloc": self.cfg_sloc.get().strip(),
+                "sloc_from": self.cfg_sloc_from.get().strip(),
+                "sloc_to": self.cfg_sloc_to.get().strip(),
                 "max_materials_per_group": int(self.cfg_max_mats.get()),
                 "max_lines_per_group": int(self.cfg_max_lines.get()),
                 "allocation_strategy": self.cfg_strategy.get().strip(),
