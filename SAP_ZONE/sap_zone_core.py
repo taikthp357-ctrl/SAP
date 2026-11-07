@@ -37,12 +37,8 @@ except ImportError:
     win32print = None
     win32clipboard = None
 
-# OpenPyXL
-try:
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-except ImportError:
-    openpyxl = None
+# OpenPyXL (Lazy loaded for instant startup)
+openpyxl = None
 
 
 def get_base_dir() -> str:
@@ -911,33 +907,43 @@ class MonStockService:
         try:
             col_order = grid.ColumnOrder
             for i in range(col_order.Count):
-                c_name = col_order.ElementAt(i)
+                c_name = str(col_order.ElementAt(i)).strip()
                 try:
                     c_title = (grid.GetColumnTitles(c_name).ElementAt(0) or "").strip().lower()
                 except Exception:
                     c_title = ""
 
-                if c_name == "ABSQUAN" or "available" in c_title:
+                c_name_up = c_name.upper()
+                if c_name_up == "ABSQUAN" or "available" in c_title or "khả dụng" in c_title:
                     avail_col = c_name
-                elif c_name == "MATNR" or "material" in c_title:
+                elif c_name_up in ("MATNR", "PRODUCT", "MATERIAL") or "material" in c_title or "mã hàng" in c_title:
                     mat_col = c_name
-                elif c_name == "LGPLA" or "storage bin" in c_title:
+                elif c_name_up in ("LGPLA", "BIN") or "storage bin" in c_title or "vị trí" in c_title:
                     bin_col = c_name
-                elif c_name == "CHARG" or "batch" in c_title:
+                elif c_name_up in ("CHARG", "BATCH", "BATCHID", "SO_CHARG", "LICHA") or "batch" in c_title or "lô" in c_title:
                     batch_col = c_name
-                elif c_name in ("UI_WDATU", "WDATU") or "gr date" in c_title:
+                elif c_name_up in ("UI_WDATU", "WDATU", "GR_DATE") or "gr date" in c_title or "ngày nhập" in c_title:
                     gr_date_col = c_name
-                elif c_name in ("UI_WDATT", "WZEIT") or "gr time" in c_title:
+                elif c_name_up in ("UI_WDATT", "WZEIT", "GR_TIME") or "gr time" in c_title or "giờ nhập" in c_title:
                     gr_time_col = c_name
-                elif c_name in ("MEINS", "UNIT"):
+                elif c_name_up in ("MEINS", "UNIT"):
                     unit_col = c_name
-        except Exception:
-            pass
+        except Exception as ex_col:
+            print(f"[MON COL RESOLVE ERR]: {ex_col}")
 
         for r in range(row_count):
             try:
                 m_val = str(grid.GetCellValue(r, mat_col)).strip().upper()
                 b_val = str(grid.GetCellValue(r, batch_col)).strip()
+                if not b_val:
+                    for fb_col in ["CHARG", "BATCH", "SO_CHARG", "LICHA"]:
+                        try:
+                            fb_val = str(grid.GetCellValue(r, fb_col)).strip()
+                            if fb_val:
+                                b_val = fb_val
+                                break
+                        except Exception:
+                            pass
                 bin_val = str(grid.GetCellValue(r, bin_col)).strip()
                 avail_raw = str(grid.GetCellValue(r, avail_col)).strip()
                 avail_qty = self.parse_sap_number(avail_raw)
@@ -1428,8 +1434,15 @@ class MigoPostingService:
         except Exception:
             pass
 
-        # 4. Kiểm tra bảng MIGO
-        tbl, tbl_path = MigoPostingService._find_migo_table(session)
+        # 4. Kiểm tra bảng MIGO (Retry an toàn tối đa 3 giây)
+        tbl = None
+        tbl_path = ""
+        for _ in range(10):
+            tbl, tbl_path = MigoPostingService._find_migo_table(session)
+            if tbl is not None or tbl_path:
+                break
+            time.sleep(0.3)
+
         if tbl is None and not tbl_path:
             return False, "Đã vào MIGO 311 nhưng không tìm thấy bảng lưới nhập liệu (tblSAPLMIGOTV_GOITEM)!"
 
@@ -1467,7 +1480,15 @@ class MigoPostingService:
         source_sloc: str = "1005",
         dest_sloc: str = "3001"
     ) -> Tuple[bool, str]:
-        """Tạo chứng từ MIGO 311 cho 1 nhóm đơn theo đúng chuẩn VBS thực tế."""
+        """
+        Tạo chứng từ MIGO 311 cho 1 nhóm đơn theo đúng chuẩn VBS & Layout cố định:
+        - Nhịp 1: Điền Material (col 3), Qty (col 4), Trạm/Text (col 5), Plant (col 6), Kho xuất 1005 (col 7), Kho nhận 3001 (col 8).
+        - Gửi Enter Nhịp 1 (sendVKey 0) -> SAP chèn cột Stock Determin. (icon ngôi nhà 🏠) vào Cột 4, đẩy cột Batch sang Cột 10.
+        - Chờ SAP Server Roundtrip, re-bind lại bảng mới.
+        - Nhịp 2: Điền số Batch thật từ /SCWM/MON vào Cột 10 (ctxtGOITEM-CHARG[10,r]).
+        - Gửi Enter Nhịp 2 (sendVKey 0) để SAP kiểm tra tính hợp lệ và tick OK dòng.
+        - Nhịp 3: Post chứng từ bằng sendVKey 11 (Save/Post) -> Bắt số OB 10 chữ số (ví dụ 1013147419).
+        """
         try:
             # 1. Đảm bảo màn hình MIGO 311 sẵn sàng
             ok_ready, err_ready = MigoPostingService.ensure_migo_311_ready(session)
@@ -1484,7 +1505,7 @@ class MigoPostingService:
             lines = group_data.get("lines", [])
             station_text = group_data.get("tl", "") or group_data.get("zone", "NVL")
 
-            # 3. Phase 1: Điền dữ liệu chung từng dòng
+            # 3. GIAI ĐOẠN 1 (PRE-BATCH): Điền dữ liệu chung từng dòng trước khi Enter
             for idx, item in enumerate(lines):
                 mat_code = str(item["material"]).strip()
                 qty_raw = item["qty"]
@@ -1492,7 +1513,7 @@ class MigoPostingService:
                 line_station = item.get("station", station_text) or station_text
                 line_text = str(line_station)[:50]
 
-                # Ghi Material (Ưu tiên col 3 ctxtGOITEM-MAKTX / ctxtGOITEM-MATNR)
+                # Ghi Material (Cột 3: ctxtGOITEM-MAKTX)
                 mat_ok = MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["ctxtGOITEM-MAKTX", "ctxtGOITEM-MATNR"],
@@ -1503,7 +1524,7 @@ class MigoPostingService:
                 if not mat_ok:
                     return False, f"Không thể ghi Material vào dòng {idx+1} của bảng MIGO!"
 
-                # Ghi Qty (col 4 txtGOITEM-ERFMG)
+                # Ghi Qty (Cột 4: txtGOITEM-ERFMG)
                 MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["txtGOITEM-ERFMG"],
@@ -1512,7 +1533,7 @@ class MigoPostingService:
                     str(qty_val)
                 )
 
-                # Ghi Text/Trạm (col 5 txtGOITEM-SGTXT)
+                # Ghi Text/Trạm (Cột 5: txtGOITEM-SGTXT)
                 MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["txtGOITEM-SGTXT"],
@@ -1521,7 +1542,7 @@ class MigoPostingService:
                     line_text
                 )
 
-                # Ghi Plant (col 6 ctxtGOITEM-NAME1 / ctxtGOITEM-WERKS)
+                # Ghi Plant (Cột 6: ctxtGOITEM-NAME1)
                 MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["ctxtGOITEM-NAME1", "ctxtGOITEM-WERKS"],
@@ -1530,7 +1551,7 @@ class MigoPostingService:
                     plant
                 )
 
-                # Ghi Kho xuất (col 7 ctxtGOITEM-LGOBE / ctxtGOITEM-LGORT)
+                # Ghi Kho xuất (Cột 7: ctxtGOITEM-LGOBE)
                 MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["ctxtGOITEM-LGOBE", "ctxtGOITEM-LGORT"],
@@ -1539,7 +1560,7 @@ class MigoPostingService:
                     source_sloc
                 )
 
-                # Ghi Kho nhận (col 8 ctxtGOITEM-UMLGOBE / ctxtGOITEM-UMLGO)
+                # Ghi Kho nhận (Cột 8: ctxtGOITEM-UMLGOBE)
                 MigoPostingService._write_table_cell(
                     session, tbl, tbl_path,
                     ["ctxtGOITEM-UMLGOBE", "ctxtGOITEM-UMLGO"],
@@ -1548,53 +1569,115 @@ class MigoPostingService:
                     dest_sloc
                 )
 
-            # Focus vào ctxtGOITEM-MAKTX[3,0] và gửi Enter nhịp 1 (chuẩn VBS dòng 26-28)
+            # Focus vào ctxtGOITEM-MAKTX[3,0] chuẩn VBS dòng 26-28
             try:
-                f_mat = SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MAKTX[3,0]") or                         SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MATNR[3,0]")
+                f_mat = SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MAKTX[3,0]") or \
+                        SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MATNR[3,0]")
                 if f_mat:
                     f_mat.setFocus()
                     f_mat.caretPosition = 0
             except Exception:
                 pass
 
-            session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 1
-            SapConnector.wait_idle(session, 2.0)
-            SapConnector.dismiss_popups(session)
+            # GỬI ENTER NHỊP 1
+            print("[MIGO] Gửi Enter Nhịp 1 (để SAP kích hoạt Stock Determin. và mở khóa ô Batch)...")
+            session.findById("wnd[0]").sendVKey(0)
 
-            # 4. Phase 2: Điền Batch nếu có (chuẩn VBS dòng 29-31)
-            has_any_batch = False
+            # 4. GIAI ĐOẠN 2: CHỜ SAP HOÀN TẤT ROUNDTRIP, RE-BIND LẠI BẢNG & ĐIỀN BATCH CỘT 10
+            # Vòng lặp chờ ô Batch cột 10 xuất hiện (tối đa 10 giây)
+            batch_col_idx = 10
+            tbl_path_new = tbl_path
+            t_wait_batch = time.time()
+            batch_cell_found = False
+
+            while time.time() - t_wait_batch < 10.0:
+                SapConnector.wait_idle(session, 0.4)
+                SapConnector.dismiss_popups(session)
+
+                # Lấy lại đường dẫn bảng mới sau khi SAP re-render
+                _, t_path_check = MigoPostingService._find_migo_table(session)
+                if t_path_check:
+                    tbl_path_new = t_path_check
+
+                # Kiểm tra ô Batch tại Cột 10 dòng 0
+                test_cell10 = SapConnector.find_by_id_safe(session, f"{tbl_path_new}/ctxtGOITEM-CHARG[10,0]")
+                if test_cell10 is not None:
+                    batch_col_idx = 10
+                    batch_cell_found = True
+                    break
+
+                # Kiểm tra fallback nếu hệ thống có layout khác (Cột 9 hoặc Cột 11)
+                test_cell9 = SapConnector.find_by_id_safe(session, f"{tbl_path_new}/ctxtGOITEM-CHARG[9,0]")
+                if test_cell9 is not None:
+                    batch_col_idx = 9
+                    batch_cell_found = True
+                    break
+
+                test_cell11 = SapConnector.find_by_id_safe(session, f"{tbl_path_new}/ctxtGOITEM-CHARG[11,0]")
+                if test_cell11 is not None:
+                    batch_col_idx = 11
+                    batch_cell_found = True
+                    break
+
+                time.sleep(0.3)
+
+            print(f"[MIGO] Đã định vị cột Batch: Cột {batch_col_idx} (Tìm thấy: {batch_cell_found})")
+
+            # Điền Batch thật đã check từ MON vào từng dòng (Kiểm tra nghiêm ngặt từng dòng)
             for idx, item in enumerate(lines):
                 b_str = str(item.get("batch", "")).strip()
-                if b_str:
-                    b_ok = MigoPostingService._write_table_cell(
-                        session, tbl, tbl_path,
+                mat_code = str(item.get("material", "")).strip()
+                if not b_str:
+                    return False, f"Mã hàng {mat_code} (dòng {idx+1}) chưa có số Batch từ /SCWM/MON! Không thể tạo MIGO khi thiếu Batch."
+
+                line_batch_ok = False
+                # Thử lần lượt các cột candidate (Cột tìm được, Cột 10, Cột 9, Cột 11)
+                for c_cand in [batch_col_idx, 10, 9, 11]:
+                    cell_id_target = f"{tbl_path_new}/ctxtGOITEM-CHARG[{c_cand},{idx}]"
+                    target_cell = SapConnector.find_by_id_safe(session, cell_id_target)
+                    if target_cell is not None:
+                        try:
+                            target_cell.text = b_str
+                            try:
+                                target_cell.setFocus()
+                                target_cell.caretPosition = len(b_str)
+                            except Exception:
+                                pass
+                            line_batch_ok = True
+                            print(f"[MIGO BATCH] Dòng {idx+1}: Đã điền Batch '{b_str}' vào {cell_id_target}")
+                            break
+                        except Exception as ex_cell:
+                            print(f"[MIGO BATCH ERR] Dòng {idx+1} {cell_id_target}: {ex_cell}")
+
+                if not line_batch_ok:
+                    ok_w = MigoPostingService._write_table_cell(
+                        session, None, tbl_path_new,
                         ["ctxtGOITEM-CHARG"],
-                        [10, 9, 11],
+                        [batch_col_idx, 10, 9, 11],
                         idx,
                         b_str
                     )
-                    if b_ok:
-                        has_any_batch = True
-                        try:
-                            f_batch = SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-CHARG[10,{idx}]")
-                            if f_batch:
-                                f_batch.setFocus()
-                                f_batch.caretPosition = len(b_str)
-                        except Exception:
-                            pass
+                    if ok_w:
+                        line_batch_ok = True
+                        print(f"[MIGO BATCH FALLBACK OK] Dòng {idx+1}: Ghi Batch '{b_str}' thành công")
 
-            if has_any_batch:
-                session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 2
-                SapConnector.wait_idle(session, 2.0)
-                SapConnector.dismiss_popups(session)
+                if not line_batch_ok:
+                    return False, f"Không thể điền số Batch '{b_str}' vào dòng {idx+1} (Cột {batch_col_idx}) của bảng MIGO sau khi Enter!"
 
-            # 5. Lưu / Post chứng từ: Gửi sendVKey 11 (Save/Post chuẩn VBS dòng 32)
+            # 5. GIAI ĐOẠN 3: GỬI ENTER NHỊP 2 ĐỂ SAP VALIDATE BATCH VÀ TICK OK DÒNG
+            print("[MIGO] Gửi Enter Nhịp 2 (để SAP kiểm tra tồn kho theo Lô và tick OK dòng)...")
+            session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 2
+            SapConnector.wait_idle(session, 2.5)
+            SapConnector.dismiss_popups(session)
+
+            # 6. GIAI ĐOẠN 4: LƯU / POST CHỨNG TỪ (sendVKey 11 chuẩn VBS)
+            print("[MIGO] Nhấn Save / Post chứng từ (sendVKey 11)...")
             try:
                 session.findById("wnd[0]").sendVKey(11)
             except Exception:
                 MigoPostingService._press_post(session)
 
-            # 6. Polling đọc số chứng từ và tự động ấn Enter qua Warning/Popup
+            # 7. POLLING ĐỌC SỐ CHỨNG TỪ & BẮT CHI TIẾT NẾU CÓ CẢNH BÁO
             last_status = ""
             doc_no = ""
             for loop in range(15):
@@ -1605,8 +1688,8 @@ class MigoPostingService:
                 if combined:
                     last_status = combined
 
-                # Trích xuất số chứng từ: Mọi số 10 chữ số (chuẩn 1013147419 của người dùng hoặc dải 50/49/8/5)
-                m_doc10 = re.search(r"(\d{10})", combined)
+                # Trích xuất số chứng từ 10 chữ số (chuẩn 1013147419 của hệ thống hoặc dải 50/49/8/5)
+                m_doc10 = re.search(r"\b(\d{10})\b", combined)
                 if m_doc10:
                     doc_no = m_doc10.group(1)
                     break
@@ -1618,9 +1701,22 @@ class MigoPostingService:
                     break
 
                 if sbar_type == "S":
-                    m_any = re.search(r"(\d{10})", combined)
+                    m_any = re.search(r"\b(\d{10})\b", combined)
                     doc_no = m_any.group(1) if m_any else "POSTED_OK"
                     break
+
+                # Nếu xuất hiện thông báo Display logs, double click status bar để trích xuất chi tiết
+                if "DISPLAY LOG" in combined.upper():
+                    try:
+                        sbar = SapConnector.find_by_id_safe(session, "wnd[0]/sbar")
+                        if sbar:
+                            sbar.doubleClick()
+                            SapConnector.wait_idle(session, 1.0)
+                            log_pop = SapConnector.dismiss_popups(session)
+                            if log_pop:
+                                last_status = f"Chi tiết lỗi SAP: {log_pop}"
+                    except Exception:
+                        pass
 
                 if sbar_type in ["E", "A"]:
                     return False, f"Lỗi SAP MIGO ({sbar_type}): {sbar_txt}"
@@ -1635,7 +1731,7 @@ class MigoPostingService:
 
                 time.sleep(0.4)
 
-            # 7. Sau khi post thành công, thoát MIGO về Easy Access (chuẩn VBS dòng 33-34)
+            # 8. Sau khi post thành công, thoát MIGO về Easy Access bằng F3 (btn[15])
             if doc_no:
                 try:
                     btn15 = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/btn[15]")
@@ -1651,10 +1747,6 @@ class MigoPostingService:
         except Exception as ex:
             return False, f"Lỗi ngoại lệ MIGO: {ex}"
 
-
-# ==============================================================================
-# 7. TRA CỨU MON NỐI OB - WHO - MÃ HÀNG & IN PHIẾU TRỰC TIẾP CHUẨN VBS
-# ==============================================================================
 
 class MonRelationService:
     """Tra cứu MON để đối soát chính xác 3 cột: OB - Mã hàng - Số đơn (WHO) và in WHO chuẩn VBS."""
@@ -1927,7 +2019,10 @@ class ExcelResultExporter:
 
     @staticmethod
     def export(records: List[Dict[str, str]], output_path: str) -> bool:
-        if openpyxl is None:
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        except ImportError:
             return False
 
         try:
