@@ -157,7 +157,7 @@ class SapZoneApp:
 
         lbl_hint = tk.Label(
             input_toolbar,
-            text="Định dạng cột: [Mã hàng]  [Số lượng]  [Trạm]  [Zone tùy chọn] (Ngăn cách bởi Tab hoặc Khoảng trắng)\n• Ưu tiên: Zone nhập vào > zone_map.json > Gom nhóm tự động theo Trạm (vd: Hùng/Long)",
+            text="Định dạng cột: [Mã hàng]  [Số lượng]  [Trạm]  [Zone tùy chọn] (Ngăn cách bởi Tab hoặc Khoảng trắng)\n• Ưu tiên gom nhóm: Zone nhập vào > Trạm/Người nhận (vd: Hùng/Long) > Tra cứu zone_map.json > Chung",
             font=("Segoe UI", 9),
             fg="#64748b",
             bg="#ffffff",

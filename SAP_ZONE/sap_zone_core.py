@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-SAP ZONE Core Engine (v1.6 Pro - Revised)
+SAP ZONE Core Engine (v1.6 Pro - Revised 2)
 Tự động hóa toàn diện quy trình Ra đơn NVL:
 - Quản lý phiên SAP GUI an toàn theo danh tính System/Client chuẩn SAP_EMAIL_TEAMS_BRIDGE v1.1.12
-- Đọc tồn kho khả dụng từ /SCWM/MON (Node N000000139, Storage Type APFL, Owner 3093)
+- Đọc tồn kho khả dụng từ /SCWM/MON (Node N000000139, Storage Type APFL, Owner 3093) chuẩn xác 100% theo VBS
 - Phân bổ FIFO/FEFO theo 4 tầng ưu tiên Zone (Ưu tiên Zone nhập vào > zone_map.json > gom nhóm theo Trạm)
 - Tạo chứng từ MIGO 311 chuyển kho NVL (1005 -> 3001, Plant 3093) chuẩn VBA V31 2 nhịp
 - Tra cứu /SCWM/MON (Node N000000010) lấy số đơn WHO cho từng Material, loại bỏ bẫy nhân chéo
@@ -126,15 +126,12 @@ class ZoneManager:
         self.load_mappings()
 
     def get_path(self) -> str:
-        # 1. Ưu tiên file bên ngoài nằm cạnh file .exe
         outer_path = os.path.join(get_base_dir(), self.MAPPING_FILE)
         if os.path.exists(outer_path):
             return outer_path
-        # 2. File đóng gói sẵn trong bundle PyInstaller
         bundle_path = os.path.join(get_bundle_dir(), self.MAPPING_FILE)
         if os.path.exists(bundle_path):
             return bundle_path
-        # 3. Thư mục hiện tại
         if os.path.exists(self.MAPPING_FILE):
             return os.path.abspath(self.MAPPING_FILE)
         return outer_path
@@ -162,7 +159,6 @@ class ZoneManager:
     def extract_zone_from_station(station_str: str) -> Tuple[str, str]:
         """
         Bóc tách Zone từ chuỗi Trạm/Người nhận.
-        Trả về: (zone_found, remaining_station)
         Ví dụ:
         'Hùng/Long Zone 1.1' -> ('1.1', 'Hùng/Long')
         'Zone 2.1'          -> ('2.1', '')
@@ -173,34 +169,34 @@ class ZoneManager:
         if not station_str:
             return "", ""
         s = station_str.strip()
-        # Tìm pattern 'Zone X.Y' hoặc 'Z X.Y' hoặc 'Zone X'
         m = re.search(r"(?:ZONE|Z)\s*([0-9]+(?:\.[0-9]+)?)", s, re.IGNORECASE)
         if m:
             z_val = m.group(1)
             cleaned = re.sub(r"\(?\s*(?:ZONE|Z)\s*[0-9]+(?:\.[0-9]+)?\s*\)?", "", s, flags=re.IGNORECASE).strip(" -/()")
             return z_val, cleaned
-        # Nếu chuỗi thuần túy là số zone như '1.1' hoặc '2.2'
         if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", s):
             return s, ""
         return "", s
 
     def resolve_zone_tl(self, material: str, station: str = "", input_zone: str = "") -> Tuple[str, str, bool]:
         """
-        Xác định Zone và Team Leader (TL) theo 4 tầng ưu tiên:
-        1. Ưu tiên 1 (Input Zone): Nếu người dùng chỉ định Zone (input_zone hoặc trích xuất từ station),
-           dùng ngay Zone đó làm nhóm chính của đơn hàng. Không bị zone_map.json ghi đè!
-        2. Ưu tiên 2 (Catalog Map): Nếu không có input zone, tra cứu theo Material trong zone_map.json.
-        3. Ưu tiên 3 (Dynamic Station): Nếu không có trong zone_map.json nhưng có tên Trạm/Người nhận
-           (ví dụ: 'Hùng/Long'), tự động gom nhóm động theo Trạm (Zone = station, TL = station).
-        4. Ưu tiên 4 (Default): Mặc định nhóm 'Chung' (TL = 'Kho APFL').
+        Xác định Zone và Team Leader (TL) theo thứ tự ưu tiên tối ưu cho người vận hành:
+        1. Ưu tiên 1 (Zone trực tiếp): Nếu dữ liệu dán vào có Zone (cột Zone riêng hoặc trong chuỗi Trạm
+           có 'Zone X.Y', 'Z X', '1.1'...), dùng ngay Zone đó làm nhóm chính của đơn hàng.
+        2. Ưu tiên 2 (Trạm / Người nhận thực tế): Nếu dữ liệu dán có tên Trạm / Người nhận (vd: 'Hùng/Long'),
+           tự động gom nhóm theo Trạm đó! Không phụ thuộc hay bắt buộc mã hàng phải có sẵn trong zone_map.
+        3. Ưu tiên 3 (Danh mục zone_map.json): Nếu dòng dữ liệu hoàn toàn không có Zone và không có Trạm,
+           tra cứu theo mã hàng trong zone_map.json.
+        4. Ưu tiên 4 (Mặc định Chung): Gom vào nhóm 'Chung' (TL: 'Kho APFL').
         
-        Trả về: (zone_name, tl_name, is_mapped)
+        *LƯU Ý: Mọi mã hàng đều được chấp nhận và phân bổ bình thường (is_mapped luôn True),
+        không bao giờ chặn hoặc báo lỗi mã hàng thiếu danh mục.
         """
         mat_clean = material.strip().upper()
         sta_clean = station.strip()
         inp_z = input_zone.strip()
 
-        # Nếu trong chuỗi station có chứa Zone (vd: 'Hùng/Long Zone 1.1' hoặc 'Z2.1' hoặc '1.1')
+        # Bóc tách nếu trong chuỗi station có kèm Zone (vd: 'Hùng/Long Zone 1.1' hoặc 'Z2.1' hoặc '1.1')
         if not inp_z and sta_clean:
             extracted_z, cleaned_sta = self.extract_zone_from_station(sta_clean)
             if extracted_z:
@@ -208,7 +204,7 @@ class ZoneManager:
                 if cleaned_sta:
                     sta_clean = cleaned_sta
 
-        # 1. ƯU TIÊN 1: Zone được chỉ định trực tiếp từ dữ liệu dán
+        # 1. ƯU TIÊN 1: Zone được chỉ định trực tiếp từ dữ liệu đưa vào
         if inp_z:
             tl = sta_clean
             for m in self.mappings:
@@ -217,17 +213,17 @@ class ZoneManager:
                     break
             return inp_z, (tl if tl else f"TL Zone {inp_z}"), True
 
-        # 2. ƯU TIÊN 2: Tra cứu theo danh mục zone_map.json
+        # 2. ƯU TIÊN 2: Gom nhóm theo Trạm / Người nhận thực tế đưa vào (vd: 'Hùng/Long')
+        if sta_clean:
+            return sta_clean, sta_clean, True
+
+        # 3. ƯU TIÊN 3: Tra cứu danh mục zone_map.json (nếu không có trạm/zone từ input)
         for m in self.mappings:
             if m.get("material", "").strip().upper() == mat_clean:
                 return str(m.get("zone", "")).strip(), m.get("tl", ""), True
 
-        # 3. ƯU TIÊN 3: Gom nhóm theo Trạm / Người nhận thực tế (vd: 'Hùng/Long')
-        if sta_clean:
-            return sta_clean, sta_clean, True
-
         # 4. ƯU TIÊN 4: Mặc định nhóm Chung
-        return "Chung", "Kho APFL", False
+        return "Chung", "Kho APFL", True
 
 
 # ==============================================================================
@@ -444,25 +440,31 @@ class SapConnector:
 
     @staticmethod
     def open_transaction(session, tcode: str) -> bool:
-        """Chuyển tới T-Code an toàn qua /n<tcode>."""
+        """Chuyển tới T-Code an toàn qua /n<tcode> (hỗ trợ chính xác namespace như /n/SCWM/MON)."""
         if session is None:
             return False
         SapConnector.dismiss_popups(session)
-        target = f"/n{tcode.strip().lstrip('/')}"
+
+        tc = tcode.strip()
+        if tc.startswith("/n") or tc.startswith("/N"):
+            target = tc
+        elif tc.startswith("/"):
+            target = f"/n/{tc.lstrip('/')}"
+        else:
+            target = f"/n{tc}"
+
         try:
             okcd = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/okcd")
             if okcd is not None:
                 okcd.text = target
                 session.findById("wnd[0]").sendVKey(0)
-                SapConnector.wait_idle(session, 3.0)
-                SapConnector.dismiss_popups(session)
+                SapConnector.wait_idle(session, 2.5)
                 return True
         except Exception:
             pass
         try:
             session.StartTransaction(tcode)
-            SapConnector.wait_idle(session, 3.0)
-            SapConnector.dismiss_popups(session)
+            SapConnector.wait_idle(session, 2.5)
             return True
         except Exception:
             return False
@@ -471,52 +473,92 @@ class SapConnector:
     def open_mon_screen(session, warehouse: str = "VF02") -> bool:
         """
         Mở màn hình /SCWM/MON (Warehouse Monitor) an toàn:
-        - Kiểm tra xem đã ở trong MON hay chưa (nếu đã ở trong MON thì tái sử dụng)
-        - Thử Favorite Node F00077 nếu có
-        - Fallback gọi lệnh /n/SCWM/MON qua okcd và xử lý hộp thoại chọn kho wnd[1]
+        - Tự động maximize cửa sổ wnd[0] ngay từ đầu như script VBS
+        - Nếu đã ở trong MON (đã có cây N000000139), tái sử dụng ngay lập tức
+        - Mở qua Favorite Node F00077 (chuẩn VBS của người dùng)
+        - Đợi đủ thời gian cho cây điều hướng tải xong
+        - Fallback gọi lệnh /n/SCWM/MON nếu cần
         """
         if session is None:
             return False
 
-        SapConnector.dismiss_popups(session)
+        # Maximize cửa sổ chính như script VBS
+        try:
+            session.findById("wnd[0]").maximize()
+        except Exception:
+            pass
 
         # 1. Kiểm tra nếu đã ở trong màn hình MON
         mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
         if mon_tree is not None:
             return True
 
-        # 2. Thử mở qua favorite F00077 nếu đang ở Easy Access
+        # Dọn dẹp popup cũ trước khi chuyển màn hình
+        SapConnector.dismiss_popups(session)
+
+        # 2. Về màn hình gốc Easy Access nếu đang ở màn hình khác
         fav_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlIMAGE_CONTAINER/shellcont/shell/shellcont[0]/shell")
+        if fav_tree is None:
+            okcd = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/okcd")
+            if okcd:
+                okcd.text = "/n"
+                session.findById("wnd[0]").sendVKey(0)
+                SapConnector.wait_idle(session, 1.5)
+            fav_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlIMAGE_CONTAINER/shellcont/shell/shellcont[0]/shell")
+
+        # 3. Mở Favorite Node F00077 (chuẩn VBS thực tế của người dùng)
         if fav_tree is not None:
             try:
+                try:
+                    fav_tree.selectedNode = "F00077"
+                except Exception:
+                    pass
                 fav_tree.doubleClickNode("F00077")
-                SapConnector.wait_idle(session, 2.0)
-                if SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell") is not None:
-                    return True
-            except Exception:
-                pass
+                # Đợi cây điều hướng MON xuất hiện (tối đa 10 giây)
+                for _ in range(20):
+                    SapConnector.wait_idle(session, 0.5)
+                    mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
+                    if mon_tree is not None:
+                        return True
+            except Exception as ex:
+                print(f"[FAV F00077 EX] {ex}")
 
-        # 3. Mở trực tiếp bằng lệnh /n/SCWM/MON
-        SapConnector.open_transaction(session, "/SCWM/MON")
-        SapConnector.wait_idle(session, 2.0)
+        # 4. Fallback: Mở bằng lệnh /n/SCWM/MON nếu không có F00077
+        okcd = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/okcd")
+        if okcd:
+            okcd.text = "/n/SCWM/MON"
+            session.findById("wnd[0]").sendVKey(0)
+            SapConnector.wait_idle(session, 2.0)
 
-        # 4. Nếu có hộp thoại chọn Kho trên wnd[1]
-        wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]")
-        if wnd1 is not None:
-            try:
-                txt_whse = SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtP_LGNUM")
-                if txt_whse is not None:
-                    txt_whse.text = warehouse
-                txt_mon = SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtP_MON")
-                if txt_mon is not None:
-                    txt_mon.text = "SAP"
-                wnd1.sendVKey(0)  # Enter hoặc F8
-                SapConnector.wait_idle(session, 2.0)
-            except Exception:
-                pass
+            # Xử lý popup chọn kho wnd[1] nếu có
+            wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]")
+            if wnd1 is not None:
+                try:
+                    txt_whse = (
+                        SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtP_LGNUM") or
+                        SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtP_LGNUM")
+                    )
+                    if txt_whse is not None:
+                        txt_whse.text = warehouse
+                    txt_mon = (
+                        SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtP_MON") or
+                        SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtP_MON")
+                    )
+                    if txt_mon is not None:
+                        txt_mon.text = "SAP"
+                    wnd1.sendVKey(0)  # Enter hoặc F8
+                    SapConnector.wait_idle(session, 2.0)
+                except Exception:
+                    pass
 
-        # 5. Xác nhận lại xem đã vào MON chưa
-        return SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell") is not None
+        # 5. Đợi cây điều hướng MON xuất hiện (tối đa 10 giây)
+        for _ in range(20):
+            SapConnector.wait_idle(session, 0.5)
+            mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
+            if mon_tree is not None:
+                return True
+
+        return False
 
     @staticmethod
     def get_session(session_idx: int = -1, preferred_sys: str = "", preferred_client: str = ""):
@@ -662,7 +704,7 @@ class SapConnector:
 
 
 # ==============================================================================
-# 4. ĐỌC TỒN MON (/SCWM/MON) - NODE N000000139 (AVAILABLE STOCK)
+# 4. ĐỌC TỒN MON (/SCWM/MON) - NODE N000000139 (AVAILABLE STOCK CHUẨN VBS)
 # ==============================================================================
 
 class MonStockService:
@@ -670,20 +712,31 @@ class MonStockService:
 
     @staticmethod
     def copy_to_clipboard(text: str) -> bool:
-        if win32clipboard is None:
+        """Ghi chuỗi vào Windows Clipboard an toàn với cơ chế thử lại."""
+        if not text:
             return False
-        try:
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
-            win32clipboard.CloseClipboard()
-            return True
-        except Exception as e:
-            print(f"[CLIPBOARD WARN] Lỗi ghi clipboard: {e}")
+        for _ in range(5):
             try:
-                win32clipboard.CloseClipboard()
+                if win32clipboard is not None:
+                    win32clipboard.OpenClipboard()
+                    try:
+                        win32clipboard.EmptyClipboard()
+                        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+                        return True
+                    finally:
+                        win32clipboard.CloseClipboard()
             except Exception:
-                pass
+                time.sleep(0.08)
+        try:
+            import tkinter as tk
+            r = tk.Tk()
+            r.withdraw()
+            r.clipboard_clear()
+            r.clipboard_append(text)
+            r.update()
+            r.destroy()
+            return True
+        except Exception:
             return False
 
     @staticmethod
@@ -714,41 +767,62 @@ class MonStockService:
         storage_type: str = "APFL",
         owner: str = "3093"
     ) -> List[Dict[str, Any]]:
-        """Truy vấn tồn kho từ /SCWM/MON Node N000000139 với bộ lọc APFL + Owner 3093."""
+        """Truy vấn tồn kho từ /SCWM/MON Node N000000139 chuẩn xác theo VBS của người dùng."""
         if not materials or session is None:
             return []
 
         # 1. Mở màn hình /SCWM/MON an toàn
-        SapConnector.open_mon_screen(session)
+        ok = SapConnector.open_mon_screen(session)
+        if not ok:
+            raise RuntimeError("Không thể điều hướng vào màn hình /SCWM/MON hoặc tìm thấy cây điều hướng!")
 
-        # 2. Chọn node tồn kho N000000139 (Stock Overview / Available Stock)
+        # 2. Cây điều hướng MON
         mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
         if mon_tree is None:
-            raise RuntimeError("Không tìm thấy cây điều hướng của /SCWM/MON!")
+            raise RuntimeError("Không tìm thấy cây điều hướng của /SCWM/MON (wnd[0]/usr/shell/shellcont[0]/shell)!")
 
-        try:
-            mon_tree.selectedNode = "N000000139"
-            mon_tree.doubleClickNode("N000000139")
-            SapConnector.wait_idle(session, 2.0)
-        except Exception as e:
-            raise RuntimeError(f"Lỗi chọn node tồn kho N000000139: {e}")
+        # Kiểm tra nếu hộp thoại lọc wnd[1] chưa mở thì chọn và kích hoạt node N000000139
+        wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]")
+        if wnd1 is None:
+            try:
+                mon_tree.selectedNode = "N000000139"
+                mon_tree.doubleClickNode("N000000139")
+                SapConnector.wait_idle(session, 2.5)
+            except Exception as e:
+                raise RuntimeError(f"Lỗi chọn node N000000139 trên cây MON: {e}")
 
-        # 3. Điền Storage Type (APFL) và Owner (3093) trên wnd[1]
+            # Đợi hộp thoại lọc wnd[1] xuất hiện
+            for _ in range(16):
+                wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]")
+                if wnd1 is not None:
+                    break
+                time.sleep(0.3)
+
+        if wnd1 is None:
+            raise RuntimeError("Hộp thoại bộ lọc tồn kho /SCWM/MON (wnd[1]) không xuất hiện!")
+
+        # Điền Storage Type (APFL) và Owner (3093) trên wnd[1]
         try:
-            txt_lgtyp = SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_LGTYP-LOW")
+            txt_lgtyp = (
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_LGTYP-LOW") or
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_LGTYP-LOW")
+            )
             if txt_lgtyp:
                 txt_lgtyp.text = storage_type
         except Exception:
             pass
 
         try:
-            txt_owner = SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_OWNER-LOW")
+            txt_owner = (
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_OWNER-LOW") or
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_OWNER-LOW")
+            )
             if txt_owner:
                 txt_owner.text = owner
         except Exception:
             pass
 
-        # 4. Nạp danh sách Material qua Multiple Selection
+        # 4. Nạp danh sách Material qua Multiple Selection (wnd[2])
         unique_mats = list(dict.fromkeys([m.strip() for m in materials if m.strip()]))
         self.copy_to_clipboard("\r\n".join(unique_mats))
 
@@ -756,28 +830,65 @@ class MonStockService:
         if btn_mat_push:
             btn_mat_push.press()
             SapConnector.wait_idle(session, 1.0)
-            try:
+
+            # Đợi wnd[2] xuất hiện và bấm Upload từ Clipboard (btn[24])
+            btn_paste = None
+            for _ in range(16):
                 btn_paste = SapConnector.find_by_id_safe(session, "wnd[2]/tbar[0]/btn[24]")
-                if btn_paste:
+                if btn_paste is not None:
+                    break
+                time.sleep(0.2)
+
+            if btn_paste is not None:
+                try:
                     btn_paste.press()
-            except Exception:
-                pass
-            try:
+                    SapConnector.wait_idle(session, 1.0)
+                except Exception:
+                    pass
+
+            # Đợi và bấm F8 trên wnd[2] để chốt danh sách nạp
+            btn_f8_wnd2 = None
+            for _ in range(16):
                 btn_f8_wnd2 = SapConnector.find_by_id_safe(session, "wnd[2]/tbar[0]/btn[8]")
-                if btn_f8_wnd2:
+                if btn_f8_wnd2 is not None:
+                    break
+                time.sleep(0.2)
+
+            if btn_f8_wnd2 is not None:
+                try:
                     btn_f8_wnd2.press()
-            except Exception:
-                pass
-            SapConnector.wait_idle(session, 1.0)
+                    SapConnector.wait_idle(session, 1.0)
+                except Exception:
+                    pass
 
         # 5. Execute F8 trên wnd[1]
-        btn_f8_wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
+        btn_f8_wnd1 = None
+        for _ in range(16):
+            btn_f8_wnd1 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
+            if btn_f8_wnd1 is not None:
+                break
+            time.sleep(0.2)
+
         if btn_f8_wnd1:
             btn_f8_wnd1.press()
-            SapConnector.wait_idle(session, 4.0)
+            SapConnector.wait_idle(session, 3.5)
 
-        # 6. Đọc kết quả từ bảng ALV Grid
-        grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell")
+        # 6. Đợi và đọc kết quả từ bảng ALV Grid (chuẩn xác theo VBS: wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell)
+        grid = None
+        for _ in range(20):
+            grid = (
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell")
+            )
+            if grid is not None:
+                try:
+                    if getattr(grid, "RowCount", 0) > 0:
+                        break
+                except Exception:
+                    pass
+            time.sleep(0.3)
+
         if grid is None:
             return []
 
@@ -787,38 +898,41 @@ class MonStockService:
         if row_count <= 0:
             return stock_records
 
-        # Nhận diện cột kỹ thuật
-        col_order = grid.ColumnOrder
-        col_map = {}
-        for i in range(col_order.Count):
-            c_name = col_order.ElementAt(i)
-            try:
-                c_title = (grid.GetColumnTitles(c_name).ElementAt(0) or "").strip().lower()
-            except Exception:
-                c_title = ""
+        # Tên cột chuẩn từ script VBS của người dùng
+        mat_col = "MATNR"
+        batch_col = "CHARG"
+        bin_col = "LGPLA"
+        avail_col = "ABSQUAN"
+        gr_date_col = "UI_WDATU"
+        gr_time_col = "UI_WDATT"
+        unit_col = "MEINS"
 
-            if "material" in c_title or c_name == "MATNR":
-                col_map["material"] = c_name
-            elif "batch" in c_title or c_name == "CHARG":
-                col_map["batch"] = c_name
-            elif "storage bin" in c_title or c_name == "LGPLA":
-                col_map["bin"] = c_name
-            elif "available" in c_title or c_name in ("ABSQUAN", "AVAILABLE_QTY"):
-                col_map["available_qty"] = c_name
-            elif "gr date" in c_title or c_name == "WDATU":
-                col_map["gr_date"] = c_name
-            elif "gr time" in c_title or c_name == "WZEIT":
-                col_map["gr_time"] = c_name
-            elif "unit" in c_title or c_name in ("MEINS", "UNIT"):
-                col_map["unit"] = c_name
+        # Nếu grid có ColumnOrder thì phân giải thêm
+        try:
+            col_order = grid.ColumnOrder
+            for i in range(col_order.Count):
+                c_name = col_order.ElementAt(i)
+                try:
+                    c_title = (grid.GetColumnTitles(c_name).ElementAt(0) or "").strip().lower()
+                except Exception:
+                    c_title = ""
 
-        mat_col = col_map.get("material", "MATNR")
-        batch_col = col_map.get("batch", "CHARG")
-        bin_col = col_map.get("bin", "LGPLA")
-        avail_col = col_map.get("available_qty", "ABSQUAN")
-        gr_date_col = col_map.get("gr_date", "WDATU")
-        gr_time_col = col_map.get("gr_time", "WZEIT")
-        unit_col = col_map.get("unit", "MEINS")
+                if c_name == "ABSQUAN" or "available" in c_title:
+                    avail_col = c_name
+                elif c_name == "MATNR" or "material" in c_title:
+                    mat_col = c_name
+                elif c_name == "LGPLA" or "storage bin" in c_title:
+                    bin_col = c_name
+                elif c_name == "CHARG" or "batch" in c_title:
+                    batch_col = c_name
+                elif c_name in ("UI_WDATU", "WDATU") or "gr date" in c_title:
+                    gr_date_col = c_name
+                elif c_name in ("UI_WDATT", "WZEIT") or "gr time" in c_title:
+                    gr_time_col = c_name
+                elif c_name in ("MEINS", "UNIT"):
+                    unit_col = c_name
+        except Exception:
+            pass
 
         for r in range(row_count):
             try:
@@ -835,7 +949,10 @@ class MonStockService:
                 t_val = re.sub(r"[^0-9]", "", str(grid.GetCellValue(r, gr_time_col)).strip())
                 sort_key = f"{d_val.zfill(8)}_{t_val.zfill(6)}"
 
-                u_val = str(grid.GetCellValue(r, unit_col)).strip() or "PC"
+                try:
+                    u_val = str(grid.GetCellValue(r, unit_col)).strip() or "PC"
+                except Exception:
+                    u_val = "PC"
 
                 stock_records.append({
                     "material": m_val,
@@ -1186,28 +1303,37 @@ class MonRelationService:
             if mon_tree:
                 mon_tree.selectedNode = "N000000010"
                 mon_tree.doubleClickNode("N000000010")
-                SapConnector.wait_idle(session, 2.0)
+                SapConnector.wait_idle(session, 2.5)
 
             # 3. Lọc theo OB và F8 trên wnd[1]
-            txt_ob = SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW")
+            txt_ob = (
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_ERP_H-LOW") or
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW")
+            )
             if txt_ob:
                 txt_ob.text = clean_ob
             btn_f8 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
             if btn_f8:
                 btn_f8.press()
-                SapConnector.wait_idle(session, 3.0)
+                SapConnector.wait_idle(session, 3.5)
 
             # 4. Bấm nút [Warehouse Order] (N000000108)
-            top_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
+            top_grid = (
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell")
+            )
             if top_grid:
                 try:
                     top_grid.pressToolbarButton("N000000108")
-                    SapConnector.wait_idle(session, 2.0)
+                    SapConnector.wait_idle(session, 2.5)
                 except Exception:
                     pass
 
             # 5. Đọc lưới dưới lấy WHO và MATNR
-            bottom_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell")
+            bottom_grid = (
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell")
+            )
             if bottom_grid:
                 row_count = getattr(bottom_grid, "RowCount", 0)
                 for r in range(row_count):
@@ -1535,14 +1661,18 @@ def parse_paste_data(raw_text: str) -> List[Dict[str, Any]]:
                 mat = parts[0]
                 qty = n1
                 station = parts[2]
-                input_zone = parts[3]
+                input_zone = " ".join(parts[3:])
             else:
                 mat = parts[0]
                 station = parts[1]
-                input_zone = parts[2]
+                input_zone = " ".join(parts[2:])
 
-        # Tự động trích xuất zone từ station nếu có
-        if not input_zone and station:
+        # Tự động chuẩn hóa và trích xuất zone
+        if input_zone:
+            m_z = re.search(r"(?:ZONE|Z)?\s*([0-9]+(?:\.[0-9]+)?)", input_zone, re.IGNORECASE)
+            if m_z and m_z.group(1):
+                input_zone = m_z.group(1)
+        elif station:
             m_z = re.search(r"(?:ZONE|Z)\s*([0-9]+(?:\.[0-9]+)?)", station, re.IGNORECASE)
             if m_z:
                 input_zone = m_z.group(1)
@@ -1655,7 +1785,6 @@ class SapZonePipeline:
                     JournalService.save_run(self.run_id, "MON_STOCK_ERR", len(requests), 0, summary["message"])
                     return summary
             else:
-                # Tạo tồn kho giả lập
                 for idx, m in enumerate(all_materials):
                     stock_records.append({
                         "material": m,
@@ -1725,7 +1854,7 @@ class SapZonePipeline:
                         JournalService.save_group(self.run_id, grp_id, grp_zone, grp.get("tl", ""), doc_or_err, "POSTED", "Thành công")
                     else:
                         print(f"[MIGO POST FAIL] {grp_id}: {doc_or_err}")
-                        JournalService.save_group(self.run_id, grp_id, grp_zone, grp.get("tl", ""), "", "FAILED", doc_or_err)
+                        JournalService.save_group(self.run_id, grp_id, grp_zone, grp.get("tl", ""), doc_or_err, "FAILED", doc_or_err)
                 else:
                     mock_ob = f"50{datetime.now().strftime('%y%m%d')}{idx+1:02d}"
                     grp["ob_number"] = mock_ob
