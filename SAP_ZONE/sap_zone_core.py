@@ -1094,22 +1094,22 @@ class AllocationEngine:
 
 class MigoPostingService:
     """
-    Tạo chứng từ chuyển kho MIGO 311 (1005 -> 3001) chuẩn xác 100% theo VBA V31:
-    - Cơ chế RUN_EnsureMIGO311Ready: tái sử dụng nếu đã đúng mode 311, hoặc điều hướng từng bước
-      kèm đồng bộ Server Roundtrip và thử lại polling (Action A08 -> RefDoc R10 -> Movement 311 -> Enter).
-    - RUN_FindChildByNameExact & RUN_SetComboByCaption chọn đúng mục combobox theo chuỗi và key.
-    - Tự động đóng Header/Detail (MIGO_OK_HEADER_CLOSE / MIGO_OK_DETAIL_CLOSE) để mở rộng bảng lưới GOITEM.
-    - Ánh xạ cột chuẩn VBA V31 RUN_GetPreBatchColumnMap: col 3 (Material), col 4 (Qty), col 5 (Text/Trạm),
-      col 6 (Plant 3093), col 7 (SLoc 1005), col 8 (SLoc 3001).
-    - 3 lớp ghi ô an toàn: GetCell -> FindControlByCoord [col,row] -> ModifyCell.
-    - Nhịp 2: Nhận diện cột Batch thật (RUN_IsRealBatchTitle) và điền Batch -> Enter.
-    - Post chứng từ qua RUN_PressPost (Toolbar 1 btn[23] -> Toolbar 0 btn[11] -> MIGO_POST).
-    - Vòng lặp PostPollLoop tự động nhấn Enter qua cảnh báo Warning 'W' / Popup để trích xuất số chứng từ.
+    Tạo chứng từ chuyển kho MIGO 311 (1005 -> 3001) chuẩn xác 100% theo VBS ghi nhận thực tế của người dùng:
+    - Nhận diện các carrier subscreen: 0008 (thực tế máy user), 0004, 0003, 0002, 0001.
+    - Điền trực tiếp Movement Type 311 vào ctxtGODEFAULT_TV-BWART.
+    - Ghi ô dữ liệu bằng ID trực tiếp chuẩn VBS:
+      col 3: ctxtGOITEM-MAKTX (Material), col 4: txtGOITEM-ERFMG (Qty), col 5: txtGOITEM-SGTXT (Text/Trạm),
+      col 6: ctxtGOITEM-NAME1 (Plant 3093), col 7: ctxtGOITEM-LGOBE (Kho xuất 1005), col 8: ctxtGOITEM-UMLGOBE (Kho nhận 3001).
+    - Focus ctxtGOITEM-MAKTX[3,0] và gửi Enter nhịp 1 (sendVKey 0).
+    - Nhịp 2: Ghi Batch vào ctxtGOITEM-CHARG[10,r] -> Enter.
+    - Lưu / Post bằng sendVKey 11 (Save/Post chuẩn SAP).
+    - Bắt mọi số chứng từ 10 chữ số (\b(\d{10})\b) bao gồm dải số 1013147419 của hệ thống người dùng.
+    - Thoát MIGO trở lại Easy Access bằng btn[15] (F3).
     """
 
     @staticmethod
     def _find_child_by_name(obj, target_name: str):
-        """Tìm control đệ quy theo thuộc tính Name chuẩn xác như VBA RUN_FindChildByNameExact."""
+        """Tìm control đệ quy theo thuộc tính Name an toàn trong Python win32com."""
         if obj is None:
             return None
         try:
@@ -1121,9 +1121,8 @@ class MigoPostingService:
         try:
             children = getattr(obj, "Children", None)
             if children:
-                count = getattr(children, "Count", 0)
-                for i in range(count):
-                    res = MigoPostingService._find_child_by_name(children(i), target_name)
+                for child in children:
+                    res = MigoPostingService._find_child_by_name(child, target_name)
                     if res is not None:
                         return res
         except Exception:
@@ -1132,7 +1131,7 @@ class MigoPostingService:
 
     @staticmethod
     def _find_child_by_id_contains(obj, needle: str):
-        """Tìm control đệ quy theo chuỗi con trong Id chuẩn xác như VBA RUN_FindChildByIdContains."""
+        """Tìm control đệ quy theo chuỗi con trong Id an toàn trong Python win32com."""
         if obj is None:
             return None
         try:
@@ -1144,33 +1143,8 @@ class MigoPostingService:
         try:
             children = getattr(obj, "Children", None)
             if children:
-                count = getattr(children, "Count", 0)
-                for i in range(count):
-                    res = MigoPostingService._find_child_by_id_contains(children(i), needle)
-                    if res is not None:
-                        return res
-        except Exception:
-            pass
-        return None
-
-    @staticmethod
-    def _find_child_by_coord(obj, col: int, row: int):
-        """Tìm control cell theo tọa độ [col,row] chuẩn xác như VBA RUN_FindControlByCoord."""
-        if obj is None:
-            return None
-        needle = f"[{col},{row}]"
-        try:
-            o_id = str(getattr(obj, "Id", "") or "").strip()
-            if o_id.endswith(needle):
-                return obj
-        except Exception:
-            pass
-        try:
-            children = getattr(obj, "Children", None)
-            if children:
-                count = getattr(children, "Count", 0)
-                for i in range(count):
-                    res = MigoPostingService._find_child_by_coord(children(i), col, row)
+                for child in children:
+                    res = MigoPostingService._find_child_by_id_contains(child, needle)
                     if res is not None:
                         return res
         except Exception:
@@ -1179,7 +1153,7 @@ class MigoPostingService:
 
     @staticmethod
     def _get_combo_selected_text(combo) -> str:
-        """Đọc text đang được chọn trong combobox chuẩn VBA RUN_GetComboSelectedText."""
+        """Đọc text đang được chọn trong combobox an toàn."""
         if combo is None:
             return ""
         try:
@@ -1189,9 +1163,7 @@ class MigoPostingService:
             key = str(getattr(combo, "Key", "") or "").strip()
             entries = getattr(combo, "Entries", None)
             if entries:
-                count = getattr(entries, "Count", 0)
-                for i in range(count):
-                    ent = entries(i)
+                for ent in entries:
                     if str(getattr(ent, "Key", "")).strip() == key:
                         v = str(getattr(ent, "Value", "") or "").strip()
                         return v if v else str(getattr(ent, "Text", "") or "").strip()
@@ -1201,7 +1173,7 @@ class MigoPostingService:
 
     @staticmethod
     def _set_combo_by_caption(combo, caption1: str, caption2: str = "") -> bool:
-        """Chọn mục combobox theo chuỗi hiển thị chuẩn VBA RUN_SetComboByCaption."""
+        """Chọn mục combobox theo chuỗi hiển thị an toàn."""
         if combo is None:
             return False
         n1 = caption1.strip().upper()
@@ -1209,9 +1181,7 @@ class MigoPostingService:
         try:
             entries = getattr(combo, "Entries", None)
             if entries:
-                count = getattr(entries, "Count", 0)
-                for i in range(count):
-                    ent = entries(i)
+                for ent in entries:
                     e_val = str(getattr(ent, "Value", "") or "").strip().upper()
                     e_txt = str(getattr(ent, "Text", "") or "").strip().upper()
                     e_key = str(getattr(ent, "Key", "") or "").strip()
@@ -1221,7 +1191,6 @@ class MigoPostingService:
                         return True
         except Exception:
             pass
-        # Fallback theo mã Key phổ biến nếu duyệt Entries không tìm thấy
         try:
             if "TRANSFER" in n1:
                 combo.Key = "A08"
@@ -1234,23 +1203,25 @@ class MigoPostingService:
         return False
 
     @staticmethod
-    def _find_migo_table(session):
-        """Tìm bảng dữ liệu MIGO tblSAPLMIGOTV_GOITEM theo chuẩn VBA RUN_FindMigoItemTable."""
+    def _find_migo_table(session) -> Tuple[Any, str]:
+        """Tìm bảng dữ liệu MIGO tblSAPLMIGOTV_GOITEM và trả về (tbl_obj, tbl_id)."""
         if session is None:
-            return None
-        root = session.findById("wnd[0]", False)
-        if root is None:
-            root = session.findById("wnd[0]")
+            return None, ""
 
-        # 1. Đường dẫn trực tiếp subscreen 0004 & 0003
-        tbl = SapConnector.find_by_id_safe(session, "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM")
-        if tbl is not None:
-            return tbl
-        tbl = SapConnector.find_by_id_safe(session, "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM")
-        if tbl is not None:
-            return tbl
+        # Ưu tiên subscreen 0008 theo VBS ghi nhận thực tế trên máy người dùng
+        candidate_paths = [
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0008/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0001/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
+        ]
+        for p in candidate_paths:
+            tbl = SapConnector.find_by_id_safe(session, p)
+            if tbl is not None:
+                return tbl, p
 
-        # 2. Đóng panel Header/Detail nếu đang che khuất bảng
+        # Thu gọn Header / Detail để mở rộng bảng lưới
         try:
             session.SendCommand("MIGO_OK_HEADER_CLOSE")
             time.sleep(0.15)
@@ -1259,84 +1230,118 @@ class MigoPostingService:
         except Exception:
             pass
 
-        # 3. Quét đệ quy tìm bảng trong toàn bộ cây wnd[0]
+        # Thử lại danh sách candidate paths sau khi thu gọn panel
+        for p in candidate_paths:
+            tbl = SapConnector.find_by_id_safe(session, p)
+            if tbl is not None:
+                return tbl, p
+
+        # Quét đệ quy toàn bộ wnd[0]
+        root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
         tbl = MigoPostingService._find_child_by_id_contains(root, "tblSAPLMIGOTV_GOITEM")
         if tbl is not None:
-            return tbl
+            tbl_id = str(getattr(tbl, "Id", "") or "").strip()
+            return tbl, tbl_id
+
         tbl = MigoPostingService._find_child_by_id_contains(root, "GOITEM")
         if tbl is not None:
-            return tbl
+            tbl_id = str(getattr(tbl, "Id", "") or "").strip()
+            return tbl, tbl_id
 
-        # 4. Quét qua các subscreen khác
-        for sub in ["0001", "0002", "0003", "0004"]:
-            for itemlist in ["0200", "0210", "0205"]:
-                try:
-                    cand = f"usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_ITEMLIST:SAPLMIGO:{itemlist}/tblSAPLMIGOTV_GOITEM"
-                    t = root.findById(cand, False)
-                    if t is not None:
-                        return t
-                except Exception:
-                    pass
-        return None
+        return None, ""
 
     @staticmethod
-    def _is_migo_311_mode_ready(session) -> bool:
-        """Kiểm tra MIGO đã ở đúng trạng thái Transfer Posting -> Other -> 311 theo RUN_IsMIGO311ModeReady."""
-        if session is None:
-            return False
-        try:
-            root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
-            act_combo = MigoPostingService._find_child_by_name(root, "GODYNPRO-ACTION")
-            ref_combo = MigoPostingService._find_child_by_name(root, "GODYNPRO-REFDOC")
-            mvt_field = MigoPostingService._find_child_by_name(root, "GODEFAULT_TV-BWART")
+    def _write_table_cell(
+        session,
+        tbl_obj,
+        tbl_path: str,
+        col_names: List[str],
+        col_indices: List[int],
+        row: int,
+        val: str
+    ) -> bool:
+        """Ghi giá trị vào cell MIGO qua nhiều lớp bảo vệ (Direct ID -> Iterate Children -> GetCell -> ModifyCell)."""
+        val_str = str(val).strip()
 
-            act_text = MigoPostingService._get_combo_selected_text(act_combo).upper()
-            ref_text = MigoPostingService._get_combo_selected_text(ref_combo).upper()
-            mvt_text = str(getattr(mvt_field, "Text", "") or "").strip() if mvt_field else ""
+        # 1. Thử trực tiếp qua session.findById với các định dạng ID đã ghi nhận từ VBS
+        if tbl_path:
+            for name in col_names:
+                for col in col_indices:
+                    cell_id = f"{tbl_path}/{name}[{col},{row}]"
+                    ctl = SapConnector.find_by_id_safe(session, cell_id)
+                    if ctl is not None:
+                        try:
+                            ctl.text = val_str
+                            return True
+                        except Exception:
+                            try:
+                                ctl.Text = val_str
+                                return True
+                            except Exception:
+                                pass
 
-            is_transfer = "TRANSFER" in act_text or getattr(act_combo, "Key", "") == "A08"
-            is_other = "OTHER" in ref_text or "KHAC" in ref_text or getattr(ref_combo, "Key", "") == "R10"
-            is_311 = (mvt_text == "311")
+        # 2. Duyệt qua Children của tbl_obj bằng Python iterator
+        if tbl_obj is not None:
+            try:
+                children = getattr(tbl_obj, "Children", None)
+                if children:
+                    for child in children:
+                        c_id = str(getattr(child, "Id", "") or "").strip()
+                        for name in col_names:
+                            if name in c_id and (f",{row}]" in c_id or f"[{row}]" in c_id):
+                                try:
+                                    child.text = val_str
+                                    return True
+                                except Exception:
+                                    try:
+                                        child.Text = val_str
+                                        return True
+                                    except Exception:
+                                        pass
+            except Exception:
+                pass
 
-            return bool(is_transfer and is_other and is_311)
-        except Exception:
-            return False
+        # 3. Thử qua GetCell
+        if tbl_obj is not None:
+            for col in col_indices:
+                try:
+                    cell = tbl_obj.GetCell(row, col)
+                    if cell is not None:
+                        try:
+                            cell.Text = val_str
+                            return True
+                        except Exception:
+                            try:
+                                cell.text = val_str
+                                return True
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+        # 4. Thử qua ModifyCell
+        if tbl_obj is not None:
+            for col in col_indices:
+                try:
+                    tbl_obj.ModifyCell(row, col, val_str)
+                    return True
+                except Exception:
+                    pass
+
+        return False
 
     @staticmethod
     def ensure_migo_311_ready(session, timeout_sec: float = 15.0) -> Tuple[bool, str]:
         """
-        Khởi tạo và đảm bảo phiên MIGO sẵn sàng 100% theo đúng quy trình VBA RUN_EnsureMIGO311Ready:
-        1. Nếu đã ở đúng mode 311, tái sử dụng ngay lập tức (không gõ lại /nMIGO tránh nhấp nháy reset).
+        Khởi tạo và đảm bảo phiên MIGO sẵn sàng 100%:
+        1. Maximize cửa sổ wnd[0].
         2. Nếu chưa ở MIGO, mở /nMIGO và đợi ổn định.
-        3. Cấu hình từng bước kèm chờ SAP Server Roundtrip (Action -> chờ -> RefDoc -> chờ -> BWART -> Enter -> chờ).
-        4. Thu gọn Header/Detail để mở bảng GOITEM.
+        3. Điền Movement Type 311 vào ctxtGODEFAULT_TV-BWART (ưu tiên subscreen 0008).
+        4. Thu gọn Header/Detail để mở rộng bảng lưới GOITEM.
+        5. Xác thực bảng tblSAPLMIGOTV_GOITEM.
         """
         if session is None:
             return False, "Phiên SAP GUI chưa được khởi tạo!"
-
-        SapConnector.dismiss_popups(session)
-
-        # 1. Kiểm tra nếu đã sẵn sàng chế độ Transfer Posting -> Other -> 311
-        if MigoPostingService._is_migo_311_mode_ready(session):
-            tbl = MigoPostingService._find_migo_table(session)
-            if tbl is not None:
-                return True, ""
-
-        # 2. Điều hướng tới MIGO nếu đang ở màn hình khác
-        try:
-            info = getattr(session, "Info", None)
-            current_tcode = str(getattr(info, "Transaction", "") or "").strip().upper()
-        except Exception:
-            current_tcode = ""
-
-        if current_tcode != "MIGO":
-            okcd = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/okcd")
-            if okcd is not None:
-                okcd.text = "/nMIGO"
-                session.findById("wnd[0]").sendVKey(0)
-            else:
-                session.StartTransaction("MIGO")
-            SapConnector.wait_idle(session, 4.0)
 
         try:
             session.findById("wnd[0]").maximize()
@@ -1344,135 +1349,95 @@ class MigoPostingService:
             pass
 
         SapConnector.dismiss_popups(session)
-        t0 = time.time()
 
-        # 3. Bước 1: Thiết lập ACTION = Transfer Posting
-        action_set = False
-        while time.time() - t0 < timeout_sec:
+        # 1. Kiểm tra transaction hiện tại
+        try:
+            info = getattr(session, "Info", None)
+            cur_tcode = str(getattr(info, "Transaction", "") or "").strip().upper()
+        except Exception:
+            cur_tcode = ""
+
+        if cur_tcode != "MIGO":
+            okcd = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/okcd")
+            if okcd is not None:
+                okcd.text = "/nMIGO"
+                session.findById("wnd[0]").sendVKey(0)
+            else:
+                session.StartTransaction("MIGO")
+            SapConnector.wait_idle(session, 3.0)
+            SapConnector.dismiss_popups(session)
+
+        # 2. Tìm và điền Movement Type 311
+        bwart_candidates = [
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0008/subSUB_FIRSTLINE:SAPLMIGO:0011/ctxtGODEFAULT_TV-BWART",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0004/subSUB_FIRSTLINE:SAPLMIGO:0011/ctxtGODEFAULT_TV-BWART",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0011/ctxtGODEFAULT_TV-BWART",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0011/ctxtGODEFAULT_TV-BWART",
+            "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0001/subSUB_FIRSTLINE:SAPLMIGO:0011/ctxtGODEFAULT_TV-BWART",
+        ]
+        bwart_field = None
+        for bp in bwart_candidates:
+            bwart_field = SapConnector.find_by_id_safe(session, bp)
+            if bwart_field is not None:
+                break
+
+        if bwart_field is None:
+            root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
+            bwart_field = MigoPostingService._find_child_by_name(root, "GODEFAULT_TV-BWART")
+
+        # Nếu không có BWART field, mới cần điều chỉnh combobox Action/RefDoc
+        if bwart_field is None:
             root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
             act_combo = MigoPostingService._find_child_by_name(root, "GODYNPRO-ACTION")
             if act_combo is not None:
                 cur_act = MigoPostingService._get_combo_selected_text(act_combo).upper()
-                if "TRANSFER" in cur_act or getattr(act_combo, "Key", "") == "A08":
-                    action_set = True
-                    break
-                # Chọn Transfer Posting
-                if MigoPostingService._set_combo_by_caption(act_combo, "TRANSFER POSTING", "TRANSFER POST"):
-                    action_set = True
-                    # BẮT BUỘC ĐỢI SAP HOÀN TẤT ROUNDTRIP
-                    SapConnector.wait_idle(session, 4.0)
-                    time.sleep(0.3)
-                    SapConnector.dismiss_popups(session)
-                    break
-            time.sleep(0.3)
+                if not ("TRANSFER" in cur_act or getattr(act_combo, "Key", "") == "A08"):
+                    MigoPostingService._set_combo_by_caption(act_combo, "TRANSFER POSTING", "TRANSFER POST")
+                    SapConnector.wait_idle(session, 2.5)
 
-        if not action_set:
-            return False, "Không thể thiết lập Action = Transfer Posting trong MIGO!"
-
-        # 4. Bước 2: Thiết lập REFERENCE = Other
-        ref_set = False
-        t_ref = time.time()
-        while time.time() - t_ref < 10.0:
-            root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
             ref_combo = MigoPostingService._find_child_by_name(root, "GODYNPRO-REFDOC")
             if ref_combo is not None:
                 cur_ref = MigoPostingService._get_combo_selected_text(ref_combo).upper()
-                if "OTHER" in cur_ref or "KHAC" in cur_ref or getattr(ref_combo, "Key", "") == "R10":
-                    ref_set = True
-                    break
-                # Chọn Other
-                if MigoPostingService._set_combo_by_caption(ref_combo, "OTHER", "KHAC"):
-                    ref_set = True
-                    # BẮT BUỘC ĐỢI SAP HOÀN TẤT ROUNDTRIP
-                    SapConnector.wait_idle(session, 4.0)
-                    time.sleep(0.3)
-                    SapConnector.dismiss_popups(session)
-                    break
-            time.sleep(0.3)
+                if not ("OTHER" in cur_ref or "KHAC" in cur_ref or getattr(ref_combo, "Key", "") == "R10"):
+                    MigoPostingService._set_combo_by_caption(ref_combo, "OTHER", "KHAC")
+                    SapConnector.wait_idle(session, 2.5)
 
-        if not ref_set:
-            return False, "Không tìm thấy hoặc không chọn được Reference = Other trong MIGO!"
-
-        # 5. Bước 3: Thiết lập Movement Type = 311
-        mvt_set = False
-        t_mvt = time.time()
-        while time.time() - t_mvt < 10.0:
-            root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
-            mvt_field = MigoPostingService._find_child_by_name(root, "GODEFAULT_TV-BWART")
-            if mvt_field is not None:
-                cur_mvt = str(getattr(mvt_field, "Text", "") or "").strip()
-                if cur_mvt == "311":
-                    mvt_set = True
+            for bp in bwart_candidates:
+                bwart_field = SapConnector.find_by_id_safe(session, bp)
+                if bwart_field is not None:
                     break
+            if bwart_field is None:
+                root = session.findById("wnd[0]", False) or session.findById("wnd[0]")
+                bwart_field = MigoPostingService._find_child_by_name(root, "GODEFAULT_TV-BWART")
+
+        if bwart_field is not None:
+            try:
+                bwart_field.text = "311"
+            except Exception:
                 try:
-                    mvt_field.Text = "311"
-                    session.findById("wnd[0]").sendVKey(0)  # Enter để commit Movement Type 311
-                    SapConnector.wait_idle(session, 4.0)
-                    time.sleep(0.3)
-                    SapConnector.dismiss_popups(session)
-                    mvt_set = True
-                    break
-                except Exception as ex:
-                    print(f"[SET BWART ERR] {ex}")
-            time.sleep(0.3)
+                    bwart_field.Text = "311"
+                except Exception:
+                    pass
 
-        if not mvt_set:
-            return False, "Không tìm thấy hoặc không điền được Movement Type 311 trong GODEFAULT_TV-BWART!"
-
-        # 6. Kiểm tra thông báo lỗi trên status bar
-        sbar_txt, sbar_type = SapConnector.get_status(session)
-        if sbar_type in ["E", "A"]:
-            return False, f"SAP không chấp nhận MIGO 311: ({sbar_type}) {sbar_txt}"
-
-        # 7. Thu gọn Header/Detail để mở rộng bảng lưới
+        # 3. Thu gọn Header/Detail để bảng lưới hiển thị đầy đủ
         try:
             session.SendCommand("MIGO_OK_HEADER_CLOSE")
-            time.sleep(0.15)
+            time.sleep(0.1)
             session.SendCommand("MIGO_OK_DETAIL_CLOSE")
-            time.sleep(0.2)
-            SapConnector.wait_idle(session, 2.0)
+            time.sleep(0.15)
         except Exception:
             pass
 
-        # 8. Kiểm tra bảng lưới GOITEM đã sẵn sàng
-        tbl = MigoPostingService._find_migo_table(session)
-        if tbl is None:
-            return False, "Đã cấu hình Transfer Posting 311 nhưng không tìm thấy bảng lưới nhập liệu (GOITEM)!"
+        # 4. Kiểm tra bảng MIGO
+        tbl, tbl_path = MigoPostingService._find_migo_table(session)
+        if tbl is None and not tbl_path:
+            return False, "Đã vào MIGO 311 nhưng không tìm thấy bảng lưới nhập liệu (tblSAPLMIGOTV_GOITEM)!"
 
         return True, ""
 
     @staticmethod
-    def _set_cell(tbl, row: int, col: int, val: str) -> bool:
-        """Ghi dữ liệu vào cell bảng MIGO chuẩn VBA V31 (GetCell -> FindControlByCoord -> ModifyCell)."""
-        val_str = str(val).strip()
-        # 1. Thử qua GetCell
-        try:
-            cell = tbl.GetCell(row, col)
-            if cell is not None:
-                cell.Text = val_str
-                return True
-        except Exception:
-            pass
-        # 2. Thử qua FindControlByCoord [col,row]
-        try:
-            ctl = MigoPostingService._find_child_by_coord(tbl, col, row)
-            if ctl is not None:
-                ctl.Text = val_str
-                return True
-        except Exception:
-            pass
-        # 3. Thử qua ModifyCell
-        try:
-            tbl.ModifyCell(row, col, val_str)
-            return True
-        except Exception:
-            pass
-        return False
-
-    @staticmethod
     def _press_post(session) -> bool:
-        """Nhấn nút Post theo đúng thứ tự ưu tiên của VBA V31 RUN_PressPost."""
-        # 1. Nút Post trên Toolbar 1 (btn[23]) - chuẩn SAP MIGO
+        """Nhấn nút Post theo đúng thứ tự ưu tiên."""
         try:
             btn_post1 = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[1]/btn[23]")
             if btn_post1 is not None:
@@ -1480,7 +1445,6 @@ class MigoPostingService:
                 return True
         except Exception:
             pass
-        # 2. Nút Save trên Toolbar 0 (btn[11])
         try:
             btn_save0 = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/btn[11]")
             if btn_save0 is not None:
@@ -1488,7 +1452,6 @@ class MigoPostingService:
                 return True
         except Exception:
             pass
-        # 3. Gửi lệnh nội bộ MIGO_POST
         try:
             session.SendCommand("MIGO_POST")
             return True
@@ -1504,148 +1467,164 @@ class MigoPostingService:
         source_sloc: str = "1005",
         dest_sloc: str = "3001"
     ) -> Tuple[bool, str]:
-        """
-        Tạo chứng từ MIGO 311 cho 1 nhóm đơn theo đúng chuẩn VBA V31 260810_RA_DON_NVL_V31_ZONE:
-        1. Khởi tạo và đồng bộ trạng thái Transfer Posting -> Other -> 311 qua ensure_migo_311_ready.
-        2. Ghi Phase 1: Material (col 3), Qty (col 4), Text/Trạm (col 5), Plant (col 6), SLoc 1005 (col 7), SLocTo 3001 (col 8).
-        3. Gửi Enter nhịp 1.
-        4. Tìm cột Batch thật (Title chứa BATCH, không chứa TRFR/TRANSFER/PSTG), ghi Batch -> Enter nhịp 2.
-        5. Bấm Post btn[23] (fallback btn[11]) và lặp xử lý Warning 'W' / Popup bằng Enter.
-        6. Trích xuất số Material Document 10 chữ số (hoặc Delivery Outbound).
-        """
+        """Tạo chứng từ MIGO 311 cho 1 nhóm đơn theo đúng chuẩn VBS thực tế."""
         try:
-            # 1. Đảm bảo MIGO 311 sẵn sàng chuẩn VBA
+            # 1. Đảm bảo màn hình MIGO 311 sẵn sàng
             ok_ready, err_ready = MigoPostingService.ensure_migo_311_ready(session)
             if not ok_ready:
                 return False, f"Lỗi cấu hình màn hình MIGO 311: {err_ready}"
 
             # 2. Tìm bảng chi tiết
-            tbl = MigoPostingService._find_migo_table(session)
-            if tbl is None:
-                return False, "Không tìm thấy bảng lưới nhập liệu MIGO (tblSAPLMIGOTV_GOITEM)!"
+            tbl, tbl_path = MigoPostingService._find_migo_table(session)
+            if not tbl_path and tbl is not None:
+                tbl_path = str(getattr(tbl, "Id", "") or "").strip()
+            if not tbl_path:
+                tbl_path = "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0008/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM"
 
             lines = group_data.get("lines", [])
             station_text = group_data.get("tl", "") or group_data.get("zone", "NVL")
 
-            # Ánh xạ cột chuẩn VBA V31 RUN_GetPreBatchColumnMap:
-            # col 3: Product (Material)
-            # col 4: Qty
-            # col 5: Text (Trạm/Người nhận)
-            # col 6: Plant (3093)
-            # col 7: SLoc From (1005)
-            # col 8: SLoc To (3001)
-            col_map = {"material": 3, "qty": 4, "text": 5, "plant": 6, "sloc_from": 7, "sloc_to": 8}
+            # 3. Phase 1: Điền dữ liệu chung từng dòng
+            for idx, item in enumerate(lines):
+                mat_code = str(item["material"]).strip()
+                qty_raw = item["qty"]
+                qty_val = int(qty_raw) if float(qty_raw).is_integer() else qty_raw
+                line_station = item.get("station", station_text) or station_text
+                line_text = str(line_station)[:50]
+
+                # Ghi Material (Ưu tiên col 3 ctxtGOITEM-MAKTX / ctxtGOITEM-MATNR)
+                mat_ok = MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["ctxtGOITEM-MAKTX", "ctxtGOITEM-MATNR"],
+                    [3, 1, 2],
+                    idx,
+                    mat_code
+                )
+                if not mat_ok:
+                    return False, f"Không thể ghi Material vào dòng {idx+1} của bảng MIGO!"
+
+                # Ghi Qty (col 4 txtGOITEM-ERFMG)
+                MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["txtGOITEM-ERFMG"],
+                    [4, 2, 3],
+                    idx,
+                    str(qty_val)
+                )
+
+                # Ghi Text/Trạm (col 5 txtGOITEM-SGTXT)
+                MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["txtGOITEM-SGTXT"],
+                    [5, 4, 6],
+                    idx,
+                    line_text
+                )
+
+                # Ghi Plant (col 6 ctxtGOITEM-NAME1 / ctxtGOITEM-WERKS)
+                MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["ctxtGOITEM-NAME1", "ctxtGOITEM-WERKS"],
+                    [6, 5, 7],
+                    idx,
+                    plant
+                )
+
+                # Ghi Kho xuất (col 7 ctxtGOITEM-LGOBE / ctxtGOITEM-LGORT)
+                MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["ctxtGOITEM-LGOBE", "ctxtGOITEM-LGORT"],
+                    [7, 6, 8],
+                    idx,
+                    source_sloc
+                )
+
+                # Ghi Kho nhận (col 8 ctxtGOITEM-UMLGOBE / ctxtGOITEM-UMLGO)
+                MigoPostingService._write_table_cell(
+                    session, tbl, tbl_path,
+                    ["ctxtGOITEM-UMLGOBE", "ctxtGOITEM-UMLGO"],
+                    [8, 7, 9],
+                    idx,
+                    dest_sloc
+                )
+
+            # Focus vào ctxtGOITEM-MAKTX[3,0] và gửi Enter nhịp 1 (chuẩn VBS dòng 26-28)
             try:
-                col_count = getattr(tbl.Columns, "Count", 0)
-                for c_i in range(min(col_count, 12)):
-                    col_obj = tbl.Columns.ElementAt(c_i)
-                    t_title = str(getattr(col_obj, "Title", "") or "").strip().upper()
-                    if "MATERIAL" in t_title or "PRODUCT" in t_title or "MÃ HÀNG" in t_title:
-                        col_map["material"] = c_i
-                    elif "QTY" in t_title or "QUANTITY" in t_title or "SỐ LƯỢNG" in t_title:
-                        col_map["qty"] = c_i
-                    elif "TEXT" in t_title or "ITEM TEXT" in t_title:
-                        col_map["text"] = c_i
-                    elif "PLANT" in t_title:
-                        col_map["plant"] = c_i
+                f_mat = SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MAKTX[3,0]") or                         SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-MATNR[3,0]")
+                if f_mat:
+                    f_mat.setFocus()
+                    f_mat.caretPosition = 0
             except Exception:
                 pass
 
-            # Phase 1: Điền dữ liệu chung từng dòng
-            for idx, item in enumerate(lines):
-                mat_code = item["material"]
-                qty_val = int(item["qty"]) if float(item["qty"]).is_integer() else item["qty"]
-                line_station = item.get("station", station_text) or station_text
-                line_text = line_station[:50]
-
-                if not MigoPostingService._set_cell(tbl, idx, col_map["material"], mat_code):
-                    return False, f"Không thể ghi Material vào dòng {idx+1} của bảng MIGO!"
-                MigoPostingService._set_cell(tbl, idx, col_map["qty"], str(qty_val))
-                MigoPostingService._set_cell(tbl, idx, col_map["text"], line_text)
-                MigoPostingService._set_cell(tbl, idx, col_map["plant"], plant)
-                MigoPostingService._set_cell(tbl, idx, col_map["sloc_from"], source_sloc)
-                MigoPostingService._set_cell(tbl, idx, col_map["sloc_to"], dest_sloc)
-
-            # Gửi Enter Nhịp 1
-            session.findById("wnd[0]").sendVKey(0)
-            SapConnector.wait_idle(session, 2.5)
+            session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 1
+            SapConnector.wait_idle(session, 2.0)
             SapConnector.dismiss_popups(session)
 
-            # Phase 2: Xác định cột Batch thật (chuẩn VBA RUN_IsRealBatchTitle)
-            tbl = MigoPostingService._find_migo_table(session)
-            batch_col = -1
-            if tbl is not None:
-                try:
-                    c_count = getattr(tbl.Columns, "Count", 0)
-                    for c_i in range(c_count):
-                        col_t = str(getattr(tbl.Columns.ElementAt(c_i), "Title", "") or "").strip().upper()
-                        # Real batch title: chứa BATCH nhưng không chứa TRFR, TRANSFER, PSTG
-                        if "BATCH" in col_t and "TRFR" not in col_t and "TRANSFER" not in col_t and "PSTG" not in col_t:
-                            batch_col = c_i
-                            break
-                except Exception:
-                    pass
-
-            if tbl is not None and batch_col >= 0:
-                has_any_batch = False
-                for idx, item in enumerate(lines):
-                    b_str = str(item.get("batch", "")).strip()
-                    if b_str:
-                        MigoPostingService._set_cell(tbl, idx, batch_col, b_str)
+            # 4. Phase 2: Điền Batch nếu có (chuẩn VBS dòng 29-31)
+            has_any_batch = False
+            for idx, item in enumerate(lines):
+                b_str = str(item.get("batch", "")).strip()
+                if b_str:
+                    b_ok = MigoPostingService._write_table_cell(
+                        session, tbl, tbl_path,
+                        ["ctxtGOITEM-CHARG"],
+                        [10, 9, 11],
+                        idx,
+                        b_str
+                    )
+                    if b_ok:
                         has_any_batch = True
-                if has_any_batch:
-                    session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 2
-                    SapConnector.wait_idle(session, 2.0)
-                    SapConnector.dismiss_popups(session)
+                        try:
+                            f_batch = SapConnector.find_by_id_safe(session, f"{tbl_path}/ctxtGOITEM-CHARG[10,{idx}]")
+                            if f_batch:
+                                f_batch.setFocus()
+                                f_batch.caretPosition = len(b_str)
+                        except Exception:
+                            pass
 
-            # 5. Check chứng từ (Tùy chọn - tbar[1]/btn[7])
+            if has_any_batch:
+                session.findById("wnd[0]").sendVKey(0)  # Enter Nhịp 2
+                SapConnector.wait_idle(session, 2.0)
+                SapConnector.dismiss_popups(session)
+
+            # 5. Lưu / Post chứng từ: Gửi sendVKey 11 (Save/Post chuẩn VBS dòng 32)
             try:
-                btn_check = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[1]/btn[7]")
-                if btn_check is not None:
-                    btn_check.press()
-                    SapConnector.wait_idle(session, 1.5)
-                    SapConnector.dismiss_popups(session)
+                session.findById("wnd[0]").sendVKey(11)
             except Exception:
-                pass
+                MigoPostingService._press_post(session)
 
-            # 6. Bấm POST chứng từ (Toolbar 1 btn[23] -> Toolbar 0 btn[11] -> MIGO_POST)
-            if not MigoPostingService._press_post(session):
-                return False, "Không thể bấm nút Post / Lưu chứng từ MIGO!"
-
-            # 7. Vòng lặp kiểm tra kết quả & xác nhận Warning/Popup bằng Enter (chuẩn VBA PostPollLoop)
+            # 6. Polling đọc số chứng từ và tự động ấn Enter qua Warning/Popup
             last_status = ""
-            for loop in range(12):
-                SapConnector.wait_idle(session, 1.5)
+            doc_no = ""
+            for loop in range(15):
+                SapConnector.wait_idle(session, 1.0)
                 pop_txt = SapConnector.dismiss_popups(session)
                 sbar_txt, sbar_type = SapConnector.get_status(session)
                 combined = f"{sbar_txt} | {pop_txt}".strip(" |")
                 if combined:
                     last_status = combined
 
-                # Trích xuất số Document (10 chữ số bắt đầu bằng 5, 8, 49, 50)
-                m_doc = re.search(r"\b(5\d{9}|8\d{9}|49\d{8}|50\d{8})\b", combined)
-                if not m_doc:
-                    # Trích xuất theo pattern Outbound Delivery
-                    m_deliv = re.search(r"(?:OUTBOUND\s+DELIVERY|DELIVERY|DELIV\.?|DOCUMENT)[^0-9]{0,40}([0-9]{8,12})", combined, re.IGNORECASE)
-                    if m_deliv:
-                        m_doc = m_deliv
+                # Trích xuất số chứng từ: Mọi số 10 chữ số (chuẩn 1013147419 của người dùng hoặc dải 50/49/8/5)
+                m_doc10 = re.search(r"(\d{10})", combined)
+                if m_doc10:
+                    doc_no = m_doc10.group(1)
+                    break
 
-                if m_doc:
-                    doc_no = m_doc.group(1) if m_doc.lastindex else m_doc.group(0)
-                    return True, doc_no
+                # Trích xuất từ Outbound Delivery / Document
+                m_deliv = re.search(r"(?:OUTBOUND\s+DELIVERY|DELIVERY|DELIV\.?|DOCUMENT|CHỨNG TỪ)[^0-9]{0,40}([0-9]{8,12})", combined, re.IGNORECASE)
+                if m_deliv:
+                    doc_no = m_deliv.group(1)
+                    break
 
-                # Nếu trạng thái là S (Success)
                 if sbar_type == "S":
-                    m_any = re.search(r"\b(\d{10})\b", combined)
-                    if m_any:
-                        return True, m_any.group(1)
-                    return True, "POSTED_OK"
+                    m_any = re.search(r"(\d{10})", combined)
+                    doc_no = m_any.group(1) if m_any else "POSTED_OK"
+                    break
 
-                # Nếu trạng thái là Lỗi nghiêm trọng (E hoặc A)
                 if sbar_type in ["E", "A"]:
                     return False, f"Lỗi SAP MIGO ({sbar_type}): {sbar_txt}"
 
-                # Nếu là cảnh báo Warning (W) hoặc có popup xuất hiện, nhấn Enter để xác nhận đi tiếp
                 if sbar_type == "W" or pop_txt:
                     try:
                         session.findById("wnd[0]").sendVKey(0)
@@ -1654,24 +1633,42 @@ class MigoPostingService:
                         pass
                     continue
 
-                time.sleep(0.5)
+                time.sleep(0.4)
+
+            # 7. Sau khi post thành công, thoát MIGO về Easy Access (chuẩn VBS dòng 33-34)
+            if doc_no:
+                try:
+                    btn15 = SapConnector.find_by_id_safe(session, "wnd[0]/tbar[0]/btn[15]")
+                    if btn15:
+                        btn15.press()
+                        SapConnector.wait_idle(session, 1.0)
+                except Exception:
+                    pass
+                return True, doc_no
 
             return False, f"MIGO chưa hoàn tất sau khi Post: {last_status or 'Không nhận được số chứng từ từ SAP'}"
 
         except Exception as ex:
             return False, f"Lỗi ngoại lệ MIGO: {ex}"
+
+
 # ==============================================================================
-# 7. TRA CỨU MON NỐI OB - WHO - MÃ HÀNG (TRÁNH BẪY CROSS-JOIN)
+# 7. TRA CỨU MON NỐI OB - WHO - MÃ HÀNG & IN PHIẾU TRỰC TIẾP CHUẨN VBS
 # ==============================================================================
 
 class MonRelationService:
-    """Tra cứu MON để đối soát chính xác 3 cột: OB - Mã hàng - Số đơn (WHO)."""
+    """Tra cứu MON để đối soát chính xác 3 cột: OB - Mã hàng - Số đơn (WHO) và in WHO chuẩn VBS."""
 
     @staticmethod
-    def query_who_for_ob(session, ob_number: str) -> Dict[str, List[str]]:
+    def query_who_for_ob(session, ob_number: str, auto_print: bool = True) -> Dict[str, List[str]]:
         """
-        Tra MON theo OB. Trả về: Dict[Material, List[WHO]]
-        Chỉ gắn WHO cho đúng Material chứa nó qua khóa dòng của Outbound Order.
+        Tra MON theo OB chuẩn xác VBS thực tế:
+        1. Mở Favorite F00077 (hoặc /n/SCWM/MON).
+        2. Chọn Node N000000010 (Outbound Delivery Order).
+        3. Điền OB vào wnd[1]/usr/txtS_ERP_H-LOW và bấm F8 (btn[8]).
+        4. Bấm nút N000000011 (Warehouse Tasks / WHO) trên Toolbar lưới trên.
+        5. Đọc lưới dưới lấy WHO và MATNR (hoặc PRODUCTNO), DOCNO.
+        6. Nếu auto_print=True: selectAll -> Context METHODS -> @M00007 -> Enter popup wnd[1]/tbar[0]/btn[0] -> Refresh.
         """
         clean_ob = re.sub(r"[^0-9]", "", str(ob_number)).strip()
         mat_who_map: Dict[str, List[str]] = {}
@@ -1680,53 +1677,70 @@ class MonRelationService:
             return mat_who_map
 
         try:
-            # 1. Mở màn hình /SCWM/MON an toàn
-            SapConnector.open_mon_screen(session)
+            # 1. Mở màn hình /SCWM/MON an toàn qua Favorite F00077 (chuẩn VBS dòng 35)
+            fav_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlIMAGE_CONTAINER/shellcont/shell/shellcont[0]/shell")
+            if fav_tree is not None:
+                try:
+                    fav_tree.doubleClickNode("F00077")
+                    SapConnector.wait_idle(session, 2.0)
+                except Exception:
+                    SapConnector.open_mon_screen(session)
+            else:
+                SapConnector.open_mon_screen(session)
 
-            # 2. Chọn nhánh Outbound Delivery Order (N000000010)
+            # 2. Chọn nhánh Outbound Delivery Order (N000000010 - chuẩn VBS dòng 36-37)
             mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
             if mon_tree:
-                mon_tree.selectedNode = "N000000010"
-                mon_tree.doubleClickNode("N000000010")
-                SapConnector.wait_idle(session, 2.5)
-
-            # 3. Lọc theo OB và F8 trên wnd[1]
-            txt_ob = (
-                SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_ERP_H-LOW") or
-                SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW")
-            )
-            if txt_ob:
-                txt_ob.text = clean_ob
-            btn_f8 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
-            if btn_f8:
-                btn_f8.press()
-                SapConnector.wait_idle(session, 3.5)
-
-            # 4. Bấm nút [Warehouse Order] (N000000108)
-            top_grid = (
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell") or
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell")
-            )
-            if top_grid:
                 try:
-                    top_grid.pressToolbarButton("N000000108")
-                    SapConnector.wait_idle(session, 2.5)
+                    mon_tree.selectedNode = "N000000010"
+                    mon_tree.doubleClickNode("N000000010")
+                    SapConnector.wait_idle(session, 2.0)
                 except Exception:
                     pass
 
-            # 5. Đọc lưới dưới lấy WHO và MATNR
-            bottom_grid = (
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell")
+            # 3. Lọc theo OB và F8 trên wnd[1] (chuẩn VBS dòng 38-41)
+            txt_ob = (
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW") or
+                SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_ERP_H-LOW")
             )
+            if txt_ob:
+                txt_ob.text = clean_ob
+                try:
+                    txt_ob.setFocus()
+                    txt_ob.caretPosition = len(clean_ob)
+                except Exception:
+                    pass
+
+            btn_f8 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
+            if btn_f8:
+                btn_f8.press()
+                SapConnector.wait_idle(session, 3.0)
+
+            # 4. Bấm nút Warehouse Tasks (N000000011 - chuẩn VBS dòng 42)
+            top_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
+            if top_grid:
+                try:
+                    top_grid.pressToolbarButton("N000000011")
+                    SapConnector.wait_idle(session, 2.5)
+                except Exception:
+                    try:
+                        top_grid.pressToolbarButton("N000000108")
+                        SapConnector.wait_idle(session, 2.5)
+                    except Exception:
+                        pass
+
+            # 5. Đọc lưới dưới lấy WHO và MATNR (chuẩn VBS dòng 45-88)
+            bottom_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell")
             if bottom_grid:
                 row_count = getattr(bottom_grid, "RowCount", 0)
                 for r in range(row_count):
                     try:
                         who_val = str(bottom_grid.GetCellValue(r, "WHO")).strip()
                         mat_val = str(bottom_grid.GetCellValue(r, "MATNR")).strip()
+                        if not mat_val:
+                            mat_val = str(bottom_grid.GetCellValue(r, "PRODUCTNO")).strip()
 
-                        if who_val.startswith("6") and mat_val:
+                        if who_val and mat_val:
                             if mat_val not in mat_who_map:
                                 mat_who_map[mat_val] = []
                             if who_val not in mat_who_map[mat_val]:
@@ -1734,15 +1748,35 @@ class MonRelationService:
                     except Exception:
                         pass
 
+                # 6. Tự động In phiếu WHO trực tiếp trong MON (chuẩn VBS dòng 92-100)
+                if auto_print and row_count > 0:
+                    try:
+                        bottom_grid.selectAll()
+                        bottom_grid.pressToolbarContextButton("METHODS")
+                        bottom_grid.selectContextMenuItem("@M00007")
+                        SapConnector.wait_idle(session, 1.5)
+
+                        # Bấm nút Enter / OK trên popup xác nhận in (wnd[1]/tbar[0]/btn[0])
+                        btn_confirm = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[0]")
+                        if btn_confirm:
+                            btn_confirm.press()
+                            SapConnector.wait_idle(session, 1.5)
+
+                        # Bấm nút REFRESH trên toolbar lưới trên (chuẩn VBS dòng 100)
+                        if top_grid:
+                            try:
+                                top_grid.pressToolbarButton("REFRESH")
+                                SapConnector.wait_idle(session, 1.0)
+                            except Exception:
+                                pass
+                    except Exception as print_ex:
+                        print(f"[MON DIRECT PRINT EX]: {print_ex}")
+
         except Exception as e:
             print(f"[MON REL WARN] Lỗi tra cứu liên kết cho OB {ob_number}: {e}")
 
         return mat_who_map
 
-
-# ==============================================================================
-# 8. IN PHIẾU SAP F00112 (2 BẢN) & XÁC THỰC LƯU FILE PDF
-# ==============================================================================
 
 class WhoPrintService:
     """In phiếu Warehouse Order qua F00112 (2 bản) và Win32 Watchdog tự lưu & xác thực PDF."""
