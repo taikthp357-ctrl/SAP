@@ -144,7 +144,7 @@ class SapZoneApp:
     # TAB 1: VẬN HÀNH CHÍNH
     # ==========================================================================
     def _build_tab_main(self):
-        paned = tk.PanedWindow(self.tab_main, orient="vertical", bg="#f8fafc", sashrelief="flat", sashwidth=4)
+        paned = ttk.PanedWindow(self.tab_main, orient="vertical")
         paned.pack(fill="both", expand=True, padx=6, pady=6)
 
         # --- KHUNG TRÊN: NHẬP DỮ LIỆU DÁN ---
