@@ -196,5 +196,6 @@ class TestV1120DirectAttMail:
             assert summary["total_success"] == 1
             item_res = summary["results"][0]
             assert item_res["overall_status"] == "DONE"
-            # Cả 2 file trong folder đều được attach
-            assert mock_attach.call_count == 2
+            # v1.1.21: 5046 BB.pdf đã có sẵn trên SAP nên bỏ qua lặp, chỉ đính kèm file mới VAT 5046(1).pdf
+            assert mock_attach.call_count == 1
+            assert mock_attach.call_args[0][1].name == "VAT 5046(1).pdf"
