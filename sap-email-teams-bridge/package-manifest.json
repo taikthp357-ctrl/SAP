@@ -1,9 +1,9 @@
 {
-  "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.1.21.zip": {
-    "version": "v1.1.21",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.1.21.zip",
-    "package_sha256": "e4e691c0ca8a103cdcb47b6f2cb4027357d9bd9262119d9935f105cb1ff47352",
-    "package_size_bytes": 593130,
+  "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.1.22.zip": {
+    "version": "v1.1.22",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_UPDATE_PATCH_v1.1.22.zip",
+    "package_sha256": "f4ac1eda9c9a0d682a6a0b80e8170000673fcdb5be2b832997c1d6b7fec77139",
+    "package_size_bytes": 598060,
     "files": {
       "main.py": {
         "sha256": "bd14a0991288549bdc4f344a6832062239341f9dbf5f3db6fc742d4fe9d053ce",
@@ -90,8 +90,8 @@
         "size_bytes": 2677
       },
       "app/sap_attachment.py": {
-        "sha256": "3e4e16f10ac2d03ea8a068bd905034e824a61384da1c5dd2e4f7b90e1ecc075f",
-        "size_bytes": 171659
+        "sha256": "9f6e2317d9314e215ae9b7a94e098fda824ecdad0b6cae7778d85ea9fc745379",
+        "size_bytes": 166925
       },
       "app/sap_engine.py": {
         "sha256": "534e4f69780ac1473d525fafffea5ec1f6a4a686d9e91ea0c03f04dc6d3ed363",
@@ -130,8 +130,8 @@
         "size_bytes": 12940
       },
       "app/core/sap_primitives.py": {
-        "sha256": "5aa83fae27ae58500fab238e573decd8897ef28ecdd52cc0afdc9ac4336e9e1c",
-        "size_bytes": 11472
+        "sha256": "60b7eefeda41f930569d4bf662b658e57528046a3a6648defc19facecd97482a",
+        "size_bytes": 13773
       },
       "app/core/security.py": {
         "sha256": "fb11624c4a7c7fb5024814f28dc8d3b8fdcfdb8ef9df98339b567a91073285aa",
@@ -186,8 +186,8 @@
         "size_bytes": 97
       },
       "app/writers/migo_headtext_writer.py": {
-        "sha256": "c28d2b6544961a77fdaf30a50f9ad38b1f2c9332867183a6a044bf5f897f2fa7",
-        "size_bytes": 20738
+        "sha256": "af2ada2b8d348623549b5039bdc021532f073baf097826913f944bab3a554caf",
+        "size_bytes": 27900
       },
       "app/writers/__init__.py": {
         "sha256": "520c4f3ffc68c2b6ea82da04de44f492c2bf7205a62162524f60e43bdae4ec59",
@@ -350,8 +350,12 @@
         "size_bytes": 9927
       },
       "tests/test_v1121_inclusive_reclaim_self_heal.py": {
-        "sha256": "961fdf6e65bfc9a87b79809dd39da49ddf419360a14ba23cac22c34d82f7f9dd",
-        "size_bytes": 7427
+        "sha256": "5e913c6adb311b92fbd4f389b68a5af25482f72f5279ab1fc97b7d8117813715",
+        "size_bytes": 7578
+      },
+      "tests/test_v1122_headtext_post_save_verify.py": {
+        "sha256": "1ed8d0aea89a61a51453f8bae3ca4616b093b70f63d914e9da676e50ba777428",
+        "size_bytes": 9299
       },
       "tests/test_watchdog_cmd.py": {
         "sha256": "6cadf4047fb46506f2872a02789d71ab338896b7dd3449fbeb2860f593aa0f7f",
@@ -419,11 +423,11 @@
       }
     }
   },
-  "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.1.21.zip": {
-    "version": "v1.1.21",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.1.21.zip",
-    "package_sha256": "0563dcc1c2e7b0030a349c823cac8cf9af167b03a37e15e6bbcf2cea8298cc79",
-    "package_size_bytes": 777378,
+  "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.1.22.zip": {
+    "version": "v1.1.22",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_RELEASE_v1.1.22.zip",
+    "package_sha256": "8471975a9922e3fa063938c217f63902a5be7a06d4374da755c49781445c96f5",
+    "package_size_bytes": 782352,
     "files": {
       "config.json": {
         "sha256": "638d9c3bf590862df0ccb14595956bd978489a8295ab2de6710428e37afbd0c7",
@@ -438,11 +442,11 @@
         "size_bytes": 37709
       },
       "package-manifest.json": {
-        "sha256": "43d54af9318ae112eb42d28d853ba53f8cb5466c578d9154c41c0d7766145424",
-        "size_bytes": 351350
+        "sha256": "07d7b5cb66798e8b64463e4aa34d8118cb97618e218bd942f2dece851d305062",
+        "size_bytes": 351905
       },
       "package_release.py": {
-        "sha256": "fec03898aacadf29b80b8ba067ddf3fbe6760e5afdb29bfd0ae2752a1796ccb2",
+        "sha256": "8463204058d33718d0b14010495663311ce9e774b9c0af538c536d8af59b43b5",
         "size_bytes": 10451
       },
       "README.md": {
@@ -518,8 +522,8 @@
         "size_bytes": 2677
       },
       "app/sap_attachment.py": {
-        "sha256": "3e4e16f10ac2d03ea8a068bd905034e824a61384da1c5dd2e4f7b90e1ecc075f",
-        "size_bytes": 171659
+        "sha256": "9f6e2317d9314e215ae9b7a94e098fda824ecdad0b6cae7778d85ea9fc745379",
+        "size_bytes": 166925
       },
       "app/sap_engine.py": {
         "sha256": "534e4f69780ac1473d525fafffea5ec1f6a4a686d9e91ea0c03f04dc6d3ed363",
@@ -558,8 +562,8 @@
         "size_bytes": 12940
       },
       "app/core/sap_primitives.py": {
-        "sha256": "5aa83fae27ae58500fab238e573decd8897ef28ecdd52cc0afdc9ac4336e9e1c",
-        "size_bytes": 11472
+        "sha256": "60b7eefeda41f930569d4bf662b658e57528046a3a6648defc19facecd97482a",
+        "size_bytes": 13773
       },
       "app/core/security.py": {
         "sha256": "fb11624c4a7c7fb5024814f28dc8d3b8fdcfdb8ef9df98339b567a91073285aa",
@@ -614,8 +618,8 @@
         "size_bytes": 97
       },
       "app/writers/migo_headtext_writer.py": {
-        "sha256": "c28d2b6544961a77fdaf30a50f9ad38b1f2c9332867183a6a044bf5f897f2fa7",
-        "size_bytes": 20738
+        "sha256": "af2ada2b8d348623549b5039bdc021532f073baf097826913f944bab3a554caf",
+        "size_bytes": 27900
       },
       "app/writers/__init__.py": {
         "sha256": "520c4f3ffc68c2b6ea82da04de44f492c2bf7205a62162524f60e43bdae4ec59",
@@ -838,8 +842,12 @@
         "size_bytes": 9927
       },
       "tests/test_v1121_inclusive_reclaim_self_heal.py": {
-        "sha256": "961fdf6e65bfc9a87b79809dd39da49ddf419360a14ba23cac22c34d82f7f9dd",
-        "size_bytes": 7427
+        "sha256": "5e913c6adb311b92fbd4f389b68a5af25482f72f5279ab1fc97b7d8117813715",
+        "size_bytes": 7578
+      },
+      "tests/test_v1122_headtext_post_save_verify.py": {
+        "sha256": "1ed8d0aea89a61a51453f8bae3ca4616b093b70f63d914e9da676e50ba777428",
+        "size_bytes": 9299
       },
       "tests/test_watchdog_cmd.py": {
         "sha256": "6cadf4047fb46506f2872a02789d71ab338896b7dd3449fbeb2860f593aa0f7f",
@@ -879,11 +887,11 @@
       }
     }
   },
-  "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.1.21.zip": {
-    "version": "v1.1.21",
-    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.1.21.zip",
-    "package_sha256": "0d77f2bdbfab3f5dc4e8eb6912bdce4d598093de748b616d4d3bc6770e9c1de1",
-    "package_size_bytes": 18664823,
+  "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.1.22.zip": {
+    "version": "v1.1.22",
+    "package_name": "SAP_EMAIL_TEAMS_BRIDGE_PORTABLE_v1.1.22.zip",
+    "package_sha256": "4e5c4a5fc76762109c6b437f6b9fab291971e1d3e92488aeea201e89b3c7efbc",
+    "package_size_bytes": 18669797,
     "files": {
       "config.json": {
         "sha256": "638d9c3bf590862df0ccb14595956bd978489a8295ab2de6710428e37afbd0c7",
@@ -898,11 +906,11 @@
         "size_bytes": 37709
       },
       "package-manifest.json": {
-        "sha256": "43d54af9318ae112eb42d28d853ba53f8cb5466c578d9154c41c0d7766145424",
-        "size_bytes": 351350
+        "sha256": "07d7b5cb66798e8b64463e4aa34d8118cb97618e218bd942f2dece851d305062",
+        "size_bytes": 351905
       },
       "package_release.py": {
-        "sha256": "fec03898aacadf29b80b8ba067ddf3fbe6760e5afdb29bfd0ae2752a1796ccb2",
+        "sha256": "8463204058d33718d0b14010495663311ce9e774b9c0af538c536d8af59b43b5",
         "size_bytes": 10451
       },
       "README.md": {
@@ -978,8 +986,8 @@
         "size_bytes": 2677
       },
       "app/sap_attachment.py": {
-        "sha256": "3e4e16f10ac2d03ea8a068bd905034e824a61384da1c5dd2e4f7b90e1ecc075f",
-        "size_bytes": 171659
+        "sha256": "9f6e2317d9314e215ae9b7a94e098fda824ecdad0b6cae7778d85ea9fc745379",
+        "size_bytes": 166925
       },
       "app/sap_engine.py": {
         "sha256": "534e4f69780ac1473d525fafffea5ec1f6a4a686d9e91ea0c03f04dc6d3ed363",
@@ -1018,8 +1026,8 @@
         "size_bytes": 12940
       },
       "app/core/sap_primitives.py": {
-        "sha256": "5aa83fae27ae58500fab238e573decd8897ef28ecdd52cc0afdc9ac4336e9e1c",
-        "size_bytes": 11472
+        "sha256": "60b7eefeda41f930569d4bf662b658e57528046a3a6648defc19facecd97482a",
+        "size_bytes": 13773
       },
       "app/core/security.py": {
         "sha256": "fb11624c4a7c7fb5024814f28dc8d3b8fdcfdb8ef9df98339b567a91073285aa",
@@ -1074,8 +1082,8 @@
         "size_bytes": 97
       },
       "app/writers/migo_headtext_writer.py": {
-        "sha256": "c28d2b6544961a77fdaf30a50f9ad38b1f2c9332867183a6a044bf5f897f2fa7",
-        "size_bytes": 20738
+        "sha256": "af2ada2b8d348623549b5039bdc021532f073baf097826913f944bab3a554caf",
+        "size_bytes": 27900
       },
       "app/writers/__init__.py": {
         "sha256": "520c4f3ffc68c2b6ea82da04de44f492c2bf7205a62162524f60e43bdae4ec59",
@@ -1298,8 +1306,12 @@
         "size_bytes": 9927
       },
       "tests/test_v1121_inclusive_reclaim_self_heal.py": {
-        "sha256": "961fdf6e65bfc9a87b79809dd39da49ddf419360a14ba23cac22c34d82f7f9dd",
-        "size_bytes": 7427
+        "sha256": "5e913c6adb311b92fbd4f389b68a5af25482f72f5279ab1fc97b7d8117813715",
+        "size_bytes": 7578
+      },
+      "tests/test_v1122_headtext_post_save_verify.py": {
+        "sha256": "1ed8d0aea89a61a51453f8bae3ca4616b093b70f63d914e9da676e50ba777428",
+        "size_bytes": 9299
       },
       "tests/test_watchdog_cmd.py": {
         "sha256": "6cadf4047fb46506f2872a02789d71ab338896b7dd3449fbeb2860f593aa0f7f",

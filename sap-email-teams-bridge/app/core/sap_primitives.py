@@ -6,6 +6,16 @@ import time
 from contextlib import contextmanager
 from typing import Optional, Tuple, Set
 
+try:
+    import pythoncom
+except Exception:
+    pythoncom = None
+
+try:
+    import win32com.client
+except Exception:
+    win32com = None
+
 
 def copy_to_clipboard_safely(text: str) -> bool:
     """Sao chép chuỗi vào Clipboard Windows một cách an toàn."""
@@ -223,7 +233,9 @@ def get_safe_sap_connection(app=None, conn_idx_or_id: int = 0):
 
 
 def get_safe_sap_session(conn_idx: int = 0, tab_idx: int = 0):
-    """Lấy phiên GuiSession theo tab_idx (0-5) an toàn cho từng luồng/tiến trình."""
+    """Lấy phiên GuiSession theo tab_idx (0-5) an toàn cho từng luồng/tiến trình.
+    TUYỆT ĐỐI KHÔNG FALLBACK về conn.Children(0) nếu tab_idx > 0 để tránh xung đột phiên (Session Collision).
+    """
     try:
         import pythoncom
         pythoncom.CoInitialize()
@@ -249,10 +261,65 @@ def get_safe_sap_session(conn_idx: int = 0, tab_idx: int = 0):
                 return conn.Children(tab_idx)
             except Exception:
                 pass
-        return conn.Children(0)
+        # Chỉ fallback về tab 0 nếu người gọi thực sự yêu cầu tab 0
+        if tab_idx == 0 and conn.Children.Count > 0:
+            return conn.Children(0)
+        return None
     except Exception as ex:
         print(f"[SAP SESSION ERROR] conn={conn_idx}, tab={tab_idx}: {ex}")
         return None
+
+
+def get_all_unique_sap_sessions(conn_idx: int = 0) -> list:
+    """Lấy danh sách tất cả các GuiSession độc lập và duy nhất (không trùng lặp Id) trên connection."""
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+    sessions = []
+    seen_ids = set()
+    try:
+        import win32com.client
+        sap_gui = win32com.client.GetObject("SAPGUI")
+        app = sap_gui.GetScriptingEngine
+        conn = get_safe_sap_connection(app, conn_idx)
+        if conn is None or not hasattr(conn, "Children"):
+            return []
+        for idx in range(conn.Children.Count):
+            try:
+                s = conn.Children(idx)
+                s_id = str(getattr(s, "Id", "") or "").strip()
+                if not s_id:
+                    s_id = f"conn_{conn_idx}_ses_{idx}"
+                if s_id not in seen_ids:
+                    seen_ids.add(s_id)
+                    sessions.append(s)
+            except Exception:
+                pass
+    except Exception as ex:
+        print(f"[SAP SESSIONS ERROR] {ex}")
+    return sessions
+
+
+def call_com_resilient(func, *args, retries: int = 3, delay: float = 0.2, **kwargs):
+    """Thực thi hàm COM an toàn tuyệt đối với cơ chế tự động thử lại khi gặp RPC_E_CALL_REJECTED."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            if "rejected by callee" in err_str or "-2147418111" in err_str or "server busy" in err_str:
+                time.sleep(delay * (attempt + 1))
+                continue
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
+    if last_err is not None:
+        raise last_err
 
 
 def ensure_sap_tabs(target_tabs: int = 4, connection_index: int = 0) -> int:
