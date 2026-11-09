@@ -2163,6 +2163,138 @@ class ExcelResultExporter:
             return False
 
 
+def parse_paste_data(raw_text: str) -> List[Dict[str, Any]]:
+    """
+    Phân tích dữ liệu copy từ Excel hoặc văn bản dán.
+    Hỗ trợ linh hoạt:
+    - 2 cột: [Mã hàng]  [Số lượng]
+    - 3 cột: [Mã hàng]  [Số lượng]  [Trạm] (hoặc ngược lại [Số lượng] [Mã hàng] [Trạm])
+    - 3 cột có Zone: [Mã hàng] [Số lượng] [Zone]
+    - 4 cột: [Mã hàng]  [Số lượng]  [Trạm]  [Zone]
+    - 4 cột có STT: [STT]  [Mã hàng]  [Số lượng]  [Trạm/Zone]
+    - 5 cột có STT: [STT]  [Mã hàng]  [Số lượng]  [Trạm]  [Zone]
+    """
+    items: List[Dict[str, Any]] = []
+    if not raw_text or not raw_text.strip():
+        return items
+
+    def try_parse_num(s: str) -> Optional[float]:
+        try:
+            s_clean = s.replace(" ", "").replace(",", ".")
+            val = float(s_clean)
+            return val if val > 0 else None
+        except Exception:
+            return None
+
+    def is_int_index(s: str) -> bool:
+        try:
+            v = int(s.strip())
+            return 1 <= v <= 9999
+        except Exception:
+            return False
+
+    header_keywords = ["mã", "material", "vật tư", "số lượng", "qty", "trạm", "station", "stt", "item", "zone"]
+
+    lines = raw_text.strip().splitlines()
+    for line in lines:
+        cleaned_line = line.strip()
+        if not cleaned_line:
+            continue
+
+        if "\t" in cleaned_line:
+            parts = [p.strip() for p in cleaned_line.split("\t")]
+        elif ";" in cleaned_line:
+            parts = [p.strip() for p in cleaned_line.split(";")]
+        elif "," in cleaned_line:
+            parts = [p.strip() for p in cleaned_line.split(",")]
+        else:
+            parts = [p.strip() for p in cleaned_line.split()]
+
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+
+        # Bỏ qua dòng tiêu đề
+        if any(hk in parts[0].lower() for hk in header_keywords) and len(parts) >= 2:
+            if any(hk in parts[1].lower() for hk in header_keywords):
+                continue
+
+        # Nếu cột đầu tiên là STT số thứ tự (vd: 1, 2, 3...)
+        if len(parts) >= 3 and is_int_index(parts[0]) and try_parse_num(parts[1]) is None:
+            parts = parts[1:]
+
+        mat = ""
+        qty = 0.0
+        station = ""
+        input_zone = ""
+
+        if len(parts) == 1:
+            continue
+        elif len(parts) == 2:
+            n1 = try_parse_num(parts[1])
+            n0 = try_parse_num(parts[0])
+            if n1 is not None:
+                mat = parts[0]
+                qty = n1
+            elif n0 is not None:
+                qty = n0
+                mat = parts[1]
+        elif len(parts) == 3:
+            n1 = try_parse_num(parts[1])
+            n2 = try_parse_num(parts[2])
+            n0 = try_parse_num(parts[0])
+            if n1 is not None:
+                mat = parts[0]
+                qty = n1
+                station = parts[2]
+            elif n2 is not None:
+                station = parts[0]
+                mat = parts[1]
+                qty = n2
+            elif n0 is not None:
+                qty = n0
+                mat = parts[1]
+                station = parts[2]
+            else:
+                mat = parts[0]
+                station = parts[2]
+        else:
+            n1 = try_parse_num(parts[1])
+            if n1 is not None:
+                mat = parts[0]
+                qty = n1
+                station = parts[2]
+                input_zone = " ".join(parts[3:])
+            else:
+                mat = parts[0]
+                station = parts[1]
+                input_zone = " ".join(parts[2:])
+
+        # Tự động chuẩn hóa và trích xuất zone
+        if input_zone:
+            m_z = re.search(r"(?:ZONE|Z)?\s*([0-9]+(?:\.[0-9]+)?)", input_zone, re.IGNORECASE)
+            if m_z and m_z.group(1):
+                input_zone = m_z.group(1)
+        elif station:
+            m_z = re.search(r"(?:ZONE|Z)\s*([0-9]+(?:\.[0-9]+)?)", station, re.IGNORECASE)
+            if m_z:
+                input_zone = m_z.group(1)
+            elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", station.strip()):
+                input_zone = station.strip()
+
+        if mat and qty > 0:
+            items.append({
+                "material": mat.strip().upper(),
+                "qty": qty,
+                "station": station.strip(),
+                "input_zone": input_zone.strip()
+            })
+
+    return items
+
+
+
+
 class SapZonePipeline:
     """Điều phối toàn diện luồng: Đọc Tồn -> Phân Bổ FIFO -> MIGO 311 -> Tra cứu WHO -> In Phiếu SAP."""
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-SAP ZONE Standalone Application Entry Point (v1.6 Pro - Optimized)
-Giao diện Tkinter 2 Tab tối giản, tải tức thì, siêu nhẹ, không phụ thuộc môi trường ngoài.
+SAP ZONE Standalone Application Entry Point (v1.7 Pro - Optimized)
+Giao diện Tkinter chuẩn công nghiệp, tải tức thì (< 1s), siêu nhẹ, độc lập.
 """
 
 import sys
@@ -16,14 +16,16 @@ def main():
 
     # Chế độ kiểm tra nhanh không mở cửa sổ (Smoke test)
     if any(arg in ["--smoke-test", "-s"] for arg in sys.argv[1:]):
-        from sap_zone_core import ZoneManager, ConfigManager
+        from sap_zone_core import ZoneManager, ConfigManager, parse_paste_data
+        from sap_zone_gui import SapZoneApp
         zm = ZoneManager()
         cfg = ConfigManager.load_config()
+        test_items = parse_paste_data("TEST_MAT 100 TRAM_A")
         with open("smoke_test.log", "w", encoding="utf-8") as f:
-            f.write(f"SMOKE_TEST_OK: mappings={len(zm.mappings)}, cfg_whse={cfg.get('ewm_warehouse')}\n")
+            f.write(f"SMOKE_TEST_OK: mappings={len(zm.mappings)}, cfg_whse={cfg.get('ewm_warehouse')}, parsed={len(test_items)}, gui_ok=True\n")
         sys.exit(0)
 
-    # Khởi động Giao diện Tkinter Chuẩn Công Nghiệp (Khởi động tức thì < 1s, 0 lỗi port, tương thích 100% mọi PC SAP)
+    # Khởi động Giao diện Tkinter Chuẩn Công Nghiệp
     import tkinter as tk
     from sap_zone_gui import SapZoneApp
     root = tk.Tk()
