@@ -1043,16 +1043,6 @@ class SapZoneApp:
         except Exception as ex:
             messagebox.showerror("Lỗi Dữ Liệu", f"Dữ liệu cấu hình không hợp lệ:\n{ex}")
 
-
-def main():
-    root = tk.Tk()
-    app = SapZoneApp(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
-
     def _on_btn_continue_ob_clicked(self):
         """Chạy luồng tiếp tục từ Số OB: chỉ tra MON lấy WHO, gán Số Đơn và in phiếu (BỎ QUA MIGO 311)."""
         if self.is_running:
@@ -1207,3 +1197,11 @@ if __name__ == "__main__":
 
         self.status_text_var.set(f"Đã đánh lại Số Đơn từ {new_prefix}{start_num:02d} đến {new_prefix}{seq-1:02d}!")
         messagebox.showinfo("Thành công", f"Đã đánh lại toàn bộ Số Đơn thành công!\nSố đơn từ: {new_prefix}{start_num:02d} đến {new_prefix}{seq-1:02d}")
+def main():
+    root = tk.Tk()
+    app = SapZoneApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
