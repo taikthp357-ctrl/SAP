@@ -7,6 +7,19 @@ Giao diện Tkinter chuẩn công nghiệp, tải tức thì (< 1s), siêu nhẹ
 import sys
 import os
 
+# Cấu hình UTF-8 an toàn tuyệt đối chống crash UnicodeEncodeError trên Windows
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def main():
     if getattr(sys, "frozen", False):
         base_dir = os.path.dirname(sys.executable)

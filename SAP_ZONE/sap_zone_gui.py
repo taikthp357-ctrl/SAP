@@ -22,7 +22,8 @@ from sap_zone_core import (
     SapConnector,
     SapZonePipeline,
     ExcelResultExporter,
-    parse_paste_data
+    parse_paste_data,
+    extract_ob_numbers
 )
 
 SAMPLE_INPUT = """BIW32211725AA\t300\tHùng/Long
@@ -732,6 +733,8 @@ class SapZoneApp:
             self.current_results = records
 
             # Đổ dữ liệu vào Treeview 4 cột
+            for item in self.tree.get_children():
+                self.tree.delete(item)
             for idx, r in enumerate(records):
                 tag = "evenrow" if idx % 2 == 0 else "oddrow"
                 self.tree.insert("", "end", values=(r.get("ob", ""), r.get("material", ""), r.get("sodon", ""), r.get("who", "")), tags=(tag,))
@@ -1115,7 +1118,7 @@ class SapZoneApp:
                 is_mock=mock_mode
             )
             self.current_results = res.get("records", [])
-            self.root.after(0, self._on_pipeline_completed, res)
+            self.root.after(0, self._on_pipeline_finished, res)
         except Exception as e:
             self.root.after(0, self._on_pipeline_error, str(e))
         finally:

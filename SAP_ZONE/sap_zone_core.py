@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     "allocation_strategy": "FIFO",
     "allow_partial_allocation": True,
     "sap_print_copies": 2,
-    "auto_print_pdf": True,
+    "auto_print_pdf": False,
     "pdf_output_folder": os.path.abspath("./OUTPUT_PDF"),
     "printer_name": "Microsoft Print to PDF"
 }
@@ -1866,11 +1866,12 @@ class MonRelationService:
 
             if who_col:
                 try:
-                    w_val = str(grid.GetCellValue(r, who_col)).strip()
-                    if re.match(r"^6\d{9}$", w_val):
-                        r_who = w_val
-                        if w_val not in grid_whos:
-                            grid_whos.append(w_val)
+                    w_raw = str(grid.GetCellValue(r, who_col)).strip()
+                    clean_w = re.sub(r"[^\d]", "", w_raw)
+                    if len(clean_w) == 10 and clean_w.startswith("6"):
+                        r_who = clean_w
+                        if clean_w not in grid_whos:
+                            grid_whos.append(clean_w)
                 except Exception:
                     pass
 
@@ -1879,10 +1880,11 @@ class MonRelationService:
                 for c in col_names:
                     try:
                         val = str(grid.GetCellValue(r, c)).strip()
-                        if re.match(r"^6\d{9}$", val):
-                            r_who = val
-                            if val not in grid_whos:
-                                grid_whos.append(val)
+                        clean_val = re.sub(r"[^\d]", "", val)
+                        if len(clean_val) == 10 and clean_val.startswith("6"):
+                            r_who = clean_val
+                            if clean_val not in grid_whos:
+                                grid_whos.append(clean_val)
                             break
                     except Exception:
                         pass
@@ -2085,16 +2087,6 @@ class MonRelationService:
                 if attempt < max_retries:
                     print(f"[MON ODO RELOAD] Chưa thấy ODO cho OB {clean_ob} (lần {attempt}/{max_retries}), đợi {retry_delay}s...")
                     time.sleep(retry_delay)
-                    if top_tb:
-                        try:
-                            top_tb.pressToolbarButton("&REFRESH")
-                            SapConnector.wait_idle(session, 2.0)
-                        except Exception:
-                            try:
-                                top_tb.pressToolbarButton("REFRESH")
-                                SapConnector.wait_idle(session, 2.0)
-                            except Exception:
-                                pass
                     btn_f8_retry = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
                     if btn_f8_retry:
                         try:
@@ -2102,6 +2094,25 @@ class MonRelationService:
                             SapConnector.wait_idle(session, 2.0)
                         except Exception:
                             pass
+                    else:
+                        mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
+                        if mon_tree:
+                            try:
+                                mon_tree.selectedNode = "N000000010"
+                                mon_tree.doubleClickNode("N000000010")
+                                SapConnector.wait_idle(session, 1.5)
+                                txt_ob_re = (
+                                    SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW") or
+                                    SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_ERP_H-LOW")
+                                )
+                                if txt_ob_re:
+                                    txt_ob_re.text = clean_ob
+                                btn_f8_re = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
+                                if btn_f8_re:
+                                    btn_f8_re.press()
+                                    SapConnector.wait_idle(session, 2.0)
+                            except Exception as re_ex:
+                                print(f"[MON RELOAD EX] {re_ex}")
 
             all_whos: List[str] = []
 
@@ -2158,22 +2169,8 @@ class MonRelationService:
             if all_whos and not any(k != "__ALL__" for k in mat_who_map):
                 mat_who_map["__ALL__"] = list(dict.fromkeys(all_whos))
 
-            # 7. Tự động In phiếu WHO trực tiếp trong MON nếu auto_print=True
-            if auto_print and all_whos:
-                try:
-                    result_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell")
-                    if result_grid and getattr(result_grid, "RowCount", 0) > 0:
-                        result_grid.selectAll()
-                        result_grid.pressToolbarContextButton("METHODS")
-                        result_grid.selectContextMenuItem("@M00007")
-                        SapConnector.wait_idle(session, 1.5)
-
-                        btn_confirm = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[0]")
-                        if btn_confirm:
-                            btn_confirm.press()
-                            SapConnector.wait_idle(session, 1.5)
-                except Exception as print_ex:
-                    print(f"[MON DIRECT PRINT EX]: {print_ex}")
+            # 7. CHẾ ĐỘ READ-ONLY AN TOÀN: Tuyệt đối không bấm METHODS / @M00007 và không gửi /n
+            print(f"[MON READ-ONLY] Đã tra cứu xong cho OB {clean_ob}. Tìm thấy: {all_whos}")
 
         except Exception as e:
             print(f"[MON REL WARN] Lỗi tra cứu liên kết cho OB {ob_number}: {e}")
@@ -2590,10 +2587,19 @@ class SapZonePipeline:
 
         def update_progress(pct: int, msg: str):
             if progress_cb:
-                progress_cb(pct)
+                try:
+                    progress_cb(pct)
+                except Exception:
+                    pass
             if status_cb:
-                status_cb(msg)
-            print(f"[{pct}%] {msg}")
+                try:
+                    status_cb(msg)
+                except Exception:
+                    pass
+            try:
+                print(f"[{pct}%] {msg}")
+            except Exception:
+                pass
 
         try:
             if not requests:
@@ -2862,10 +2868,19 @@ class SapZonePipeline:
 
         def update_progress(pct: int, msg: str):
             if progress_cb:
-                progress_cb(pct)
+                try:
+                    progress_cb(pct)
+                except Exception:
+                    pass
             if status_cb:
-                status_cb(msg)
-            print(f"[{pct}%] {msg}")
+                try:
+                    status_cb(msg)
+                except Exception:
+                    pass
+            try:
+                print(f"[{pct}%] {msg}")
+            except Exception:
+                pass
 
         try:
             clean_obs = list(dict.fromkeys([re.sub(r"[^0-9]", "", str(o)).strip() for o in ob_list if re.sub(r"[^0-9]", "", str(o)).strip()]))

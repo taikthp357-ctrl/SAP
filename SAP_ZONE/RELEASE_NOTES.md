@@ -1,3 +1,41 @@
+# ⚡ SAP ZONE v1.7 Pro (Build 20261110) — CHUẨN HÓA TOÀN DIỆN TRA CỨU MON, ĐÓNG SỐ INWH & AN TOÀN EWM
+
+Ứng dụng độc lập Windows Executable (Standalone EXE) siêu nhẹ (< 14 MB), tốc độ mở tức thì (< 1s), vận hành an toàn tuyệt đối, thay thế hoàn toàn macro VBA và chuẩn hóa quy trình ra đơn kho EWM.
+
+---
+
+## 🚀 Tính Năng & Nâng Cấp Trọng Điểm trong v1.7 Pro
+
+### 1. Chế Độ Tra Cứu Read-Only 100% — Tuyệt Đối Không Confirm Về "C"
+- **Xóa bỏ hoàn toàn mã lệnh Confirm**: Loại bỏ triệt để việc gọi menu ngữ cảnh `METHODS -> @M00007` và nút `btn[0]`. Trước đây mã `@M00007` làm SAP EWM tự động xác nhận hoàn tất Picking trên hệ thống (chuyển trạng thái sang `C` - Confirmed).
+- **An toàn dữ liệu kho**: Thao tác trên `/SCWM/MON` hiện tại chỉ thuần túy đọc và trích xuất dữ liệu từ các lưới ALV Grid, không bao giờ thay đổi trạng thái đơn trên SAP.
+
+### 2. Giữ Nguyên Cửa Sổ MON — Chấm Dứt Đột Ngột Tắt Màn Hình
+- **Loại bỏ lệnh `/n` cưỡng bức**: Trước đây hàm in phiếu tự động gửi `/n` ngay sau khi có WHO làm sập cửa sổ MON. Trong v1.7, màn hình MON được giữ nguyên vẹn để người dùng kiểm tra đối chiếu trực tiếp.
+- **Tùy chọn In phiếu**: Cấu hình `auto_print_pdf` mặc định là `False`, tránh tự động chiếm quyền màn hình và loại bỏ hoàn toàn nguy cơ xung đột luồng watchdog Win32.
+
+### 3. Tự Động Reload / F8 Lại Khi EWM Sinh Đơn Chậm
+- Khi tra cứu bằng Số OB, nếu hệ thống EWM xử lý nền chưa kịp hiển thị Outbound Delivery Order (ODO), tool tự động chờ 2.5s và kích hoạt lại node `N000000010` kèm phím F8 từ 1 - 3 lần.
+- Tự động chuyển view sang **Warehouse Order** (`N000000096`) và **Warehouse Task** (`N000000108`) để quét sạch mã WHO (dạng 10 chữ số bắt đầu bằng `60...`).
+
+### 4. Tách Biệt Số Đơn (INWH) và Mã WHO (SAP) — Tương Thích Tool INWH v3.3
+- **Bảng kết quả 4 cột chuẩn**: `Số OB` | `Mã Hàng (Material)` | `Số Đơn (INWH)` | `Mã WHO (SAP)`.
+- **Cấu hình Số Đơn linh hoạt**: Cho phép người dùng tùy chọn tiền tố số đơn (ví dụ: `10-`, `06-`) và số bắt đầu (ví dụ: `1`). Có nút `✏️ Đổi Số Đơn Nhanh` để đánh lại toàn bộ số đơn trên bảng theo ý muốn.
+- **Các nút Copy độc lập**:
+  - `📋 Copy Cột OB`: Chỉ chép danh sách số OB.
+  - `📋 Copy Số Đơn`: Chỉ chép cột số đơn (INWH).
+  - `📋 Copy Mã WHO`: Chỉ chép cột mã WHO để dán vào công cụ đóng số PDF `INWH_v3.3`.
+  - `📋 Sao Chép 3 Cột`: Copy 3 cột `Số OB \t Mã Hàng \t Số Đơn` dán file Excel theo dõi.
+  - `📋 Copy 4 Cột`: Copy toàn bộ 4 cột.
+
+### 5. Nút "Tiếp Tục Từ Số OB" Độc Lập
+- Nút bấm `⚡ TIẾP TỤC TỪ SỐ OB (TRA MON & IN)` cho phép dán trực tiếp danh sách Số OB đã có từ trước (bỏ qua hoàn toàn bước MIGO 311, không lo trừ trùng tồn kho) để lấy mã WHO và gán số đơn tức thì.
+
+### 6. Bảo Vệ Mã Hóa UTF-8 Toàn Diện Chống Crash Windows
+- Cấu hình tự động `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` ngăn chặn triệt để lỗi `UnicodeEncodeError` khi in thông báo tiếng Việt trên môi trường Windows Codepage 1252 / 437.
+
+---
+
 # ⚡ SAP ZONE v1.6 Pro (Build 20261108) — TỰ ĐỘNG RA ĐƠN NVL, MIGO 311 & IN PHIẾU WHO
 
 Ứng dụng độc lập Windows Executable (Standalone EXE) siêu nhẹ, tốc độ cao, thay thế hoàn toàn file Excel VBA `260810_RA_DON_NVL_V31_ZONE.xlsm`.
