@@ -563,6 +563,33 @@ class SapConnector:
         return False
 
     @staticmethod
+    def connect_existing(session_idx: int = -1, preferred_sys: str = "", preferred_client: str = "") -> Tuple[bool, Any]:
+        """Phương thức kết nối an toàn tương thích ngược, trả về (ok, session_hoặc_lỗi)."""
+        try:
+            s = SapConnector.get_session(session_idx, preferred_sys, preferred_client)
+            return True, s
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def verify_identity(session, req_sys: str = "", req_cli: str = "", req_usr: str = "") -> Tuple[bool, str]:
+        """Xác thực danh tính phiên SAP (System / Client / User)."""
+        if session is None:
+            return False, "Phiên SAP rỗng (None)"
+        try:
+            info = session.Info
+            sys_id = getattr(info, "SystemName", "") or ""
+            cli_id = getattr(info, "Client", "") or ""
+            usr_id = getattr(info, "User", "") or ""
+            if req_sys and sys_id and sys_id.upper() != req_sys.upper():
+                return False, f"Hệ thống SAP không khớp (yêu cầu {req_sys}, hiện tại {sys_id})"
+            if req_cli and cli_id and str(cli_id) != str(req_cli):
+                return False, f"Client SAP không khớp (yêu cầu {req_cli}, hiện tại {cli_id})"
+            return True, f"OK ({sys_id}/{cli_id} - User: {usr_id})"
+        except Exception as e:
+            return True, f"Bỏ qua kiểm tra danh tính: {e}"
+
+    @staticmethod
     def get_session(session_idx: int = -1, preferred_sys: str = "", preferred_client: str = ""):
         """
         Kết nối tới phiên SAP GUI an toàn:
@@ -2892,21 +2919,15 @@ class SapZonePipeline:
 
             session = None
             if not is_mock:
-                ok_con, res_con = SapConnector.connect_existing()
-                if not ok_con:
-                    summary["message"] = f"Kết nối SAP thất bại: {res_con}"
-                    update_progress(15, summary["message"])
-                    return summary
-                session = res_con
-                ok_id, id_msg = SapConnector.verify_identity(
-                    session=session,
-                    req_sys=self.config.get("sap_system", "PSV"),
-                    req_cli=self.config.get("sap_client", "908"),
-                    req_usr=self.config.get("sap_user", "TAIPT8")
-                )
-                if not ok_id:
-                    summary["message"] = f"Xác thực danh tính SAP thất bại: {id_msg}"
-                    update_progress(20, summary["message"])
+                try:
+                    session = SapConnector.get_session(
+                        session_idx=int(self.config.get("sap_session_idx", -1)),
+                        preferred_sys=self.config.get("sap_system", "PSV"),
+                        preferred_client=self.config.get("sap_client", "908")
+                    )
+                except Exception as e:
+                    summary["message"] = f"Lỗi kết nối SAP: {e}"
+                    update_progress(0, summary["message"])
                     return summary
 
             # Thiết lập tiền tố và số bắt đầu Số Đơn

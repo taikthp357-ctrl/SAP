@@ -23,7 +23,8 @@ from sap_zone_core import (
     SapZonePipeline,
     ExcelResultExporter,
     parse_paste_data,
-    extract_ob_numbers
+    extract_ob_numbers,
+    WhoPrintService
 )
 
 SAMPLE_INPUT = """BIW32211725AA\t300\tHùng/Long
@@ -293,153 +294,199 @@ class SapZoneApp:
         except Exception:
             paned.add(bottom_frame)
 
-        # Thanh công cụ bảng kết quả
-        table_toolbar = tk.Frame(bottom_frame, bg="#ffffff")
-        table_toolbar.pack(fill="x", padx=10, pady=(6, 4))
+        # Thanh công cụ bảng kết quả - Thiết kế 2 hàng thông minh chống đè chữ
+        toolbar_container = tk.Frame(bottom_frame, bg="#ffffff")
+        toolbar_container.pack(fill="x", padx=10, pady=(4, 6))
+
+        # HÀNG 1: Thao tác trọng tâm & Đếm kết quả
+        row1_frame = tk.Frame(toolbar_container, bg="#ffffff")
+        row1_frame.pack(fill="x", side="top", pady=(0, 4))
 
         self.lbl_row_count = tk.Label(
-            table_toolbar,
-            text="Tổng cộng: 0 dòng kết quả",
+            row1_frame,
+            text="📊 Tổng cộng: 0 dòng kết quả  •  💡 Bấm vào ô/dòng rồi ấn Ctrl+C để sao chép",
             font=("Segoe UI", 9, "bold"),
-            fg="#475569",
+            fg="#0f766e",
             bg="#ffffff"
         )
         self.lbl_row_count.pack(side="left")
 
-        btn_open_pdf = ttk.Button(table_toolbar, text="📁 Mở Folder PDF", command=self._open_pdf_folder)
+        btn_open_pdf = tk.Button(
+            row1_frame,
+            text="📂 Mở Folder PDF",
+            font=("Segoe UI", 9),
+            bg="#f1f5f9",
+            fg="#1e293b",
+            activebackground="#e2e8f0",
+            relief="groove",
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=self._open_pdf_folder
+        )
         btn_open_pdf.pack(side="right", padx=2)
 
-        btn_export_excel = ttk.Button(table_toolbar, text="📊 Xuất Excel", command=self._export_excel)
+        btn_export_excel = tk.Button(
+            row1_frame,
+            text="📊 Xuất Excel",
+            font=("Segoe UI", 9),
+            bg="#f1f5f9",
+            fg="#1e293b",
+            activebackground="#e2e8f0",
+            relief="groove",
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=self._export_excel
+        )
         btn_export_excel.pack(side="right", padx=2)
 
-        btn_copy_all = tk.Button(
-            table_toolbar,
-            text="📋 Copy 4 Cột",
+        # NÚT TẠO VÀ IN FILE PDF (F00112)
+        self.btn_create_pdf = tk.Button(
+            row1_frame,
+            text="🖨️ Tạo & In File PDF (F00112)",
             font=("Segoe UI", 9, "bold"),
-            bg="#334155",
+            bg="#b91c1c",
             fg="#ffffff",
-            activebackground="#475569",
+            activebackground="#991b1b",
             activeforeground="#ffffff",
             relief="flat",
-            padx=8,
-            pady=4,
+            padx=10,
+            pady=3,
             cursor="hand2",
-            command=self._copy_4_columns_to_clipboard
+            command=self._on_btn_create_pdf_clicked
         )
-        btn_copy_all.pack(side="right", padx=2)
+        self.btn_create_pdf.pack(side="right", padx=3)
 
         btn_copy_3col = tk.Button(
-            table_toolbar,
-            text="📋 Sao Chép 3 Cột (File Theo Dõi)",
+            row1_frame,
+            text="📋 Sao Chép 3 Cột (Dán File Theo Dõi)",
             font=("Segoe UI", 9, "bold"),
             bg="#15803d",
             fg="#ffffff",
             activebackground="#16a34a",
             activeforeground="#ffffff",
             relief="flat",
-            padx=10,
-            pady=4,
+            padx=12,
+            pady=3,
             cursor="hand2",
             command=self._copy_3_columns_to_clipboard
         )
-        btn_copy_3col.pack(side="right", padx=2)
+        btn_copy_3col.pack(side="right", padx=3)
 
-        btn_copy_who = tk.Button(
-            table_toolbar,
-            text="📋 Copy Mã WHO",
-            font=("Segoe UI", 9, "bold"),
-            bg="#7c3aed",
-            fg="#ffffff",
-            activebackground="#8b5cf6",
-            activeforeground="#ffffff",
-            relief="flat",
-            padx=8,
-            pady=4,
-            cursor="hand2",
-            command=self._copy_who_column_to_clipboard
-        )
-        btn_copy_who.pack(side="right", padx=2)
-
-        btn_copy_sodon = tk.Button(
-            table_toolbar,
-            text="📋 Copy Số Đơn",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0891b2",
-            fg="#ffffff",
-            activebackground="#06b6d4",
-            activeforeground="#ffffff",
-            relief="flat",
-            padx=8,
-            pady=4,
-            cursor="hand2",
-            command=self._copy_sodon_column_to_clipboard
-        )
-        btn_copy_sodon.pack(side="right", padx=2)
-
-        btn_copy_ob = tk.Button(
-            table_toolbar,
-            text="📋 Copy Cột OB",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0369a1",
-            fg="#ffffff",
-            activebackground="#0284c7",
-            activeforeground="#ffffff",
-            relief="flat",
-            padx=8,
-            pady=4,
-            cursor="hand2",
-            command=self._copy_ob_column_to_clipboard
-        )
-        btn_copy_ob.pack(side="right", padx=2)
+        # HÀNG 2: Các nút copy chuyên biệt & Tra cứu phụ
+        row2_frame = tk.Frame(toolbar_container, bg="#ffffff")
+        row2_frame.pack(fill="x", side="top")
 
         btn_retry_mon = tk.Button(
-            table_toolbar,
+            row2_frame,
             text="🔄 Tra Lại MON (Cập Nhật WHO)",
-            font=("Segoe UI", 9, "bold"),
-            bg="#d97706",
+            font=("Segoe UI", 8, "bold"),
+            bg="#ea580c",
             fg="#ffffff",
-            activebackground="#b45309",
+            activebackground="#c2410c",
             activeforeground="#ffffff",
             relief="flat",
             padx=8,
-            pady=4,
+            pady=2,
             cursor="hand2",
             command=self._retry_mon_for_current_table
         )
-        btn_retry_mon.pack(side="right", padx=2)
+        btn_retry_mon.pack(side="left", padx=(0, 4))
 
         btn_renumber = tk.Button(
-            table_toolbar,
-            text="📝 Đánh Lại Số Đơn",
-            font=("Segoe UI", 9, "bold"),
+            row2_frame,
+            text="✏️ Đổi Số Đơn Nhanh",
+            font=("Segoe UI", 8, "bold"),
             bg="#475569",
             fg="#ffffff",
             activebackground="#334155",
             activeforeground="#ffffff",
             relief="flat",
             padx=8,
-            pady=4,
+            pady=2,
             cursor="hand2",
             command=self._renumber_sodon_dialog
         )
-        btn_renumber.pack(side="right", padx=2)
+        btn_renumber.pack(side="left", padx=2)
 
-        # Bảng Treeview 4 cột
+        # Các nút Copy độc lập bên phải hàng 2
+        btn_copy_all = tk.Button(
+            row2_frame,
+            text="Copy 4 Cột",
+            font=("Segoe UI", 8),
+            bg="#f8fafc",
+            fg="#334155",
+            activebackground="#e2e8f0",
+            relief="groove",
+            padx=6,
+            pady=2,
+            cursor="hand2",
+            command=self._copy_4_columns_to_clipboard
+        )
+        btn_copy_all.pack(side="right", padx=2)
+
+        btn_copy_who = tk.Button(
+            row2_frame,
+            text="Copy Mã WHO",
+            font=("Segoe UI", 8),
+            bg="#f8fafc",
+            fg="#7c3aed",
+            activebackground="#f3e8ff",
+            relief="groove",
+            padx=6,
+            pady=2,
+            cursor="hand2",
+            command=self._copy_who_column_to_clipboard
+        )
+        btn_copy_who.pack(side="right", padx=2)
+
+        btn_copy_sodon = tk.Button(
+            row2_frame,
+            text="Copy Số Đơn",
+            font=("Segoe UI", 8),
+            bg="#f8fafc",
+            fg="#0891b2",
+            activebackground="#cffafe",
+            relief="groove",
+            padx=6,
+            pady=2,
+            cursor="hand2",
+            command=self._copy_sodon_column_to_clipboard
+        )
+        btn_copy_sodon.pack(side="right", padx=2)
+
+        btn_copy_ob = tk.Button(
+            row2_frame,
+            text="Copy Cột OB",
+            font=("Segoe UI", 8),
+            bg="#f8fafc",
+            fg="#0284c7",
+            activebackground="#e0f2fe",
+            relief="groove",
+            padx=6,
+            pady=2,
+            cursor="hand2",
+            command=self._copy_ob_column_to_clipboard
+        )
+        btn_copy_ob.pack(side="right", padx=2)
+
+        # Bảng Treeview 4 cột - Căn giữa toàn bộ và tự co giãn đều đặn
         tree_container = tk.Frame(bottom_frame, bg="#ffffff")
         tree_container.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
         columns = ("ob", "material", "sodon", "who")
         self.tree = ttk.Treeview(tree_container, columns=columns, show="headings", selectmode="extended")
 
-        self.tree.heading("ob", text="Số OB")
-        self.tree.heading("material", text="Mã Hàng (Material)")
-        self.tree.heading("sodon", text="Số Đơn (INWH)")
-        self.tree.heading("who", text="Mã WHO (SAP)")
+        self.tree.heading("ob", text="Số OB", anchor="center")
+        self.tree.heading("material", text="Mã Hàng (Material)", anchor="center")
+        self.tree.heading("sodon", text="Số Đơn (INWH)", anchor="center")
+        self.tree.heading("who", text="Mã WHO (SAP)", anchor="center")
 
-        self.tree.column("ob", width=180, anchor="center")
-        self.tree.column("material", width=220, anchor="w")
-        self.tree.column("sodon", width=160, anchor="center")
-        self.tree.column("who", width=220, anchor="center")
+        self.tree.column("ob", width=180, minwidth=140, anchor="center", stretch=True)
+        self.tree.column("material", width=220, minwidth=180, anchor="center", stretch=True)
+        self.tree.column("sodon", width=150, minwidth=120, anchor="center", stretch=True)
+        self.tree.column("who", width=200, minwidth=150, anchor="center", stretch=True)
 
         tree_scroll_y = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll_y.set)
@@ -451,9 +498,16 @@ class SapZoneApp:
         self.tree.tag_configure("oddrow", background="#f8fafc")
         self.tree.tag_configure("evenrow", background="#ffffff")
 
-        # Tương tác chuột trên bảng: Double-click để copy hoặc sửa; Right-click để hiện menu
+        # Tương tác chuột & bàn phím: Click 1 ô để nhớ, Double-click để copy/sửa, Right-click menu, Ctrl+C để copy
+        self.last_clicked_cell_val = None
+        self.last_clicked_col_name = ""
+        self.tree.bind("<Button-1>", self._on_tree_cell_click)
         self.tree.bind("<Double-1>", self._on_tree_double_click)
         self.tree.bind("<Button-3>", self._on_tree_right_click)
+        self.tree.bind("<Control-c>", self._on_tree_copy_shortcut)
+        self.tree.bind("<Control-C>", self._on_tree_copy_shortcut)
+        self.root.bind_all("<Control-c>", self._on_global_copy_check)
+        self.root.bind_all("<Control-C>", self._on_global_copy_check)
 
 
     # ==========================================================================
@@ -831,8 +885,55 @@ class SapZoneApp:
         self.status_text_var.set(f"Đã sao chép {len(self.current_results)} dòng (4 Cột) vào Clipboard!")
         messagebox.showinfo("Đã sao chép", f"Đã sao chép {len(self.current_results)} dòng đầy đủ 4 cột vào Clipboard!")
 
+    def _on_tree_cell_click(self, event):
+        """Ghi nhận ô cụ thể vừa được click chuột để hỗ trợ Ctrl+C sao chép đúng ô đó."""
+        region = self.tree.identify_region(event.x, event.y)
+        if region == "cell":
+            col_id = self.tree.identify_column(event.x)
+            row_id = self.tree.identify_row(event.y)
+            if row_id and col_id:
+                vals = self.tree.item(row_id, "values")
+                col_num = int(col_id.replace("#", "")) - 1
+                if 0 <= col_num < len(vals):
+                    self.last_clicked_cell_val = str(vals[col_num]).strip()
+                    col_names = ["Số OB", "Mã Hàng", "Số Đơn (INWH)", "Mã WHO (SAP)"]
+                    self.last_clicked_col_name = col_names[col_num] if col_num < len(col_names) else ""
+
+    def _on_global_copy_check(self, event):
+        """Bắt sự kiện Ctrl+C khi con trỏ đang ở trong bảng kết quả."""
+        focused = self.root.focus_get()
+        if focused == self.tree:
+            return self._on_tree_copy_shortcut(event)
+
+    def _on_tree_copy_shortcut(self, event=None):
+        """Sao chép thông minh khi người dùng ấn Ctrl+C trên bảng kết quả."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return
+
+        # Trường hợp 1: Nếu vừa click vào 1 ô cụ thể và chọn đúng 1 dòng -> Copy ô đó
+        if len(selected_items) == 1 and getattr(self, "last_clicked_cell_val", None):
+            val = self.last_clicked_cell_val
+            c_name = getattr(self, "last_clicked_col_name", "ô được chọn")
+            self.root.clipboard_clear()
+            self.root.clipboard_append(val)
+            self.status_text_var.set(f"Đã sao chép {c_name}: {val} (Ctrl+C)")
+            return "break"
+
+        # Trường hợp 2: Chọn 1 hoặc nhiều dòng -> Copy dạng bảng (Tab-delimited)
+        lines = []
+        for itm in selected_items:
+            vals = self.tree.item(itm, "values")
+            lines.append("\t".join(str(v) for v in vals))
+
+        tsv_data = "\n".join(lines)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(tsv_data)
+        self.status_text_var.set(f"Đã sao chép {len(selected_items)} dòng vào Clipboard (Ctrl+C)!")
+        return "break"
+
     def _on_tree_double_click(self, event):
-        """Bắt sự kiện click đúp: nếu click vào cột OB thì copy OB, nếu click Số Đơn thì cho sửa nhanh."""
+        """Bắt sự kiện click đúp: nếu click vào ô nào thì copy ngay ô đó, click Số Đơn thì cho sửa nhanh."""
         region = self.tree.identify_region(event.x, event.y)
         if region != "cell":
             return
@@ -849,6 +950,11 @@ class SapZoneApp:
             self.root.clipboard_clear()
             self.root.clipboard_append(ob_val)
             self.status_text_var.set(f"Đã sao chép Số OB: {ob_val}")
+        elif col == "#2":  # Cột Mã Hàng
+            mat_val = str(vals[1]).strip()
+            self.root.clipboard_clear()
+            self.root.clipboard_append(mat_val)
+            self.status_text_var.set(f"Đã sao chép Mã Hàng: {mat_val}")
         elif col == "#3":  # Cột Số Đơn
             self._edit_sodon_dialog(item, vals)
         elif col == "#4":  # Cột Mã WHO
@@ -856,6 +962,110 @@ class SapZoneApp:
             self.root.clipboard_clear()
             self.root.clipboard_append(who_val)
             self.status_text_var.set(f"Đã sao chép Mã WHO: {who_val}")
+
+    def _on_btn_create_pdf_clicked(self):
+        """Tạo và in file PDF từ F00112 cho các mã WHO trên bảng kết quả."""
+        if self.is_running:
+            messagebox.showinfo("Đang bận", "Hệ thống đang thực hiện tác vụ khác, vui lòng đợi!")
+            return
+
+        if not self.current_results:
+            messagebox.showwarning("Bảng trống", "Chưa có dữ liệu trên bảng kết quả để tạo file PDF!")
+            return
+
+        import re
+        whos_to_print = []
+        for r in self.current_results:
+            w_str = str(r.get("who", "")).strip()
+            found = re.findall(r"\b6\d{9}\b", w_str)
+            for f_w in found:
+                if f_w not in whos_to_print:
+                    whos_to_print.append(f_w)
+
+        if not whos_to_print:
+            messagebox.showwarning(
+                "Chưa có Mã WHO",
+                "Không tìm thấy mã lệnh kho (WHO) hợp lệ nào trên bảng để tạo file PDF!\n\n"
+                "• Mã WHO chuẩn EWM là số 10 chữ số bắt đầu bằng 6 (ví dụ: 6028855258).\n"
+                "• Vui lòng chạy 'Ra Đơn Mới' hoặc 'Tiếp Tục Từ Số OB' để lấy mã WHO trước."
+            )
+            return
+
+        confirm_msg = (
+            f"Tìm thấy {len(whos_to_print)} mã lệnh kho (WHO) cần in phiếu:\n"
+            f"{', '.join(whos_to_print[:6])}{'...' if len(whos_to_print) > 6 else ''}\n\n"
+            "• Hệ thống sẽ tự động mở giao dịch SAP F00112.\n"
+            "• In 2 bản cho mỗi đơn và lưu file PDF vào thư mục OUTPUT_PDF.\n\n"
+            "Bạn có muốn bắt đầu in phiếu và tạo file PDF ngay không?"
+        )
+        if not messagebox.askyesno("Xác Nhận Tạo & In PDF", confirm_msg):
+            return
+
+        pdf_folder = self.config.get("pdf_output_folder", os.path.abspath("./OUTPUT_PDF"))
+        os.makedirs(pdf_folder, exist_ok=True)
+        from datetime import datetime as dt_now
+        timestamp = dt_now.now().strftime("%Y%m%d_%H%M%S")
+        pdf_path = os.path.join(pdf_folder, f"PHIEU_WHO_{timestamp}.pdf")
+
+        mock_mode = self.mock_mode_var.get()
+        self.is_running = True
+        self.btn_create_pdf.configure(state="disabled", text="⏳ Đang In PDF...")
+        self.status_text_var.set(f"Đang mở F00112 in {len(whos_to_print)} đơn WHO...")
+
+        def print_worker():
+            try:
+                SapConnector.init_thread_com()
+                if not mock_mode:
+                    session = SapConnector.get_session(
+                        session_idx=int(self.config.get("sap_session_idx", -1)),
+                        preferred_sys=self.config.get("sap_system", "PSV"),
+                        preferred_client=self.config.get("sap_client", "908")
+                    )
+                    ok = WhoPrintService.print_whos(
+                        session=session,
+                        who_list=whos_to_print,
+                        warehouse_num=self.config.get("ewm_warehouse", "VF02"),
+                        copies=int(self.config.get("sap_print_copies", 2)),
+                        pdf_output_path=pdf_path
+                    )
+                else:
+                    with open(pdf_path, "w", encoding="utf-8") as f:
+                        f.write(f"MOCK PDF INVOICE\nCreated: {timestamp}\nWHOs: {', '.join(whos_to_print)}\n")
+                    ok = True
+
+                self.root.after(0, lambda: self._on_create_pdf_finished(ok, pdf_path, len(whos_to_print)))
+            except Exception as ex:
+                self.root.after(0, lambda: self._on_create_pdf_failed(str(ex)))
+            finally:
+                SapConnector.uninit_thread_com()
+
+        threading.Thread(target=print_worker, daemon=True).start()
+
+    def _on_create_pdf_finished(self, ok: bool, pdf_path: str, count: int):
+        self.is_running = False
+        self.btn_create_pdf.configure(state="normal", text="🖨️ Tạo & In File PDF (F00112)")
+        if ok and os.path.exists(pdf_path):
+            self.status_text_var.set(f"Đã tạo file PDF thành công cho {count} đơn WHO!")
+            ans = messagebox.askyesno(
+                "In PDF Thành Công",
+                f"Đã tạo thành công file PDF phiếu in cho {count} đơn WHO!\n\n"
+                f"Đường dẫn file:\n{pdf_path}\n\n"
+                f"Bạn có muốn mở xem file PDF này ngay bây giờ không?"
+            )
+            if ans:
+                try:
+                    os.startfile(pdf_path)
+                except Exception as e:
+                    messagebox.showwarning("Không mở được file", f"Lỗi mở file PDF:\n{e}")
+        else:
+            self.status_text_var.set("Quá trình in không tạo được file PDF hợp lệ.")
+            messagebox.showwarning("Cảnh Báo", "Quá trình in qua F00112 kết thúc nhưng không tìm thấy file PDF được tạo!")
+
+    def _on_create_pdf_failed(self, err_msg: str):
+        self.is_running = False
+        self.btn_create_pdf.configure(state="normal", text="🖨️ Tạo & In File PDF (F00112)")
+        self.status_text_var.set(f"Lỗi in PDF: {err_msg}")
+        messagebox.showerror("Lỗi In PDF", f"Không thể hoàn tất in phiếu qua F00112:\n{err_msg}")
 
     def _edit_sodon_dialog(self, item, vals):
         from tkinter import simpledialog
