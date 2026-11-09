@@ -218,6 +218,21 @@ class SapZoneApp:
         )
         chk_mock.pack(side="left", padx=4)
 
+        # Cấu hình Số Đơn (INWH v3.3)
+        sodon_box = tk.Frame(ctrl_frame, bg="#ffffff")
+        sodon_box.pack(side="left", padx=16)
+
+        tk.Label(sodon_box, text="Tiền tố số đơn:", font=("Segoe UI", 9, "bold"), fg="#1e293b", bg="#ffffff").pack(side="left", padx=(0, 3))
+        from datetime import datetime as dt_now
+        self.sodon_prefix_var = tk.StringVar(value=f"{dt_now.now().strftime('%d')}-")
+        ent_prefix = ttk.Entry(sodon_box, textvariable=self.sodon_prefix_var, width=6, justify="center")
+        ent_prefix.pack(side="left", padx=(0, 10))
+
+        tk.Label(sodon_box, text="Số bắt đầu:", font=("Segoe UI", 9, "bold"), fg="#1e293b", bg="#ffffff").pack(side="left", padx=(0, 3))
+        self.sodon_start_var = tk.StringVar(value="1")
+        ent_start = ttk.Entry(sodon_box, textvariable=self.sodon_start_var, width=5, justify="center")
+        ent_start.pack(side="left")
+
         # Nút Chạy chính to nổi bật
         self.btn_run = tk.Button(
             ctrl_frame,
@@ -253,8 +268,8 @@ class SapZoneApp:
         )
         self.lbl_status.pack(fill="x", side="left", pady=2)
 
-        # --- KHUNG DƯỚI: BẢNG KẾT QUẢ 3 CỘT CHUẨN ---
-        bottom_frame = ttk.LabelFrame(paned, text=" 2. Bảng Kết Quả Theo Dõi (3 Cột Chuẩn: Số OB • Mã Hàng • Số Đơn) ", style="Card.TLabelframe")
+                # --- KHUNG DƯỚI: BẢNG KẾT QUẢ ĐỐI SOÁT (4 CỘT TÁCH BIỆT) ---
+        bottom_frame = ttk.LabelFrame(paned, text=" 2. Bảng Kết Quả Theo Dõi (Số OB • Mã Hàng • Số Đơn INWH • Mã WHO SAP) ", style="Card.TLabelframe")
         try:
             paned.add(bottom_frame, weight=3)
         except Exception:
@@ -273,42 +288,108 @@ class SapZoneApp:
         )
         self.lbl_row_count.pack(side="left")
 
-        btn_open_pdf = ttk.Button(table_toolbar, text="📁 Mở Thư Mục PDF", command=self._open_pdf_folder)
-        btn_open_pdf.pack(side="right", padx=3)
+        btn_open_pdf = ttk.Button(table_toolbar, text="📁 Mở Folder PDF", command=self._open_pdf_folder)
+        btn_open_pdf.pack(side="right", padx=2)
 
-        btn_export_excel = ttk.Button(table_toolbar, text="📊 Xuất Excel (KET_QUA)", command=self._export_excel)
-        btn_export_excel.pack(side="right", padx=3)
+        btn_export_excel = ttk.Button(table_toolbar, text="📊 Xuất Excel", command=self._export_excel)
+        btn_export_excel.pack(side="right", padx=2)
+
+        btn_copy_all = tk.Button(
+            table_toolbar,
+            text="📋 Copy 4 Cột",
+            font=("Segoe UI", 9, "bold"),
+            bg="#334155",
+            fg="#ffffff",
+            activebackground="#475569",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._copy_4_columns_to_clipboard
+        )
+        btn_copy_all.pack(side="right", padx=2)
 
         btn_copy_3col = tk.Button(
             table_toolbar,
-            text="📋 Sao Chép 3 Cột (Dán Vào File Theo Dõi)",
+            text="📋 Sao Chép 3 Cột (File Theo Dõi)",
             font=("Segoe UI", 9, "bold"),
             bg="#15803d",
             fg="#ffffff",
             activebackground="#16a34a",
             activeforeground="#ffffff",
             relief="flat",
-            padx=12,
-            pady=5,
+            padx=10,
+            pady=4,
             cursor="hand2",
             command=self._copy_3_columns_to_clipboard
         )
-        btn_copy_3col.pack(side="right", padx=3)
+        btn_copy_3col.pack(side="right", padx=2)
 
-        # Bảng Treeview 3 cột
+        btn_copy_who = tk.Button(
+            table_toolbar,
+            text="📋 Copy Mã WHO",
+            font=("Segoe UI", 9, "bold"),
+            bg="#7c3aed",
+            fg="#ffffff",
+            activebackground="#8b5cf6",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._copy_who_column_to_clipboard
+        )
+        btn_copy_who.pack(side="right", padx=2)
+
+        btn_copy_sodon = tk.Button(
+            table_toolbar,
+            text="📋 Copy Số Đơn",
+            font=("Segoe UI", 9, "bold"),
+            bg="#0891b2",
+            fg="#ffffff",
+            activebackground="#06b6d4",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._copy_sodon_column_to_clipboard
+        )
+        btn_copy_sodon.pack(side="right", padx=2)
+
+        btn_copy_ob = tk.Button(
+            table_toolbar,
+            text="📋 Copy Cột OB",
+            font=("Segoe UI", 9, "bold"),
+            bg="#0369a1",
+            fg="#ffffff",
+            activebackground="#0284c7",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._copy_ob_column_to_clipboard
+        )
+        btn_copy_ob.pack(side="right", padx=2)
+
+        # Bảng Treeview 4 cột
         tree_container = tk.Frame(bottom_frame, bg="#ffffff")
         tree_container.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
-        columns = ("ob", "material", "who")
+        columns = ("ob", "material", "sodon", "who")
         self.tree = ttk.Treeview(tree_container, columns=columns, show="headings", selectmode="extended")
 
         self.tree.heading("ob", text="Số OB")
         self.tree.heading("material", text="Mã Hàng (Material)")
-        self.tree.heading("who", text="Số Đơn (WHO)")
+        self.tree.heading("sodon", text="Số Đơn (INWH)")
+        self.tree.heading("who", text="Mã WHO (SAP)")
 
-        self.tree.column("ob", width=200, anchor="center")
-        self.tree.column("material", width=250, anchor="w")
-        self.tree.column("who", width=380, anchor="w")
+        self.tree.column("ob", width=180, anchor="center")
+        self.tree.column("material", width=220, anchor="w")
+        self.tree.column("sodon", width=160, anchor="center")
+        self.tree.column("who", width=220, anchor="center")
 
         tree_scroll_y = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll_y.set)
@@ -319,6 +400,11 @@ class SapZoneApp:
         # Đổi màu dòng chẵn lẻ
         self.tree.tag_configure("oddrow", background="#f8fafc")
         self.tree.tag_configure("evenrow", background="#ffffff")
+
+        # Tương tác chuột trên bảng: Double-click để copy hoặc sửa; Right-click để hiện menu
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
+
 
     # ==========================================================================
     # TAB 2: CẤU HÌNH HỆ THỐNG
@@ -548,6 +634,15 @@ class SapZoneApp:
             self.tree.delete(item)
         self.lbl_row_count.configure(text="Đang xử lý...")
 
+        # Cập nhật cấu hình Số Đơn
+        if hasattr(self, "sodon_prefix_var"):
+            self.config["sodon_prefix"] = self.sodon_prefix_var.get().strip()
+        if hasattr(self, "sodon_start_var"):
+            try:
+                self.config["sodon_start"] = int(self.sodon_start_var.get().strip())
+            except ValueError:
+                self.config["sodon_start"] = 1
+
         self.pipeline = SapZonePipeline(self.config, self.zone_mgr)
         self.worker_thread = threading.Thread(
             target=self._run_pipeline_worker,
@@ -585,10 +680,10 @@ class SapZoneApp:
             records = summary.get("records", [])
             self.current_results = records
 
-            # Đổ dữ liệu vào Treeview
+            # Đổ dữ liệu vào Treeview 4 cột
             for idx, r in enumerate(records):
                 tag = "evenrow" if idx % 2 == 0 else "oddrow"
-                self.tree.insert("", "end", values=(r["ob"], r["material"], r["who"]), tags=(tag,))
+                self.tree.insert("", "end", values=(r.get("ob", ""), r.get("material", ""), r.get("sodon", ""), r.get("who", "")), tags=(tag,))
 
             self.lbl_row_count.configure(text=f"Tổng cộng: {len(records)} dòng kết quả")
             self.status_text_var.set("Hoàn thành quy trình thành công!")
@@ -608,24 +703,154 @@ class SapZoneApp:
         messagebox.showerror("Thông Báo Lỗi", f"Tiến trình bị dừng do ngoại lệ:\n{err_msg}")
 
     # ==========================================================================
-    # CÁC NÚT THAO TÁC TRÊN BẢNG KẾT QUẢ
+    # CÁC NÚT THAO TÁC TRÊN BẢNG KẾT QUẢ & SAO CHÉP CHUYÊN BIỆT
     # ==========================================================================
+    def _copy_ob_column_to_clipboard(self):
+        """Chỉ sao chép danh sách Số OB (loại bỏ trùng lặp, mỗi số 1 dòng)."""
+        if not self.current_results:
+            messagebox.showinfo("Sao chép", "Chưa có kết quả để sao chép!")
+            return
+        obs = list(dict.fromkeys([str(r.get("ob", "")).strip() for r in self.current_results if r.get("ob")]))
+        text = "\r\n".join(obs)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_text_var.set(f"Đã sao chép {len(obs)} số OB vào Clipboard!")
+        preview = "\n".join(obs[:8]) + ("\n..." if len(obs) > 8 else "")
+        messagebox.showinfo("Đã Sao Chép Số OB", f"Đã sao chép {len(obs)} số OB vào Clipboard:\n\n{preview}\n\nBạn có thể dán trực tiếp vào phần mềm khác bằng Ctrl+V.")
+
+    def _copy_sodon_column_to_clipboard(self):
+        """Chỉ sao chép cột Số Đơn (INWH) vào Clipboard."""
+        if not self.current_results:
+            messagebox.showinfo("Sao chép", "Chưa có kết quả để sao chép!")
+            return
+        sodons = [str(r.get("sodon", "")).strip() for r in self.current_results]
+        text = "\r\n".join(sodons)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_text_var.set(f"Đã sao chép {len(sodons)} Số Đơn vào Clipboard!")
+        messagebox.showinfo("Đã Sao Chép Số Đơn", f"Đã sao chép {len(sodons)} Số Đơn vào Clipboard!\nBạn có thể dán vào file theo dõi hoặc tool in.")
+
+    def _copy_who_column_to_clipboard(self):
+        """Chỉ sao chép cột Mã WHO (SAP) vào Clipboard."""
+        if not self.current_results:
+            messagebox.showinfo("Sao chép", "Chưa có kết quả để sao chép!")
+            return
+        whos = [str(r.get("who", "")).strip() for r in self.current_results]
+        text = "\r\n".join(whos)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_text_var.set(f"Đã sao chép {len(whos)} mã WHO vào Clipboard!")
+        messagebox.showinfo("Đã Sao Chép Mã WHO", f"Đã sao chép {len(whos)} mã lệnh kho WHO vào Clipboard!")
+
     def _copy_3_columns_to_clipboard(self):
-        """Sao chép toàn bộ bảng kết quả 3 cột theo định dạng TAB (chuẩn dán Excel)."""
+        """Sao chép 3 cột chuẩn (Số OB \t Mã Hàng \t Số Đơn) để dán vào File Theo Dõi."""
         if not self.current_results:
             messagebox.showinfo("Sao chép", "Chưa có kết quả để sao chép!")
             return
 
         lines = []
         for r in self.current_results:
-            lines.append(f"{r['ob']}\t{r['material']}\t{r['who']}")
+            sodon_val = str(r.get("sodon", "")).strip() or str(r.get("who", "")).strip()
+            lines.append(f"{r.get('ob', '')}\t{r.get('material', '')}\t{sodon_val}")
         tsv_text = "\r\n".join(lines)
 
         self.root.clipboard_clear()
         self.root.clipboard_append(tsv_text)
-        self.root.update()
+        self.status_text_var.set(f"Đã sao chép {len(self.current_results)} dòng (3 Cột) vào Clipboard!")
+        messagebox.showinfo("Đã sao chép", f"Đã sao chép {len(self.current_results)} dòng (3 cột ngăn cách Tab: Số OB • Mã Hàng • Số Đơn) vào Clipboard!\nBạn chỉ cần mở file Excel theo dõi và nhấn Ctrl+V.")
 
-        messagebox.showinfo("Đã sao chép", f"Đã sao chép {len(self.current_results)} dòng (3 cột ngăn cách Tab) vào Clipboard!\nBạn chỉ cần mở file Excel theo dõi và nhấn Ctrl+V.")
+    def _copy_4_columns_to_clipboard(self):
+        """Sao chép đầy đủ 4 cột (Số OB \t Mã Hàng \t Số Đơn \t Mã WHO)."""
+        if not self.current_results:
+            messagebox.showinfo("Sao chép", "Chưa có kết quả để sao chép!")
+            return
+
+        lines = []
+        for r in self.current_results:
+            lines.append(f"{r.get('ob', '')}\t{r.get('material', '')}\t{r.get('sodon', '')}\t{r.get('who', '')}")
+        tsv_text = "\r\n".join(lines)
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(tsv_text)
+        self.status_text_var.set(f"Đã sao chép {len(self.current_results)} dòng (4 Cột) vào Clipboard!")
+        messagebox.showinfo("Đã sao chép", f"Đã sao chép {len(self.current_results)} dòng đầy đủ 4 cột vào Clipboard!")
+
+    def _on_tree_double_click(self, event):
+        """Bắt sự kiện click đúp: nếu click vào cột OB thì copy OB, nếu click Số Đơn thì cho sửa nhanh."""
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.tree.identify_column(event.x)
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        vals = list(self.tree.item(item, "values"))
+        if not vals:
+            return
+
+        if col == "#1":  # Cột Số OB
+            ob_val = str(vals[0]).strip()
+            self.root.clipboard_clear()
+            self.root.clipboard_append(ob_val)
+            self.status_text_var.set(f"Đã sao chép Số OB: {ob_val}")
+        elif col == "#3":  # Cột Số Đơn
+            self._edit_sodon_dialog(item, vals)
+        elif col == "#4":  # Cột Mã WHO
+            who_val = str(vals[3]).strip()
+            self.root.clipboard_clear()
+            self.root.clipboard_append(who_val)
+            self.status_text_var.set(f"Đã sao chép Mã WHO: {who_val}")
+
+    def _edit_sodon_dialog(self, item, vals):
+        from tkinter import simpledialog
+        cur_sodon = vals[2] if len(vals) > 2 else ""
+        new_sodon = simpledialog.askstring(
+            "Sửa Số Đơn",
+            f"Nhập Số Đơn mới cho mã hàng {vals[1]} (Số OB: {vals[0]}):",
+            initialvalue=cur_sodon,
+            parent=self.root
+        )
+        if new_sodon is not None:
+            new_sodon = new_sodon.strip()
+            vals[2] = new_sodon
+            self.tree.item(item, values=vals)
+            for r in self.current_results:
+                if r.get("ob") == vals[0] and r.get("material") == vals[1]:
+                    r["sodon"] = new_sodon
+            self.status_text_var.set(f"Đã cập nhật Số Đơn dòng {vals[1]} thành: {new_sodon}")
+
+    def _on_tree_right_click(self, event):
+        """Menu ngữ cảnh chuột phải trên bảng kết quả."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        vals = self.tree.item(item, "values")
+        if not vals:
+            return
+
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label=f"📋 Sao chép Số OB ({vals[0]})", command=lambda: self._copy_cell_text(vals[0], "Số OB"))
+        menu.add_command(label=f"📋 Sao chép Mã Hàng ({vals[1]})", command=lambda: self._copy_cell_text(vals[1], "Mã Hàng"))
+        if len(vals) > 2:
+            menu.add_command(label=f"📋 Sao chép Số Đơn ({vals[2]})", command=lambda: self._copy_cell_text(vals[2], "Số Đơn"))
+        if len(vals) > 3:
+            menu.add_command(label=f"📋 Sao chép Mã WHO ({vals[3]})", command=lambda: self._copy_cell_text(vals[3], "Mã WHO"))
+        menu.add_separator()
+        menu.add_command(label="✏️ Sửa Số Đơn dòng này...", command=lambda: self._edit_sodon_dialog(item, list(vals)))
+        menu.add_separator()
+        menu.add_command(label="📋 Sao chép riêng toàn bộ Cột OB", command=self._copy_ob_column_to_clipboard)
+        menu.add_command(label="📋 Sao chép 3 Cột Chuẩn (OB • Mã Hàng • Số Đơn)", command=self._copy_3_columns_to_clipboard)
+        menu.add_command(label="📋 Sao chép đầy đủ 4 Cột", command=self._copy_4_columns_to_clipboard)
+
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _copy_cell_text(self, text_val: str, label: str):
+        val_str = str(text_val).strip()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(val_str)
+        self.status_text_var.set(f"Đã sao chép {label}: {val_str}")
+
 
     def _export_excel(self):
         if not self.current_results:

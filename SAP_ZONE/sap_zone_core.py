@@ -269,10 +269,16 @@ class JournalService:
                         run_id TEXT,
                         ob_number TEXT,
                         material TEXT,
+                        sodon TEXT,
                         who TEXT
                     )
                 """)
                 conn.commit()
+                try:
+                    conn.execute("ALTER TABLE results ADD COLUMN sodon TEXT")
+                    conn.commit()
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[SQLITE INIT ERR] {e}")
 
@@ -312,8 +318,8 @@ class JournalService:
                 cur = conn.cursor()
                 for r in records:
                     cur.execute(
-                        "INSERT INTO results (run_id, ob_number, material, who) VALUES (?, ?, ?, ?)",
-                        (run_id, r.get("ob", ""), r.get("material", ""), r.get("who", ""))
+                        "INSERT INTO results (run_id, ob_number, material, sodon, who) VALUES (?, ?, ?, ?, ?)",
+                        (run_id, r.get("ob", ""), r.get("material", ""), r.get("sodon", ""), r.get("who", ""))
                     )
                 conn.commit()
         except Exception as e:
@@ -330,9 +336,9 @@ class JournalService:
                 row = cur.fetchone()
                 if row:
                     latest_run_id = row[0]
-                    cur.execute("SELECT ob_number, material, who FROM results WHERE run_id = ?", (latest_run_id,))
-                    for ob, mat, who in cur.fetchall():
-                        results.append({"ob": ob, "material": mat, "who": who})
+                    cur.execute("SELECT ob_number, material, sodon, who FROM results WHERE run_id = ?", (latest_run_id,))
+                    for ob, mat, sodon, who in cur.fetchall():
+                        results.append({"ob": ob, "material": mat, "sodon": sodon or "", "who": who or ""})
         except Exception as e:
             print(f"[SQLITE GET RES ERR] {e}")
         return results
@@ -1109,7 +1115,7 @@ class MigoPostingService:
     - Focus ctxtGOITEM-MAKTX[3,0] và gửi Enter nhịp 1 (sendVKey 0).
     - Nhịp 2: Ghi Batch vào ctxtGOITEM-CHARG[10,r] -> Enter.
     - Lưu / Post bằng sendVKey 11 (Save/Post chuẩn SAP).
-    - Bắt mọi số chứng từ 10 chữ số (\b(\d{10})\b) bao gồm dải số 1013147419 của hệ thống người dùng.
+    - Bắt mọi số chứng từ 10 chữ số (\\b(\\d{10})\\b) bao gồm dải số 1013147419 của hệ thống người dùng.
     - Thoát MIGO trở lại Easy Access bằng btn[15] (F3).
     """
 
@@ -1754,13 +1760,13 @@ class MonRelationService:
     @staticmethod
     def query_who_for_ob(session, ob_number: str, auto_print: bool = True) -> Dict[str, List[str]]:
         """
-        Tra MON theo OB chuẩn xác VBS thực tế:
+        Tra MON theo OB chuẩn xác theo chuỗi VBS thực tế:
         1. Mở Favorite F00077 (hoặc /n/SCWM/MON).
         2. Chọn Node N000000010 (Outbound Delivery Order).
-        3. Điền OB vào wnd[1]/usr/txtS_ERP_H-LOW và bấm F8 (btn[8]).
-        4. Bấm nút N000000011 (Warehouse Tasks / WHO) trên Toolbar lưới trên.
-        5. Đọc lưới dưới lấy WHO và MATNR (hoặc PRODUCTNO), DOCNO.
-        6. Nếu auto_print=True: selectAll -> Context METHODS -> @M00007 -> Enter popup wnd[1]/tbar[0]/btn[0] -> Refresh.
+        3. Điền OB vào wnd[1]/usr/txtS_ERP_H-LOW (hoặc ctxtS_ERP_H-LOW) và bấm F8 (btn[8]).
+        4. Điều hướng qua các nút Toolbar N000000011 -> N000000096 -> N000000108 để mở bảng Warehouse Order / Tasks.
+        5. Đọc ALV Grid lấy WHO, MATNR (hoặc PRODUCTNO), DOCNO.
+        6. Nếu auto_print=True: selectAll -> Context METHODS -> @M00007 -> popup Enter -> Refresh.
         """
         clean_ob = re.sub(r"[^0-9]", "", str(ob_number)).strip()
         mat_who_map: Dict[str, List[str]] = {}
@@ -1808,56 +1814,112 @@ class MonRelationService:
                 btn_f8.press()
                 SapConnector.wait_idle(session, 3.0)
 
-            # 4. Bấm nút Warehouse Tasks (N000000011 - chuẩn VBS dòng 42)
-            top_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
-            if top_grid:
+            # 4. Điều hướng Toolbar theo VBS: N000000011 -> N000000096 -> N000000108
+            top_tb = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
+            if top_tb:
+                # N000000011: OutbDelOrd Item
                 try:
-                    top_grid.pressToolbarButton("N000000011")
-                    SapConnector.wait_idle(session, 2.5)
+                    top_tb.pressToolbarButton("N000000011")
+                    SapConnector.wait_idle(session, 2.0)
                 except Exception:
-                    try:
-                        top_grid.pressToolbarButton("N000000108")
-                        SapConnector.wait_idle(session, 2.5)
-                    except Exception:
-                        pass
+                    pass
 
-            # 5. Đọc lưới dưới lấy WHO và MATNR (chuẩn VBS dòng 45-88)
-            bottom_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell")
-            if bottom_grid:
-                row_count = getattr(bottom_grid, "RowCount", 0)
+                # N000000096: Warehouse Order view
+                try:
+                    top_tb.pressToolbarButton("N000000096")
+                    SapConnector.wait_idle(session, 2.0)
+                except Exception:
+                    pass
+
+                # N000000108: Warehouse Task view (liên kết MATNR và WHO)
+                try:
+                    top_tb.pressToolbarButton("N000000108")
+                    SapConnector.wait_idle(session, 2.0)
+                except Exception:
+                    pass
+
+            # 5. Tìm lưới kết quả (lưới con shellcont[1] hoặc lưới chính)
+            result_grid = (
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell") or
+                SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell")
+            )
+
+            if result_grid:
+                row_count = getattr(result_grid, "RowCount", 0)
+                print(f"[MON WHO QUERY] Tìm thấy ALV Grid với {row_count} dòng.")
+
+                # Tự động nhận diện cột
+                who_col = "WHO"
+                mat_col = "MATNR"
+                try:
+                    col_order = result_grid.ColumnOrder
+                    for i in range(col_order.Count):
+                        c_name = str(col_order.ElementAt(i)).strip()
+                        c_name_up = c_name.upper()
+                        if c_name_up in ("WHO", "WAREHOUSE_ORDER", "WHO_NO", "ORDERNO"):
+                            who_col = c_name
+                        elif c_name_up in ("MATNR", "PRODUCT", "PRODUCTNO", "MATERIAL"):
+                            mat_col = c_name
+                except Exception:
+                    pass
+
+                all_found_whos = []
                 for r in range(row_count):
                     try:
-                        who_val = str(bottom_grid.GetCellValue(r, "WHO")).strip()
-                        mat_val = str(bottom_grid.GetCellValue(r, "MATNR")).strip()
+                        who_val = str(result_grid.GetCellValue(r, who_col)).strip()
+                        if not who_val:
+                            for fb_w in ["WHO", "WAREHOUSE_ORDER", "WHO_NO", "ORDERNO"]:
+                                try:
+                                    t_w = str(result_grid.GetCellValue(r, fb_w)).strip()
+                                    if t_w:
+                                        who_val = t_w
+                                        break
+                                except Exception:
+                                    pass
+
+                        mat_val = str(result_grid.GetCellValue(r, mat_col)).strip().upper()
                         if not mat_val:
-                            mat_val = str(bottom_grid.GetCellValue(r, "PRODUCTNO")).strip()
+                            for fb_m in ["MATNR", "PRODUCT", "PRODUCTNO", "MATERIAL"]:
+                                try:
+                                    t_m = str(result_grid.GetCellValue(r, fb_m)).strip().upper()
+                                    if t_m:
+                                        mat_val = t_m
+                                        break
+                                except Exception:
+                                    pass
 
-                        if who_val and mat_val:
-                            if mat_val not in mat_who_map:
-                                mat_who_map[mat_val] = []
-                            if who_val not in mat_who_map[mat_val]:
-                                mat_who_map[mat_val].append(who_val)
-                    except Exception:
-                        pass
+                        if who_val:
+                            all_found_whos.append(who_val)
+                            if mat_val:
+                                if mat_val not in mat_who_map:
+                                    mat_who_map[mat_val] = []
+                                if who_val not in mat_who_map[mat_val]:
+                                    mat_who_map[mat_val].append(who_val)
+                    except Exception as ex_r:
+                        print(f"[MON GRID ROW ERR] {ex_r}")
 
-                # 6. Tự động In phiếu WHO trực tiếp trong MON (chuẩn VBS dòng 92-100)
+                # Nếu tìm thấy WHO nhưng chưa map được MATNR cụ thể:
+                if all_found_whos and not mat_who_map:
+                    distinct_whos = list(dict.fromkeys(all_found_whos))
+                    mat_who_map["__ALL__"] = distinct_whos
+
+                # 6. Tự động In phiếu WHO trực tiếp trong MON (nếu auto_print=True)
                 if auto_print and row_count > 0:
                     try:
-                        bottom_grid.selectAll()
-                        bottom_grid.pressToolbarContextButton("METHODS")
-                        bottom_grid.selectContextMenuItem("@M00007")
+                        result_grid.selectAll()
+                        result_grid.pressToolbarContextButton("METHODS")
+                        result_grid.selectContextMenuItem("@M00007")
                         SapConnector.wait_idle(session, 1.5)
 
-                        # Bấm nút Enter / OK trên popup xác nhận in (wnd[1]/tbar[0]/btn[0])
                         btn_confirm = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[0]")
                         if btn_confirm:
                             btn_confirm.press()
                             SapConnector.wait_idle(session, 1.5)
 
-                        # Bấm nút REFRESH trên toolbar lưới trên (chuẩn VBS dòng 100)
-                        if top_grid:
+                        if top_tb:
                             try:
-                                top_grid.pressToolbarButton("REFRESH")
+                                top_tb.pressToolbarButton("REFRESH")
                                 SapConnector.wait_idle(session, 1.0)
                             except Exception:
                                 pass
@@ -2015,7 +2077,7 @@ class WhoPrintService:
 # ==============================================================================
 
 class ExcelResultExporter:
-    """Xuất file Excel KET_QUA chuẩn 3 cột: OB - Mã hàng - Số đơn (WHO)."""
+    """Xuất file Excel KET_QUA: Sheet 1 (3 Cột Chuẩn File Theo Dõi) & Sheet 2 (4 Cột Chi Tiết Đầy Đủ)."""
 
     @staticmethod
     def export(records: List[Dict[str, str]], output_path: str) -> bool:
@@ -2027,13 +2089,9 @@ class ExcelResultExporter:
 
         try:
             wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "KET_QUA"
 
-            headers = ["Số OB", "Mã hàng", "Số đơn (WHO)"]
-            ws.append(headers)
-
-            header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+            header_fill_blue = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+            header_fill_dark = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
             header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
             border = Border(
                 left=Side(style='thin', color='CBD5E1'),
@@ -2042,166 +2100,67 @@ class ExcelResultExporter:
                 bottom=Side(style='thin', color='CBD5E1')
             )
 
+            # Sheet 1: KET_QUA_3_COT (Số OB • Mã Hàng • Số Đơn)
+            ws1 = wb.active
+            ws1.title = "KET_QUA_3_COT"
+            headers1 = ["Số OB", "Mã Hàng", "Số Đơn"]
+            ws1.append(headers1)
             for col in range(1, 4):
-                cell = ws.cell(row=1, column=col)
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell.border = border
+                c = ws1.cell(row=1, column=col)
+                c.fill = header_fill_blue
+                c.font = header_font
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = border
 
             for r_idx, r in enumerate(records, start=2):
-                ws.cell(row=r_idx, column=1, value=str(r.get("ob", "")).strip())
-                ws.cell(row=r_idx, column=2, value=str(r.get("material", "")).strip())
-                ws.cell(row=r_idx, column=3, value=str(r.get("who", "")).strip())
+                ws1.cell(row=r_idx, column=1, value=str(r.get("ob", "")).strip())
+                ws1.cell(row=r_idx, column=2, value=str(r.get("material", "")).strip())
+                # Ưu tiên lấy Số Đơn INWH, nếu chưa có thì lấy WHO
+                sodon_val = str(r.get("sodon", "")).strip() or str(r.get("who", "")).strip()
+                ws1.cell(row=r_idx, column=3, value=sodon_val)
                 for col in range(1, 4):
-                    c = ws.cell(row=r_idx, column=col)
+                    c = ws1.cell(row=r_idx, column=col)
                     c.font = Font(name="Segoe UI", size=10)
                     c.alignment = Alignment(horizontal="center" if col != 2 else "left", vertical="center")
                     c.border = border
 
-            ws.column_dimensions['A'].width = 18
-            ws.column_dimensions['B'].width = 24
-            ws.column_dimensions['C'].width = 30
+            for col in ws1.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                ws1.column_dimensions[col_letter].width = max(max_len + 5, 18)
+
+            # Sheet 2: KET_QUA_4_COT_CHI_TIET (Số OB • Mã Hàng • Số Đơn INWH • Mã WHO SAP)
+            ws2 = wb.create_sheet(title="KET_QUA_CHI_TIET")
+            headers2 = ["Số OB", "Mã Hàng", "Số Đơn (INWH)", "Mã WHO (SAP)"]
+            ws2.append(headers2)
+            for col in range(1, 5):
+                c = ws2.cell(row=1, column=col)
+                c.fill = header_fill_dark
+                c.font = header_font
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = border
+
+            for r_idx, r in enumerate(records, start=2):
+                ws2.cell(row=r_idx, column=1, value=str(r.get("ob", "")).strip())
+                ws2.cell(row=r_idx, column=2, value=str(r.get("material", "")).strip())
+                ws2.cell(row=r_idx, column=3, value=str(r.get("sodon", "")).strip())
+                ws2.cell(row=r_idx, column=4, value=str(r.get("who", "")).strip())
+                for col in range(1, 5):
+                    c = ws2.cell(row=r_idx, column=col)
+                    c.font = Font(name="Segoe UI", size=10)
+                    c.alignment = Alignment(horizontal="center" if col != 2 else "left", vertical="center")
+                    c.border = border
+
+            for col in ws2.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                ws2.column_dimensions[col_letter].width = max(max_len + 5, 20)
 
             wb.save(output_path)
             return True
         except Exception as e:
             print(f"[EXCEL EXPORT ERR] {e}")
             return False
-
-
-# ==============================================================================
-# 10. BỘ PHÂN TÍCH DỮ LIỆU DÁN EXCEL & PIPELINE ĐIỀU PHỐI TOÀN DIỆN
-# ==============================================================================
-
-def parse_paste_data(raw_text: str) -> List[Dict[str, Any]]:
-    """
-    Phân tích dữ liệu copy từ Excel hoặc văn bản dán.
-    Hỗ trợ linh hoạt:
-    - 2 cột: [Mã hàng]  [Số lượng]
-    - 3 cột: [Mã hàng]  [Số lượng]  [Trạm] (hoặc ngược lại [Số lượng] [Mã hàng] [Trạm])
-    - 3 cột có Zone: [Mã hàng] [Số lượng] [Zone]
-    - 4 cột: [Mã hàng]  [Số lượng]  [Trạm]  [Zone]
-    - 4 cột có STT: [STT]  [Mã hàng]  [Số lượng]  [Trạm/Zone]
-    - 5 cột có STT: [STT]  [Mã hàng]  [Số lượng]  [Trạm]  [Zone]
-    """
-    items: List[Dict[str, Any]] = []
-    if not raw_text or not raw_text.strip():
-        return items
-
-    def try_parse_num(s: str) -> Optional[float]:
-        try:
-            s_clean = s.replace(" ", "").replace(",", ".")
-            val = float(s_clean)
-            return val if val > 0 else None
-        except Exception:
-            return None
-
-    def is_int_index(s: str) -> bool:
-        try:
-            v = int(s.strip())
-            return 1 <= v <= 9999
-        except Exception:
-            return False
-
-    header_keywords = ["mã", "material", "vật tư", "số lượng", "qty", "trạm", "station", "stt", "item", "zone"]
-
-    lines = raw_text.strip().splitlines()
-    for line in lines:
-        cleaned_line = line.strip()
-        if not cleaned_line:
-            continue
-
-        if "\t" in cleaned_line:
-            parts = [p.strip() for p in cleaned_line.split("\t")]
-        elif ";" in cleaned_line:
-            parts = [p.strip() for p in cleaned_line.split(";")]
-        elif "," in cleaned_line:
-            parts = [p.strip() for p in cleaned_line.split(",")]
-        else:
-            parts = [p.strip() for p in cleaned_line.split()]
-
-        parts = [p for p in parts if p]
-        if not parts:
-            continue
-
-        # Bỏ qua dòng tiêu đề
-        if any(hk in parts[0].lower() for hk in header_keywords) and len(parts) >= 2:
-            if any(hk in parts[1].lower() for hk in header_keywords):
-                continue
-
-        # Nếu cột đầu tiên là STT số thứ tự (vd: 1, 2, 3...)
-        if len(parts) >= 3 and is_int_index(parts[0]) and try_parse_num(parts[1]) is None:
-            parts = parts[1:]
-
-        mat = ""
-        qty = 0.0
-        station = ""
-        input_zone = ""
-
-        if len(parts) == 1:
-            continue
-        elif len(parts) == 2:
-            n1 = try_parse_num(parts[1])
-            n0 = try_parse_num(parts[0])
-            if n1 is not None:
-                mat = parts[0]
-                qty = n1
-            elif n0 is not None:
-                qty = n0
-                mat = parts[1]
-        elif len(parts) == 3:
-            n1 = try_parse_num(parts[1])
-            n2 = try_parse_num(parts[2])
-            n0 = try_parse_num(parts[0])
-            if n1 is not None:
-                mat = parts[0]
-                qty = n1
-                station = parts[2]
-            elif n2 is not None:
-                station = parts[0]
-                mat = parts[1]
-                qty = n2
-            elif n0 is not None:
-                qty = n0
-                mat = parts[1]
-                station = parts[2]
-            else:
-                mat = parts[0]
-                station = parts[2]
-        else:
-            n1 = try_parse_num(parts[1])
-            if n1 is not None:
-                mat = parts[0]
-                qty = n1
-                station = parts[2]
-                input_zone = " ".join(parts[3:])
-            else:
-                mat = parts[0]
-                station = parts[1]
-                input_zone = " ".join(parts[2:])
-
-        # Tự động chuẩn hóa và trích xuất zone
-        if input_zone:
-            m_z = re.search(r"(?:ZONE|Z)?\s*([0-9]+(?:\.[0-9]+)?)", input_zone, re.IGNORECASE)
-            if m_z and m_z.group(1):
-                input_zone = m_z.group(1)
-        elif station:
-            m_z = re.search(r"(?:ZONE|Z)\s*([0-9]+(?:\.[0-9]+)?)", station, re.IGNORECASE)
-            if m_z:
-                input_zone = m_z.group(1)
-            elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", station.strip()):
-                input_zone = station.strip()
-
-        if mat and qty > 0:
-            items.append({
-                "material": mat.strip().upper(),
-                "qty": qty,
-                "station": station.strip(),
-                "input_zone": input_zone.strip()
-            })
-
-    return items
 
 
 class SapZonePipeline:
@@ -2389,16 +2348,27 @@ class SapZonePipeline:
                 return summary
 
             # -------------------------------------------------------------
-            # BƯỚC 5: TRA CỨU MON NỐI OB - WHO - MÃ HÀNG (TRÁNH CROSS-JOIN)
+            # BƯỚC 5: TRA CỨU MON & GÁN SỐ ĐƠN (INWH v3.3) + MÃ WHO
             # -------------------------------------------------------------
-            update_progress(75, "Đang tra cứu MON lấy liên kết OB - Số đơn WHO - Mã hàng...")
-            final_3col_records: List[Dict[str, str]] = []
+            update_progress(75, "Đang tra cứu MON lấy liên kết OB - WHO và gán Số Đơn...")
+            final_records: List[Dict[str, str]] = []
             all_whos_to_print: List[str] = []
 
-            for p_item in posted_obs:
+            # Thiết lập tiền tố và số bắt đầu theo chuẩn INWH v3.3
+            sodon_prefix = str(self.config.get("sodon_prefix", f"{datetime.now().strftime('%d')}-")).strip()
+            try:
+                sodon_start = int(self.config.get("sodon_start", 1))
+            except ValueError:
+                sodon_start = 1
+
+            for p_idx, p_item in enumerate(posted_obs):
                 ob_num = p_item["ob_number"]
                 grp = p_item["group"]
                 lines = grp.get("lines", [])
+
+                # Sinh số đơn tự động theo nhóm OB: vd 09-01, 09-02...
+                cur_seq = sodon_start + p_idx
+                sodon_val = f"{sodon_prefix}{cur_seq:02d}"
 
                 mat_who_map: Dict[str, List[str]] = {}
                 if not is_mock and session:
@@ -2413,18 +2383,21 @@ class SapZonePipeline:
                 mats_in_grp = list(dict.fromkeys([l["material"] for l in lines]))
                 for m_code in mats_in_grp:
                     whos = mat_who_map.get(m_code, [])
+                    if not whos and "__ALL__" in mat_who_map:
+                        whos = mat_who_map["__ALL__"]
                     who_str = "/".join(whos) if whos else "(Chưa có WHO)"
-                    final_3col_records.append({
+                    final_records.append({
                         "ob": ob_num,
                         "material": m_code,
+                        "sodon": sodon_val,
                         "who": who_str
                     })
                     for w in whos:
                         if w not in all_whos_to_print:
                             all_whos_to_print.append(w)
 
-            summary["records"] = final_3col_records
-            JournalService.save_results(self.run_id, final_3col_records)
+            summary["records"] = final_records
+            JournalService.save_results(self.run_id, final_records)
 
             if self.stop_requested:
                 summary["message"] = "Đã dừng bởi người dùng."
@@ -2465,10 +2438,10 @@ class SapZonePipeline:
             # -------------------------------------------------------------
             # BƯỚC 7: HOÀN TẤT
             # -------------------------------------------------------------
-            update_progress(100, f"Thành công! Đã xử lý {len(posted_obs)} OB, {len(final_3col_records)} dòng kết quả.")
+            update_progress(100, f"Thành công! Đã xử lý {len(posted_obs)} OB, {len(final_records)} dòng kết quả.")
             summary["success"] = True
             summary["message"] = "Quy trình hoàn tất thành công!"
-            JournalService.save_run(self.run_id, "SUCCESS", len(requests), len(final_3col_records), summary["message"])
+            JournalService.save_run(self.run_id, "SUCCESS", len(requests), len(final_records), summary["message"])
             return summary
 
         finally:
