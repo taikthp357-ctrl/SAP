@@ -1755,18 +1755,25 @@ class MigoPostingService:
 
 
 class MonRelationService:
-    """Tra cứu MON để đối soát chính xác 3 cột: OB - Mã hàng - Số đơn (WHO) và in WHO chuẩn VBS."""
+    """Tra cứu MON để đối soát chính xác: OB - Mã hàng - Số đơn (INWH) - Mã WHO (SAP) với cơ chế tự động tải lại (Reload)."""
 
     @staticmethod
-    def query_who_for_ob(session, ob_number: str, auto_print: bool = True) -> Dict[str, List[str]]:
+    def query_who_for_ob(
+        session,
+        ob_number: str,
+        auto_print: bool = True,
+        max_retries: int = 3,
+        retry_delay: float = 3.0
+    ) -> Dict[str, List[str]]:
         """
-        Tra MON theo OB chuẩn xác theo chuỗi VBS thực tế:
+        Tra MON theo OB chuẩn xác theo chuỗi VBS thực tế kết hợp tự động thử lại (Reload) nếu hệ thống sinh muộn:
         1. Mở Favorite F00077 (hoặc /n/SCWM/MON).
         2. Chọn Node N000000010 (Outbound Delivery Order).
-        3. Điền OB vào wnd[1]/usr/txtS_ERP_H-LOW (hoặc ctxtS_ERP_H-LOW) và bấm F8 (btn[8]).
-        4. Điều hướng qua các nút Toolbar N000000011 -> N000000096 -> N000000108 để mở bảng Warehouse Order / Tasks.
-        5. Đọc ALV Grid lấy WHO, MATNR (hoặc PRODUCTNO), DOCNO.
-        6. Nếu auto_print=True: selectAll -> Context METHODS -> @M00007 -> popup Enter -> Refresh.
+        3. Điền OB vào txtS_ERP_H-LOW và bấm F8 (btn[8]).
+        4. TẦNG 1 RELOAD: Kiểm tra xem Outbound Delivery Order đã xuất hiện chưa. Nếu rỗng, chờ và Refresh/F8 lại.
+        5. Điều hướng qua Toolbar: N000000011 -> N000000096 -> N000000108.
+        6. TẦNG 2 RELOAD: Kiểm tra xem Warehouse Task đã xuất hiện chưa. Nếu rỗng, chờ và Refresh lại.
+        7. Đọc ALV Grid lấy cặp (MATNR, WHO).
         """
         clean_ob = re.sub(r"[^0-9]", "", str(ob_number)).strip()
         mat_who_map: Dict[str, List[str]] = {}
@@ -1775,7 +1782,7 @@ class MonRelationService:
             return mat_who_map
 
         try:
-            # 1. Mở màn hình /SCWM/MON an toàn qua Favorite F00077 (chuẩn VBS dòng 35)
+            # 1. Mở màn hình /SCWM/MON an toàn qua Favorite F00077
             fav_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlIMAGE_CONTAINER/shellcont/shell/shellcont[0]/shell")
             if fav_tree is not None:
                 try:
@@ -1786,7 +1793,7 @@ class MonRelationService:
             else:
                 SapConnector.open_mon_screen(session)
 
-            # 2. Chọn nhánh Outbound Delivery Order (N000000010 - chuẩn VBS dòng 36-37)
+            # 2. Chọn nhánh Outbound Delivery Order (N000000010)
             mon_tree = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[0]/shell")
             if mon_tree:
                 try:
@@ -1796,7 +1803,7 @@ class MonRelationService:
                 except Exception:
                     pass
 
-            # 3. Lọc theo OB và F8 trên wnd[1] (chuẩn VBS dòng 38-41)
+            # 3. Lọc theo OB và F8 trên wnd[1]
             txt_ob = (
                 SapConnector.find_by_id_safe(session, "wnd[1]/usr/txtS_ERP_H-LOW") or
                 SapConnector.find_by_id_safe(session, "wnd[1]/usr/ctxtS_ERP_H-LOW")
@@ -1812,44 +1819,96 @@ class MonRelationService:
             btn_f8 = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
             if btn_f8:
                 btn_f8.press()
-                SapConnector.wait_idle(session, 3.0)
+                SapConnector.wait_idle(session, 2.5)
 
-            # 4. Điều hướng Toolbar theo VBS: N000000011 -> N000000096 -> N000000108
             top_tb = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
+
+            # 4. TẦNG 1: Kiểm tra xem ODO đã xuất hiện trên lưới chưa, nếu chưa thì Refresh lại
+            for attempt in range(1, max_retries + 1):
+                odo_grid = (
+                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
+                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
+                )
+                odo_rows = getattr(odo_grid, "RowCount", 0) if odo_grid else 0
+                if odo_rows > 0:
+                    print(f"[MON ODO] Tìm thấy {odo_rows} dòng ODO cho OB {clean_ob} (lần thử {attempt}).")
+                    break
+
+                if attempt < max_retries:
+                    print(f"[MON ODO RELOAD] Chưa thấy ODO cho OB {clean_ob} (lần {attempt}/{max_retries}), đợi {retry_delay}s để tải lại...")
+                    time.sleep(retry_delay)
+                    if top_tb:
+                        try:
+                            top_tb.pressToolbarButton("&REFRESH")
+                            SapConnector.wait_idle(session, 2.0)
+                        except Exception:
+                            try:
+                                top_tb.pressToolbarButton("REFRESH")
+                                SapConnector.wait_idle(session, 2.0)
+                            except Exception:
+                                pass
+                    btn_f8_retry = SapConnector.find_by_id_safe(session, "wnd[1]/tbar[0]/btn[8]")
+                    if btn_f8_retry:
+                        try:
+                            btn_f8_retry.press()
+                            SapConnector.wait_idle(session, 2.0)
+                        except Exception:
+                            pass
+
+            # 5. Điều hướng Toolbar: N000000011 -> N000000096 -> N000000108
             if top_tb:
-                # N000000011: OutbDelOrd Item
                 try:
                     top_tb.pressToolbarButton("N000000011")
                     SapConnector.wait_idle(session, 2.0)
                 except Exception:
                     pass
 
-                # N000000096: Warehouse Order view
                 try:
                     top_tb.pressToolbarButton("N000000096")
                     SapConnector.wait_idle(session, 2.0)
                 except Exception:
                     pass
 
-                # N000000108: Warehouse Task view (liên kết MATNR và WHO)
                 try:
                     top_tb.pressToolbarButton("N000000108")
                     SapConnector.wait_idle(session, 2.0)
                 except Exception:
                     pass
 
-            # 5. Tìm lưới kết quả (lưới con shellcont[1] hoặc lưới chính)
-            result_grid = (
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell") or
-                SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell")
-            )
+            # 6. TẦNG 2: Kiểm tra lưới kết quả Warehouse Task (liên kết MATNR - WHO)
+            result_grid = None
+            row_count = 0
+            for task_attempt in range(1, max_retries + 1):
+                result_grid = (
+                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
+                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell") or
+                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell")
+                )
+                row_count = getattr(result_grid, "RowCount", 0) if result_grid else 0
+                if row_count > 0:
+                    print(f"[MON TASK] Tìm thấy ALV Grid với {row_count} dòng Warehouse Task cho OB {clean_ob}.")
+                    break
 
-            if result_grid:
-                row_count = getattr(result_grid, "RowCount", 0)
-                print(f"[MON WHO QUERY] Tìm thấy ALV Grid với {row_count} dòng.")
+                if task_attempt < max_retries:
+                    print(f"[MON TASK RELOAD] Chưa thấy Warehouse Task cho OB {clean_ob} (lần {task_attempt}/{max_retries}), đợi {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    if top_tb:
+                        try:
+                            top_tb.pressToolbarButton("&REFRESH")
+                            SapConnector.wait_idle(session, 1.5)
+                        except Exception:
+                            try:
+                                top_tb.pressToolbarButton("REFRESH")
+                                SapConnector.wait_idle(session, 1.5)
+                            except Exception:
+                                pass
+                        try:
+                            top_tb.pressToolbarButton("N000000108")
+                            SapConnector.wait_idle(session, 2.0)
+                        except Exception:
+                            pass
 
-                # Tự động nhận diện cột
+            if result_grid and row_count > 0:
                 who_col = "WHO"
                 mat_col = "MATNR"
                 try:
@@ -1899,12 +1958,11 @@ class MonRelationService:
                     except Exception as ex_r:
                         print(f"[MON GRID ROW ERR] {ex_r}")
 
-                # Nếu tìm thấy WHO nhưng chưa map được MATNR cụ thể:
                 if all_found_whos and not mat_who_map:
                     distinct_whos = list(dict.fromkeys(all_found_whos))
                     mat_who_map["__ALL__"] = distinct_whos
 
-                # 6. Tự động In phiếu WHO trực tiếp trong MON (nếu auto_print=True)
+                # 7. Tự động In phiếu WHO trực tiếp trong MON (nếu auto_print=True)
                 if auto_print and row_count > 0:
                     try:
                         result_grid.selectAll()
@@ -1919,7 +1977,7 @@ class MonRelationService:
 
                         if top_tb:
                             try:
-                                top_tb.pressToolbarButton("REFRESH")
+                                top_tb.pressToolbarButton("&REFRESH")
                                 SapConnector.wait_idle(session, 1.0)
                             except Exception:
                                 pass
@@ -1930,7 +1988,6 @@ class MonRelationService:
             print(f"[MON REL WARN] Lỗi tra cứu liên kết cho OB {ob_number}: {e}")
 
         return mat_who_map
-
 
 class WhoPrintService:
     """In phiếu Warehouse Order qua F00112 (2 bản) và Win32 Watchdog tự lưu & xác thực PDF."""
@@ -2295,6 +2352,17 @@ def parse_paste_data(raw_text: str) -> List[Dict[str, Any]]:
 
 
 
+def extract_ob_numbers(raw_text: str) -> List[str]:
+    """
+    Trích xuất toàn bộ các Số OB (chuỗi 10 chữ số) từ văn bản hoặc bảng dán.
+    Loại bỏ trùng lặp và giữ nguyên thứ tự xuất hiện.
+    """
+    if not raw_text or not raw_text.strip():
+        return []
+    matches = re.findall(r"\b([0-9]{10})\b", raw_text)
+    return list(dict.fromkeys(matches))
+
+
 class SapZonePipeline:
     """Điều phối toàn diện luồng: Đọc Tồn -> Phân Bổ FIFO -> MIGO 311 -> Tra cứu WHO -> In Phiếu SAP."""
 
@@ -2574,6 +2642,190 @@ class SapZonePipeline:
             summary["success"] = True
             summary["message"] = "Quy trình hoàn tất thành công!"
             JournalService.save_run(self.run_id, "SUCCESS", len(requests), len(final_records), summary["message"])
+            return summary
+
+        finally:
+            SapConnector.uninit_thread_com()
+
+    def run_who_lookup_for_obs(
+        self,
+        ob_list: List[str],
+        existing_records: Optional[List[Dict[str, str]]] = None,
+        progress_cb=None,
+        status_cb=None,
+        is_mock: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Chỉ tra cứu MON, tự động tải lại nếu sinh muộn, gán Số Đơn và in phiếu cho danh sách Số OB có sẵn (BỎ QUA MIGO 311).
+        """
+        self.stop_requested = False
+        SapConnector.init_thread_com()
+
+        summary: Dict[str, Any] = {
+            "success": False,
+            "run_id": self.run_id,
+            "records": [],
+            "pdf_files": [],
+            "message": ""
+        }
+
+        def update_progress(pct: int, msg: str):
+            if progress_cb:
+                progress_cb(pct)
+            if status_cb:
+                status_cb(msg)
+            print(f"[{pct}%] {msg}")
+
+        try:
+            clean_obs = list(dict.fromkeys([re.sub(r"[^0-9]", "", str(o)).strip() for o in ob_list if re.sub(r"[^0-9]", "", str(o)).strip()]))
+            if not clean_obs:
+                summary["message"] = "Không có Số OB hợp lệ (10 chữ số) để tra cứu!"
+                return summary
+
+            update_progress(10, f"Bắt đầu tra cứu MON cho {len(clean_obs)} Số OB...")
+
+            session = None
+            if not is_mock:
+                ok_con, res_con = SapConnector.connect_existing()
+                if not ok_con:
+                    summary["message"] = f"Kết nối SAP thất bại: {res_con}"
+                    update_progress(15, summary["message"])
+                    return summary
+                session = res_con
+                ok_id, id_msg = SapConnector.verify_identity(
+                    session=session,
+                    req_sys=self.config.get("sap_system", "PSV"),
+                    req_cli=self.config.get("sap_client", "908"),
+                    req_usr=self.config.get("sap_user", "TAIPT8")
+                )
+                if not ok_id:
+                    summary["message"] = f"Xác thực danh tính SAP thất bại: {id_msg}"
+                    update_progress(20, summary["message"])
+                    return summary
+
+            # Thiết lập tiền tố và số bắt đầu Số Đơn
+            sodon_prefix = str(self.config.get("sodon_prefix", f"{datetime.now().strftime('%d')}-")).strip()
+            try:
+                sodon_start = int(self.config.get("sodon_start", 1))
+            except ValueError:
+                sodon_start = 1
+
+            # Map existing records nếu có
+            rec_map_by_ob: Dict[str, List[Dict[str, str]]] = {}
+            if existing_records:
+                for r in existing_records:
+                    o = str(r.get("ob", "")).strip()
+                    if o not in rec_map_by_ob:
+                        rec_map_by_ob[o] = []
+                    rec_map_by_ob[o].append(r)
+
+            final_records: List[Dict[str, str]] = []
+            all_whos_to_print: List[str] = []
+
+            total_obs = len(clean_obs)
+            for idx, ob_num in enumerate(clean_obs):
+                if self.stop_requested:
+                    summary["message"] = "Đã dừng bởi người dùng."
+                    return summary
+
+                pct = 20 + int((idx / total_obs) * 60)
+                update_progress(pct, f"Đang tra MON cho OB {ob_num} ({idx+1}/{total_obs}) với cơ chế tải lại tự động...")
+
+                cur_seq = sodon_start + idx
+                sodon_val = f"{sodon_prefix}{cur_seq:02d}"
+
+                mat_who_map: Dict[str, List[str]] = {}
+                if not is_mock and session:
+                    mat_who_map = MonRelationService.query_who_for_ob(session, ob_num, auto_print=False, max_retries=3, retry_delay=3.0)
+                else:
+                    mat_who_map = {"BIW32211725AA": [f"602871{idx*2+1:04d}"], "BIW32211727AA": [f"602871{idx*2+2:04d}"]}
+
+                if ob_num in rec_map_by_ob:
+                    for ex_r in rec_map_by_ob[ob_num]:
+                        m_code = ex_r.get("material", "")
+                        s_don = ex_r.get("sodon", "") or sodon_val
+                        whos = mat_who_map.get(m_code, [])
+                        if not whos and "__ALL__" in mat_who_map:
+                            whos = mat_who_map["__ALL__"]
+                        who_str = "/".join(whos) if whos else (ex_r.get("who", "") if ex_r.get("who") and ex_r.get("who") != "(Chưa có WHO)" else "(Chưa có WHO)")
+                        final_records.append({
+                            "ob": ob_num,
+                            "material": m_code,
+                            "sodon": s_don,
+                            "who": who_str
+                        })
+                        for w in whos:
+                            if w not in all_whos_to_print:
+                                all_whos_to_print.append(w)
+                else:
+                    if mat_who_map:
+                        for m_code, whos in mat_who_map.items():
+                            if m_code == "__ALL__":
+                                continue
+                            who_str = "/".join(whos) if whos else "(Chưa có WHO)"
+                            final_records.append({
+                                "ob": ob_num,
+                                "material": m_code,
+                                "sodon": sodon_val,
+                                "who": who_str
+                            })
+                            for w in whos:
+                                if w not in all_whos_to_print:
+                                    all_whos_to_print.append(w)
+                        if "__ALL__" in mat_who_map and not any(r["ob"] == ob_num for r in final_records):
+                            whos = mat_who_map["__ALL__"]
+                            who_str = "/".join(whos)
+                            final_records.append({
+                                "ob": ob_num,
+                                "material": "(Từ MON)",
+                                "sodon": sodon_val,
+                                "who": who_str
+                            })
+                            for w in whos:
+                                if w not in all_whos_to_print:
+                                    all_whos_to_print.append(w)
+                    else:
+                        final_records.append({
+                            "ob": ob_num,
+                            "material": "(Chưa xác định)",
+                            "sodon": sodon_val,
+                            "who": "(Chưa có WHO)"
+                        })
+
+            summary["records"] = final_records
+            JournalService.save_results(self.run_id, final_records)
+
+            if self.config.get("auto_print_pdf", True) and all_whos_to_print:
+                update_progress(85, f"Đang in phiếu SAP F00112 (2 bản) cho {len(all_whos_to_print)} đơn WHO...")
+                pdf_folder = self.config.get("pdf_output_folder", os.path.abspath("./OUTPUT_PDF"))
+                os.makedirs(pdf_folder, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                pdf_filename = f"PHIEU_WHO_{timestamp}.pdf"
+                pdf_path = os.path.join(pdf_folder, pdf_filename)
+
+                if not is_mock and session:
+                    try:
+                        WhoPrintService.print_whos(
+                            session=session,
+                            who_list=all_whos_to_print,
+                            warehouse_num=self.config.get("ewm_warehouse", "VF02"),
+                            copies=int(self.config.get("sap_print_copies", 2)),
+                            pdf_output_path=pdf_path
+                        )
+                        summary["pdf_files"].append(pdf_path)
+                    except Exception as ex:
+                        print(f"[PRINT EX] {ex}")
+                else:
+                    try:
+                        with open(pdf_path, "w", encoding="utf-8") as f:
+                            f.write(f"MOCK PDF INVOICE\nCreated: {datetime.now()}\nWHOs: {', '.join(all_whos_to_print)}\n")
+                        summary["pdf_files"].append(pdf_path)
+                    except Exception:
+                        pass
+
+            update_progress(100, f"Hoàn tất! Đã tra cứu {len(clean_obs)} OB, tìm thấy {len(all_whos_to_print)} đơn WHO.")
+            summary["success"] = True
+            summary["message"] = f"Đã tra cứu xong {len(clean_obs)} OB!"
             return summary
 
         finally:

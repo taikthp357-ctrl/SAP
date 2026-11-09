@@ -233,22 +233,39 @@ class SapZoneApp:
         ent_start = ttk.Entry(sodon_box, textvariable=self.sodon_start_var, width=5, justify="center")
         ent_start.pack(side="left")
 
-        # Nút Chạy chính to nổi bật
+        # Nút Chạy chính: Ra đơn mới (MIGO 311 -> MON)
         self.btn_run = tk.Button(
             ctrl_frame,
-            text="▶  BẮT ĐẦU CHẠY: RA ĐƠN & IN PHIẾU",
-            font=("Segoe UI", 11, "bold"),
+            text="▶  RA ĐƠN MỚI (TỪ ĐẦU)",
+            font=("Segoe UI", 10, "bold"),
             bg="#1e40af",
             fg="#ffffff",
             activebackground="#1d4ed8",
             activeforeground="#ffffff",
             relief="flat",
-            padx=20,
-            pady=8,
+            padx=14,
+            pady=7,
             cursor="hand2",
             command=self._on_btn_run_clicked
         )
-        self.btn_run.pack(side="right", padx=6)
+        self.btn_run.pack(side="right", padx=4)
+
+        # Nút Tiếp tục từ Số OB (Chỉ tra MON & Gán Số Đơn & In phiếu, BỎ QUA MIGO)
+        self.btn_continue_ob = tk.Button(
+            ctrl_frame,
+            text="⚡ TIẾP TỤC TỪ SỐ OB (TRA MON & IN)",
+            font=("Segoe UI", 10, "bold"),
+            bg="#c2410c",
+            fg="#ffffff",
+            activebackground="#9a3412",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=14,
+            pady=7,
+            cursor="hand2",
+            command=self._on_btn_continue_ob_clicked
+        )
+        self.btn_continue_ob.pack(side="right", padx=4)
 
         # Thanh tiến trình & Trạng thái
         status_bar_frame = tk.Frame(top_frame, bg="#ffffff")
@@ -373,6 +390,38 @@ class SapZoneApp:
             command=self._copy_ob_column_to_clipboard
         )
         btn_copy_ob.pack(side="right", padx=2)
+
+        btn_retry_mon = tk.Button(
+            table_toolbar,
+            text="🔄 Tra Lại MON (Cập Nhật WHO)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#d97706",
+            fg="#ffffff",
+            activebackground="#b45309",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._retry_mon_for_current_table
+        )
+        btn_retry_mon.pack(side="right", padx=2)
+
+        btn_renumber = tk.Button(
+            table_toolbar,
+            text="📝 Đánh Lại Số Đơn",
+            font=("Segoe UI", 9, "bold"),
+            bg="#475569",
+            fg="#ffffff",
+            activebackground="#334155",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._renumber_sodon_dialog
+        )
+        btn_renumber.pack(side="right", padx=2)
 
         # Bảng Treeview 4 cột
         tree_container = tk.Frame(bottom_frame, bg="#ffffff")
@@ -674,7 +723,9 @@ class SapZoneApp:
 
     def _on_pipeline_finished(self, summary: dict):
         self.is_running = False
-        self.btn_run.configure(text="▶  BẮT ĐẦU CHẠY: RA ĐƠN & IN PHIẾU", bg="#1e40af", activebackground="#1d4ed8")
+        self.btn_run.configure(state="normal", text="▶  RA ĐƠN MỚI (TỪ ĐẦU)", bg="#1e40af", activebackground="#1d4ed8")
+        if hasattr(self, "btn_continue_ob"):
+            self.btn_continue_ob.configure(state="normal", text="⚡ TIẾP TỤC TỪ SỐ OB (TRA MON & IN)", bg="#c2410c", activebackground="#9a3412")
 
         if summary.get("success"):
             records = summary.get("records", [])
@@ -698,7 +749,9 @@ class SapZoneApp:
 
     def _on_pipeline_error(self, err_msg: str):
         self.is_running = False
-        self.btn_run.configure(text="▶  BẮT ĐẦU CHẠY: RA ĐƠN & IN PHIẾU", bg="#1e40af", activebackground="#1d4ed8")
+        self.btn_run.configure(state="normal", text="▶  RA ĐƠN MỚI (TỪ ĐẦU)", bg="#1e40af", activebackground="#1d4ed8")
+        if hasattr(self, "btn_continue_ob"):
+            self.btn_continue_ob.configure(state="normal", text="⚡ TIẾP TỤC TỪ SỐ OB (TRA MON & IN)", bg="#c2410c", activebackground="#9a3412")
         self.status_text_var.set(f"Lỗi: {err_msg}")
         messagebox.showerror("Thông Báo Lỗi", f"Tiến trình bị dừng do ngoại lệ:\n{err_msg}")
 
@@ -999,3 +1052,158 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    def _on_btn_continue_ob_clicked(self):
+        """Chạy luồng tiếp tục từ Số OB: chỉ tra MON lấy WHO, gán Số Đơn và in phiếu (BỎ QUA MIGO 311)."""
+        if self.is_running:
+            self._request_stop()
+            return
+
+        raw_input = self.txt_input.get("1.0", tk.END).strip()
+        obs_from_text = extract_ob_numbers(raw_input)
+
+        target_obs = []
+        existing_recs = None
+
+        if obs_from_text:
+            target_obs = obs_from_text
+        elif self.current_results:
+            target_obs = list(dict.fromkeys([str(r.get("ob", "")).strip() for r in self.current_results if r.get("ob")]))
+            existing_recs = self.current_results
+
+        if not target_obs:
+            messagebox.showwarning(
+                "Chưa có Số OB",
+                "Không tìm thấy Số OB nào hợp lệ (10 chữ số)!\n\n"
+                "• Bạn hãy dán danh sách Số OB vào ô nhập dữ liệu trên,\n"
+                "• HOẶC chạy 'RA ĐƠN MỚI' trước để có Số OB trên bảng kết quả."
+            )
+            return
+
+        confirm_msg = (
+            f"Bạn có chắc muốn chạy tra cứu MON & gán Số Đơn cho {len(target_obs)} Số OB:\n"
+            f"{', '.join(target_obs[:6])}{'...' if len(target_obs) > 6 else ''}\n\n"
+            "• Chế độ này KHÔNG gọi MIGO 311 (không sợ trừ trùng tồn kho).\n"
+            "• Tự động tải lại (Reload) 1-3 lần nếu hệ thống EWM sinh muộn.\n"
+            "• Tự động gán Số Đơn theo tiền tố và in phiếu WHO."
+        )
+        if not messagebox.askyesno("Xác nhận chạy từ Số OB", confirm_msg):
+            return
+
+        # Đồng bộ cấu hình Số đơn trước khi chạy
+        if hasattr(self, "sodon_prefix_var"):
+            self.config["sodon_prefix"] = self.sodon_prefix_var.get().strip()
+        if hasattr(self, "sodon_start_var"):
+            try:
+                self.config["sodon_start"] = int(self.sodon_start_var.get().strip())
+            except ValueError:
+                self.config["sodon_start"] = 1
+
+        mock_mode = self.mock_mode_var.get()
+        self.is_running = True
+        self.btn_continue_ob.configure(text="⏹  DỪNG LẠI", bg="#dc2626", activebackground="#b91c1c")
+        self.btn_run.configure(state="disabled")
+        self.progress_bar["value"] = 0
+        self.status_text_var.set(f"Đang bắt đầu tra cứu MON cho {len(target_obs)} Số OB...")
+
+        self.pipeline = SapZonePipeline(self.config, self.zone_mgr)
+        self.worker_thread = threading.Thread(
+            target=self._run_who_lookup_worker,
+            args=(target_obs, existing_recs, mock_mode),
+            daemon=True
+        )
+        self.worker_thread.start()
+
+    def _run_who_lookup_worker(self, target_obs, existing_recs, mock_mode):
+        try:
+            SapConnector.init_thread_com()
+            res = self.pipeline.run_who_lookup_for_obs(
+                ob_list=target_obs,
+                existing_records=existing_recs,
+                progress_cb=self._update_progress_from_worker,
+                status_cb=self._update_status_from_worker,
+                is_mock=mock_mode
+            )
+            self.current_results = res.get("records", [])
+            self.root.after(0, self._on_pipeline_completed, res)
+        except Exception as e:
+            self.root.after(0, self._on_pipeline_error, str(e))
+        finally:
+            SapConnector.uninit_thread_com()
+
+    def _retry_mon_for_current_table(self):
+        """Tra cứu lại MON cho các dòng trên bảng kết quả (đặc biệt là các dòng chưa có WHO)."""
+        if self.is_running:
+            messagebox.showinfo("Đang chạy", "Hệ thống đang bận thực hiện tác vụ khác!")
+            return
+        if not self.current_results:
+            messagebox.showinfo("Bảng trống", "Chưa có dữ liệu trên bảng kết quả để tra cứu!")
+            return
+
+        obs = list(dict.fromkeys([str(r.get("ob", "")).strip() for r in self.current_results if r.get("ob")]))
+        if not obs:
+            messagebox.showwarning("Không có OB", "Bảng kết quả chưa có Số OB hợp lệ!")
+            return
+
+        if hasattr(self, "sodon_prefix_var"):
+            self.config["sodon_prefix"] = self.sodon_prefix_var.get().strip()
+        if hasattr(self, "sodon_start_var"):
+            try:
+                self.config["sodon_start"] = int(self.sodon_start_var.get().strip())
+            except ValueError:
+                self.config["sodon_start"] = 1
+
+        mock_mode = self.mock_mode_var.get()
+        self.is_running = True
+        self.btn_run.configure(state="disabled")
+        if hasattr(self, "btn_continue_ob"):
+            self.btn_continue_ob.configure(text="⏹  DỪNG LẠI", bg="#dc2626", activebackground="#b91c1c")
+        self.status_text_var.set(f"Đang quét lại MON cho {len(obs)} Số OB...")
+        self.lbl_row_count.configure(text="Đang cập nhật lại WHO từ MON...")
+
+        self.pipeline = SapZonePipeline(self.config, self.zone_mgr)
+        self.worker_thread = threading.Thread(
+            target=self._run_who_lookup_worker,
+            args=(obs, self.current_results, mock_mode),
+            daemon=True
+        )
+        self.worker_thread.start()
+
+    def _renumber_sodon_dialog(self):
+        """Cho phép đánh lại toàn bộ Số Đơn trên bảng kết quả theo tiền tố và số bắt đầu mới."""
+        if not self.current_results:
+            messagebox.showinfo("Bảng trống", "Chưa có kết quả để đánh lại số đơn!")
+            return
+
+        from tkinter import simpledialog
+        cur_prefix = self.sodon_prefix_var.get().strip() if hasattr(self, "sodon_prefix_var") else "09-"
+        new_prefix = simpledialog.askstring("Đánh Lại Số Đơn", "Nhập Tiền tố số đơn mới (ví dụ: 09-, 10-):", initialvalue=cur_prefix, parent=self.root)
+        if new_prefix is None:
+            return
+        new_prefix = new_prefix.strip()
+
+        start_str = simpledialog.askstring("Đánh Lại Số Đơn", "Nhập Số bắt đầu (ví dụ: 1, 2...):", initialvalue="1", parent=self.root)
+        if start_str is None:
+            return
+        try:
+            start_num = int(start_str.strip())
+        except ValueError:
+            start_num = 1
+
+        ob_to_sodon = {}
+        seq = start_num
+        for r in self.current_results:
+            ob = r.get("ob", "")
+            if ob not in ob_to_sodon:
+                ob_to_sodon[ob] = f"{new_prefix}{seq:02d}"
+                seq += 1
+            r["sodon"] = ob_to_sodon[ob]
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        for idx, r in enumerate(self.current_results):
+            tag = "evenrow" if idx % 2 == 0 else "oddrow"
+            self.tree.insert("", "end", values=(r.get("ob", ""), r.get("material", ""), r.get("sodon", ""), r.get("who", "")), tags=(tag,))
+
+        self.status_text_var.set(f"Đã đánh lại Số Đơn từ {new_prefix}{start_num:02d} đến {new_prefix}{seq-1:02d}!")
+        messagebox.showinfo("Thành công", f"Đã đánh lại toàn bộ Số Đơn thành công!\nSố đơn từ: {new_prefix}{start_num:02d} đến {new_prefix}{seq-1:02d}")
