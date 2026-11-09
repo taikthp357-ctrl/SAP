@@ -1589,9 +1589,12 @@ class MigoPostingService:
             print("[MIGO] Gửi Enter Nhịp 1 (để SAP kích hoạt Stock Determin. và mở khóa ô Batch)...")
             session.findById("wnd[0]").sendVKey(0)
 
-            # 4. GIAI ĐOẠN 2: CHỜ SAP HOÀN TẤT ROUNDTRIP, RE-BIND LẠI BẢNG & ĐIỀN BATCH CỘT 10
-            # Vòng lặp chờ ô Batch cột 10 xuất hiện (tối đa 10 giây)
+            # 4. GIAI ĐOẠN 2: CHỜ SAP HOÀN TẤT ROUNDTRIP, RE-BIND LẠI BẢNG & ĐIỀN BATCH
+            # Sau Enter Nhịp 1, SAP chèn thêm cột 'Stock Determin.' (icon ngôi nhà 🏠) vào trước Qty
+            # làm các cột phía sau dịch sang phải +1 (Batch dịch sang Cột 10).
+            # Dò tìm động qua tbl.Columns (chuẩn VBA MIGO) kết hợp GetCell và ID fallback.
             batch_col_idx = 10
+            tbl_new = None
             tbl_path_new = tbl_path
             t_wait_batch = time.time()
             batch_cell_found = False
@@ -1600,12 +1603,34 @@ class MigoPostingService:
                 SapConnector.wait_idle(session, 0.4)
                 SapConnector.dismiss_popups(session)
 
-                # Lấy lại đường dẫn bảng mới sau khi SAP re-render
-                _, t_path_check = MigoPostingService._find_migo_table(session)
+                tbl_new, t_path_check = MigoPostingService._find_migo_table(session)
                 if t_path_check:
                     tbl_path_new = t_path_check
 
-                # Kiểm tra ô Batch tại Cột 10 dòng 0
+                # 1. Dò tìm động qua tbl.Columns (chuẩn VBA MIGO)
+                if tbl_new is not None:
+                    try:
+                        cols_obj = getattr(tbl_new, "Columns", None)
+                        if cols_obj is not None:
+                            col_cnt = int(getattr(cols_obj, "Count", 0) or 0)
+                            for i in range(col_cnt):
+                                try:
+                                    c_elem = cols_obj.ElementAt(i)
+                                    c_title = str(getattr(c_elem, "Title", getattr(c_elem, "title", "")) or "").strip().upper()
+                                    if "BATCH" in c_title and "TRFR" not in c_title and "TRANSFER" not in c_title:
+                                        batch_col_idx = i
+                                        batch_cell_found = True
+                                        print(f"[MIGO] Đã định vị cột Batch động: Cột {i} (Title='{c_title}')")
+                                        break
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                if batch_cell_found:
+                    break
+
+                # 2. Fallback: Kiểm tra ô Batch tại Cột 10 dòng 0
                 test_cell10 = SapConnector.find_by_id_safe(session, f"{tbl_path_new}/ctxtGOITEM-CHARG[10,0]")
                 if test_cell10 is not None:
                     batch_col_idx = 10
@@ -1637,27 +1662,45 @@ class MigoPostingService:
                     return False, f"Mã hàng {mat_code} (dòng {idx+1}) chưa có số Batch từ /SCWM/MON! Không thể tạo MIGO khi thiếu Batch."
 
                 line_batch_ok = False
-                # Thử lần lượt các cột candidate (Cột tìm được, Cột 10, Cột 9, Cột 11)
-                for c_cand in [batch_col_idx, 10, 9, 11]:
-                    cell_id_target = f"{tbl_path_new}/ctxtGOITEM-CHARG[{c_cand},{idx}]"
-                    target_cell = SapConnector.find_by_id_safe(session, cell_id_target)
-                    if target_cell is not None:
-                        try:
-                            target_cell.text = b_str
+                # Thử 1: Dùng tbl_new.GetCell(idx, batch_col_idx) chuẩn VBA MIGO
+                if tbl_new is not None:
+                    try:
+                        c_obj = tbl_new.GetCell(idx, batch_col_idx)
+                        if c_obj is not None:
+                            c_obj.text = b_str
                             try:
-                                target_cell.setFocus()
-                                target_cell.caretPosition = len(b_str)
+                                c_obj.setFocus()
+                                c_obj.caretPosition = len(b_str)
                             except Exception:
                                 pass
                             line_batch_ok = True
-                            print(f"[MIGO BATCH] Dòng {idx+1}: Đã điền Batch '{b_str}' vào {cell_id_target}")
-                            break
-                        except Exception as ex_cell:
-                            print(f"[MIGO BATCH ERR] Dòng {idx+1} {cell_id_target}: {ex_cell}")
+                            print(f"[MIGO BATCH GETCELL] Dòng {idx+1}: Đã điền Batch '{b_str}' qua GetCell({idx}, {batch_col_idx})")
+                    except Exception as ex_gc:
+                        print(f"[MIGO BATCH GETCELL EX] Dòng {idx+1}: {ex_gc}")
 
+                # Thử 2: Thử lần lượt các cột candidate (Cột tìm được, Cột 10, Cột 9, Cột 11) theo ID
+                if not line_batch_ok:
+                    for c_cand in [batch_col_idx, 10, 9, 11]:
+                        cell_id_target = f"{tbl_path_new}/ctxtGOITEM-CHARG[{c_cand},{idx}]"
+                        target_cell = SapConnector.find_by_id_safe(session, cell_id_target)
+                        if target_cell is not None:
+                            try:
+                                target_cell.text = b_str
+                                try:
+                                    target_cell.setFocus()
+                                    target_cell.caretPosition = len(b_str)
+                                except Exception:
+                                    pass
+                                line_batch_ok = True
+                                print(f"[MIGO BATCH] Dòng {idx+1}: Đã điền Batch '{b_str}' vào {cell_id_target}")
+                                break
+                            except Exception as ex_cell:
+                                print(f"[MIGO BATCH ERR] Dòng {idx+1} {cell_id_target}: {ex_cell}")
+
+                # Thử 3: Fallback qua _write_table_cell
                 if not line_batch_ok:
                     ok_w = MigoPostingService._write_table_cell(
-                        session, None, tbl_path_new,
+                        session, tbl_new, tbl_path_new,
                         ["ctxtGOITEM-CHARG"],
                         [batch_col_idx, 10, 9, 11],
                         idx,
@@ -1755,7 +1798,207 @@ class MigoPostingService:
 
 
 class MonRelationService:
-    """Tra cứu MON để đối soát chính xác: OB - Mã hàng - Số đơn (INWH) - Mã WHO (SAP) với cơ chế tự động tải lại (Reload)."""
+    """Tra cứu MON để đối soát chính xác: OB - Mã hàng - Số đơn (INWH) - Mã WHO (SAP) với cơ chế tự động quét đa lưới và tải lại."""
+
+    @staticmethod
+    def _extract_from_alv(grid) -> Tuple[Dict[str, List[str]], List[str]]:
+        """Trích xuất an toàn mã WHO và liên kết với Material từ một ALV Grid."""
+        grid_mat_map: Dict[str, List[str]] = {}
+        grid_whos: List[str] = []
+        if grid is None:
+            return grid_mat_map, grid_whos
+
+        try:
+            row_count = int(getattr(grid, "RowCount", 0) or 0)
+        except Exception:
+            return grid_mat_map, grid_whos
+
+        if row_count <= 0:
+            return grid_mat_map, grid_whos
+
+        try:
+            col_order = getattr(grid, "ColumnOrder", None)
+            if col_order is None:
+                return grid_mat_map, grid_whos
+            col_count = int(getattr(col_order, "Count", 0) or 0)
+        except Exception:
+            return grid_mat_map, grid_whos
+
+        if col_count <= 0:
+            return grid_mat_map, grid_whos
+
+        col_names = []
+        for i in range(col_count):
+            try:
+                col_names.append(str(col_order.ElementAt(i)))
+            except Exception:
+                pass
+
+        mat_col = None
+        who_col = None
+        for c in col_names:
+            c_up = c.upper()
+            if not mat_col and c_up in ("MATNR", "PRODUCT", "PRODUCTNO", "MATERIAL"):
+                mat_col = c
+            if not who_col and c_up in ("WHO", "WHOID", "WHSE_ORDER", "WHO_NO", "ORDERNO", "DOCNO", "TANUM"):
+                who_col = c
+            if not who_col:
+                try:
+                    c_titles = grid.GetColumnTitles(c)
+                    if c_titles and getattr(c_titles, "Count", 0) > 0:
+                        c_t0 = str(c_titles.ElementAt(0) or "").lower()
+                        if "whse order" in c_t0 or "warehouse order" in c_t0:
+                            who_col = c
+                except Exception:
+                    pass
+
+        for r in range(row_count):
+            r_who = None
+            r_mat = None
+
+            if mat_col:
+                try:
+                    m_val = str(grid.GetCellValue(r, mat_col)).strip().upper()
+                    if m_val:
+                        r_mat = m_val
+                except Exception:
+                    pass
+
+            if who_col:
+                try:
+                    w_val = str(grid.GetCellValue(r, who_col)).strip()
+                    if re.match(r"^6\d{9}$", w_val):
+                        r_who = w_val
+                        if w_val not in grid_whos:
+                            grid_whos.append(w_val)
+                except Exception:
+                    pass
+
+            # Fallback quét mọi cột nếu who_col chưa bắt được số 6...
+            if not r_who:
+                for c in col_names:
+                    try:
+                        val = str(grid.GetCellValue(r, c)).strip()
+                        if re.match(r"^6\d{9}$", val):
+                            r_who = val
+                            if val not in grid_whos:
+                                grid_whos.append(val)
+                            break
+                    except Exception:
+                        pass
+
+            if r_who and r_mat:
+                if r_mat not in grid_mat_map:
+                    grid_mat_map[r_mat] = []
+                if r_who not in grid_mat_map[r_mat]:
+                    grid_mat_map[r_mat].append(r_who)
+
+        return grid_mat_map, grid_whos
+
+    @staticmethod
+    def scan_whos_in_session(session) -> Tuple[Dict[str, List[str]], List[str]]:
+        """
+        Quét an toàn toàn bộ các ALV Grid đang hiển thị trên màn hình wnd[0] của SAP MON:
+        Bất kỳ ô nào chứa số 10 chữ số bắt đầu bằng 6 (chuẩn số WHO SAP e.g. 6028852349) đều được tự động trích xuất.
+        """
+        found_whos: List[str] = []
+        mat_who_map: Dict[str, List[str]] = {}
+
+        if session is None:
+            return mat_who_map, found_whos
+
+        # 1. Quét các đường dẫn trực tiếp đặc thù của /SCWM/MON trước
+        direct_grid_paths = [
+            "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell",  # Bottom Grid (Warehouse Order / Task)
+            "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell",  # Top Grid (Outbound Delivery Order)
+            "wnd[0]/usr/shell/shellcont[0]/shell",
+        ]
+        for p in direct_grid_paths:
+            try:
+                g = SapConnector.find_by_id_safe(session, p)
+                if g is not None:
+                    gm, gw = MonRelationService._extract_from_alv(g)
+                    for k, v in gm.items():
+                        if k not in mat_who_map:
+                            mat_who_map[k] = []
+                        for item in v:
+                            if item not in mat_who_map[k]:
+                                mat_who_map[k].append(item)
+                    for w in gw:
+                        if w not in found_whos:
+                            found_whos.append(w)
+            except Exception:
+                pass
+
+        # 2. Quét đệ quy toàn bộ cây giao diện an toàn (mỗi bước trong try-except độc lập)
+        def scan_ctrl(ctrl):
+            if ctrl is None:
+                return
+            try:
+                gm, gw = MonRelationService._extract_from_alv(ctrl)
+                for k, v in gm.items():
+                    if k not in mat_who_map:
+                        mat_who_map[k] = []
+                    for item in v:
+                        if item not in mat_who_map[k]:
+                            mat_who_map[k].append(item)
+                for w in gw:
+                    if w not in found_whos:
+                        found_whos.append(w)
+            except Exception:
+                pass
+
+            try:
+                children = getattr(ctrl, "Children", None)
+                if children is not None:
+                    cnt = int(getattr(children, "Count", 0) or 0)
+                    for i in range(cnt):
+                        try:
+                            scan_ctrl(children(i))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        try:
+            wnd0 = session.findById("wnd[0]")
+            scan_ctrl(wnd0)
+        except Exception as ex:
+            print(f"[SCAN GRIDS RECURSIVE EX] {ex}")
+
+        if found_whos and not mat_who_map:
+            mat_who_map["__ALL__"] = list(dict.fromkeys(found_whos))
+
+        return mat_who_map, found_whos
+
+    @staticmethod
+    def _click_mon_toolbar_button(tb, keywords: List[str], fallback_ids: List[str]) -> bool:
+        """Bấm nút trên toolbar của MON dựa trên text/tooltip hoặc fallback ID."""
+        if tb is None:
+            return False
+        try:
+            b_count = int(getattr(tb, "ButtonCount", 0) or 0)
+            for i in range(b_count):
+                try:
+                    b_id = tb.GetButtonId(i)
+                    b_text = str(tb.GetButtonText(i) or "").lower()
+                    b_tip = str(tb.GetButtonTooltip(i) or "").lower()
+                    for kw in keywords:
+                        if kw.lower() in b_text or kw.lower() in b_tip:
+                            tb.pressToolbarButton(b_id)
+                            return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        for f_id in fallback_ids:
+            try:
+                tb.pressToolbarButton(f_id)
+                return True
+            except Exception:
+                pass
+        return False
 
     @staticmethod
     def query_who_for_ob(
@@ -1763,17 +2006,17 @@ class MonRelationService:
         ob_number: str,
         auto_print: bool = True,
         max_retries: int = 3,
-        retry_delay: float = 3.0
+        retry_delay: float = 2.5
     ) -> Dict[str, List[str]]:
         """
-        Tra MON theo OB chuẩn xác theo chuỗi VBS thực tế kết hợp tự động thử lại (Reload) nếu hệ thống sinh muộn:
+        Tra MON theo OB chuẩn xác theo chuỗi VBS thực tế kết hợp tự động quét đa lưới và thử lại:
         1. Mở Favorite F00077 (hoặc /n/SCWM/MON).
         2. Chọn Node N000000010 (Outbound Delivery Order).
         3. Điền OB vào txtS_ERP_H-LOW và bấm F8 (btn[8]).
-        4. TẦNG 1 RELOAD: Kiểm tra xem Outbound Delivery Order đã xuất hiện chưa. Nếu rỗng, chờ và Refresh/F8 lại.
-        5. Điều hướng qua Toolbar: N000000011 -> N000000096 -> N000000108.
-        6. TẦNG 2 RELOAD: Kiểm tra xem Warehouse Task đã xuất hiện chưa. Nếu rỗng, chờ và Refresh lại.
-        7. Đọc ALV Grid lấy cặp (MATNR, WHO).
+        4. TẦNG 1: Kiểm tra xem ODO đã xuất hiện chưa. Nếu chưa, chờ và Refresh/F8 lại.
+        5. Bấm nút [Warehouse Task] (N000000108) -> Quét chi tiết MATNR và WHO.
+        6. Bấm nút [Warehouse Order] (N000000096) -> Quét toàn bộ lưới lấy số WHO (60... 10 số).
+        7. Trả về mat_who_map chuẩn xác.
         """
         clean_ob = re.sub(r"[^0-9]", "", str(ob_number)).strip()
         mat_who_map: Dict[str, List[str]] = {}
@@ -1823,19 +2066,24 @@ class MonRelationService:
 
             top_tb = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
 
-            # 4. TẦNG 1: Kiểm tra xem ODO đã xuất hiện trên lưới chưa, nếu chưa thì Refresh lại
+            # 4. TẦNG 1: Kiểm tra xem ODO đã xuất hiện chưa
             for attempt in range(1, max_retries + 1):
+                m_map, f_whos = MonRelationService.scan_whos_in_session(session)
+                if f_whos:
+                    print(f"[MON WHO EARLY] Đã tìm thấy WHO ngay từ đầu: {f_whos}")
+                    return m_map
+
                 odo_grid = (
                     SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
                     SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[0]/shell")
                 )
                 odo_rows = getattr(odo_grid, "RowCount", 0) if odo_grid else 0
                 if odo_rows > 0:
-                    print(f"[MON ODO] Tìm thấy {odo_rows} dòng ODO cho OB {clean_ob} (lần thử {attempt}).")
+                    print(f"[MON ODO] Tìm thấy {odo_rows} dòng ODO cho OB {clean_ob} (lần {attempt}).")
                     break
 
                 if attempt < max_retries:
-                    print(f"[MON ODO RELOAD] Chưa thấy ODO cho OB {clean_ob} (lần {attempt}/{max_retries}), đợi {retry_delay}s để tải lại...")
+                    print(f"[MON ODO RELOAD] Chưa thấy ODO cho OB {clean_ob} (lần {attempt}/{max_retries}), đợi {retry_delay}s...")
                     time.sleep(retry_delay)
                     if top_tb:
                         try:
@@ -1855,116 +2103,66 @@ class MonRelationService:
                         except Exception:
                             pass
 
-            # 5. Điều hướng Toolbar: N000000011 -> N000000096 -> N000000108
+            all_whos: List[str] = []
+
+            # 5. Thử bấm [Warehouse Task] (N000000108) để lấy chi tiết MATNR và WHO
             if top_tb:
                 try:
-                    top_tb.pressToolbarButton("N000000011")
+                    MonRelationService._click_mon_toolbar_button(
+                        top_tb, ["warehouse task", "whse task"], ["N000000108", "&WT"]
+                    )
                     SapConnector.wait_idle(session, 2.0)
-                except Exception:
-                    pass
+                    task_map, task_whos = MonRelationService.scan_whos_in_session(session)
+                    if task_whos:
+                        print(f"[MON TASK SCAN] Tìm thấy Warehouse Task: {task_whos}")
+                        for k, v in task_map.items():
+                            if k != "__ALL__":
+                                mat_who_map[k] = v
+                        for w in task_whos:
+                            if w not in all_whos:
+                                all_whos.append(w)
+                except Exception as ex_task:
+                    print(f"[MON TASK PRESS EX] {ex_task}")
 
+            # 6. Bấm [Warehouse Order] (N000000096) để lấy danh sách Whse Order
+            if top_tb:
                 try:
-                    top_tb.pressToolbarButton("N000000096")
+                    MonRelationService._click_mon_toolbar_button(
+                        top_tb, ["warehouse order", "whse order"], ["N000000096", "&WHO"]
+                    )
                     SapConnector.wait_idle(session, 2.0)
-                except Exception:
-                    pass
+                except Exception as ex_wo:
+                    print(f"[MON WO PRESS EX] {ex_wo}")
 
-                try:
-                    top_tb.pressToolbarButton("N000000108")
-                    SapConnector.wait_idle(session, 2.0)
-                except Exception:
-                    pass
-
-            # 6. TẦNG 2: Kiểm tra lưới kết quả Warehouse Task (liên kết MATNR - WHO)
-            result_grid = None
-            row_count = 0
-            for task_attempt in range(1, max_retries + 1):
-                result_grid = (
-                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell") or
-                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell") or
-                    SapConnector.find_by_id_safe(session, "wnd[0]/usr/cntlGRID1/shellcont/shell")
-                )
-                row_count = getattr(result_grid, "RowCount", 0) if result_grid else 0
-                if row_count > 0:
-                    print(f"[MON TASK] Tìm thấy ALV Grid với {row_count} dòng Warehouse Task cho OB {clean_ob}.")
+            # Quét tìm WHO từ lưới Warehouse Order
+            for attempt in range(1, max_retries + 1):
+                wo_map, wo_whos = MonRelationService.scan_whos_in_session(session)
+                for w in wo_whos:
+                    if w not in all_whos:
+                        all_whos.append(w)
+                for k, v in wo_map.items():
+                    if k != "__ALL__":
+                        mat_who_map[k] = v
+                if all_whos:
+                    print(f"[MON WHO SCAN] Tìm thấy {len(all_whos)} mã WHO từ bảng Warehouse Order: {all_whos}")
                     break
-
-                if task_attempt < max_retries:
-                    print(f"[MON TASK RELOAD] Chưa thấy Warehouse Task cho OB {clean_ob} (lần {task_attempt}/{max_retries}), đợi {retry_delay}s...")
+                if attempt < max_retries:
                     time.sleep(retry_delay)
                     if top_tb:
                         try:
                             top_tb.pressToolbarButton("&REFRESH")
                             SapConnector.wait_idle(session, 1.5)
                         except Exception:
-                            try:
-                                top_tb.pressToolbarButton("REFRESH")
-                                SapConnector.wait_idle(session, 1.5)
-                            except Exception:
-                                pass
-                        try:
-                            top_tb.pressToolbarButton("N000000108")
-                            SapConnector.wait_idle(session, 2.0)
-                        except Exception:
                             pass
 
-            if result_grid and row_count > 0:
-                who_col = "WHO"
-                mat_col = "MATNR"
+            if all_whos and not any(k != "__ALL__" for k in mat_who_map):
+                mat_who_map["__ALL__"] = list(dict.fromkeys(all_whos))
+
+            # 7. Tự động In phiếu WHO trực tiếp trong MON nếu auto_print=True
+            if auto_print and all_whos:
                 try:
-                    col_order = result_grid.ColumnOrder
-                    for i in range(col_order.Count):
-                        c_name = str(col_order.ElementAt(i)).strip()
-                        c_name_up = c_name.upper()
-                        if c_name_up in ("WHO", "WAREHOUSE_ORDER", "WHO_NO", "ORDERNO"):
-                            who_col = c_name
-                        elif c_name_up in ("MATNR", "PRODUCT", "PRODUCTNO", "MATERIAL"):
-                            mat_col = c_name
-                except Exception:
-                    pass
-
-                all_found_whos = []
-                for r in range(row_count):
-                    try:
-                        who_val = str(result_grid.GetCellValue(r, who_col)).strip()
-                        if not who_val:
-                            for fb_w in ["WHO", "WAREHOUSE_ORDER", "WHO_NO", "ORDERNO"]:
-                                try:
-                                    t_w = str(result_grid.GetCellValue(r, fb_w)).strip()
-                                    if t_w:
-                                        who_val = t_w
-                                        break
-                                except Exception:
-                                    pass
-
-                        mat_val = str(result_grid.GetCellValue(r, mat_col)).strip().upper()
-                        if not mat_val:
-                            for fb_m in ["MATNR", "PRODUCT", "PRODUCTNO", "MATERIAL"]:
-                                try:
-                                    t_m = str(result_grid.GetCellValue(r, fb_m)).strip().upper()
-                                    if t_m:
-                                        mat_val = t_m
-                                        break
-                                except Exception:
-                                    pass
-
-                        if who_val:
-                            all_found_whos.append(who_val)
-                            if mat_val:
-                                if mat_val not in mat_who_map:
-                                    mat_who_map[mat_val] = []
-                                if who_val not in mat_who_map[mat_val]:
-                                    mat_who_map[mat_val].append(who_val)
-                    except Exception as ex_r:
-                        print(f"[MON GRID ROW ERR] {ex_r}")
-
-                if all_found_whos and not mat_who_map:
-                    distinct_whos = list(dict.fromkeys(all_found_whos))
-                    mat_who_map["__ALL__"] = distinct_whos
-
-                # 7. Tự động In phiếu WHO trực tiếp trong MON (nếu auto_print=True)
-                if auto_print and row_count > 0:
-                    try:
+                    result_grid = SapConnector.find_by_id_safe(session, "wnd[0]/usr/shell/shellcont[1]/shell/shellcont[1]/shell")
+                    if result_grid and getattr(result_grid, "RowCount", 0) > 0:
                         result_grid.selectAll()
                         result_grid.pressToolbarContextButton("METHODS")
                         result_grid.selectContextMenuItem("@M00007")
@@ -1974,15 +2172,8 @@ class MonRelationService:
                         if btn_confirm:
                             btn_confirm.press()
                             SapConnector.wait_idle(session, 1.5)
-
-                        if top_tb:
-                            try:
-                                top_tb.pressToolbarButton("&REFRESH")
-                                SapConnector.wait_idle(session, 1.0)
-                            except Exception:
-                                pass
-                    except Exception as print_ex:
-                        print(f"[MON DIRECT PRINT EX]: {print_ex}")
+                except Exception as print_ex:
+                    print(f"[MON DIRECT PRINT EX]: {print_ex}")
 
         except Exception as e:
             print(f"[MON REL WARN] Lỗi tra cứu liên kết cho OB {ob_number}: {e}")
